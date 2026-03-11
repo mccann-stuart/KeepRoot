@@ -33,13 +33,37 @@ export default {
 			});
 		}
 
+		// Setup Endpoint - Allow initial generation of API Secret
+		if (request.method === 'POST' && url.pathname === '/setup') {
+			const existingSecret = env.API_SECRET || await env.KEEPROOT_STORE.get('KEEPROOT_API_SECRET');
+			if (existingSecret) {
+				return new Response(JSON.stringify({ error: 'Worker is already configured' }), { 
+					status: 403, 
+					headers: { 'Content-Type': 'application/json', ...corsHeaders } 
+				});
+			}
+
+			// Generate a new secure 32-byte secret (64 hex characters)
+			const array = new Uint8Array(32);
+			crypto.getRandomValues(array);
+			const newSecret = Array.from(array, byte => byte.toString(16).padStart(2, '0')).join('');
+			
+			// Store in KV
+			await env.KEEPROOT_STORE.put('KEEPROOT_API_SECRET', newSecret);
+
+			return new Response(JSON.stringify({ secret: newSecret }), { 
+				status: 200, 
+				headers: { 'Content-Type': 'application/json', ...corsHeaders } 
+			});
+		}
+
 		// Authentication for API endpoints
 		const authHeader = request.headers.get('Authorization');
-		const expectedSecret = env.API_SECRET;
+		const expectedSecret = env.API_SECRET || await env.KEEPROOT_STORE.get('KEEPROOT_API_SECRET');
 
 		if (!expectedSecret) {
-			return new Response(JSON.stringify({ error: 'Worker API_SECRET is not configured' }), { 
-				status: 500, 
+			return new Response(JSON.stringify({ error: 'Worker API_SECRET is not configured. Setup required.', setupRequired: true }), { 
+				status: 401, 
 				headers: { 'Content-Type': 'application/json', ...corsHeaders } 
 			});
 		}
