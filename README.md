@@ -32,14 +32,14 @@ KeepRoot is divided into two primary components: the client (browser extensions)
 *   Implement data storage operations (Put, Get, List, Delete) targeting Cloudflare R2/KV to store the generated `.md` files.
 
 ### Epic 2: Browser Extension Core (Chrome)
-*   Create the extension manifest, popup UI, and settings page.
+*   Create the extension manifest, popup UI, and settings page, for Chrome 146 and above
 *   Implement background scripts to securely communicate with the user's deployed Cloudflare Worker.
 *   Integrate content extraction (e.g., Readability.js) and HTML-to-Markdown conversion (e.g., Turndown).
 
 ### Epic 3: Safari Extension Porting
-*   Convert the Chrome extension codebase into a Safari Web Extension.
+*   Convert the Chrome extension codebase into a Safari Web Extension
 *   Ensure UI and background script compatibility with macOS / Safari guidelines.
-*   Build the wrapper App necessary for Mac App Store distribution (or local installation).
+*   Build the wrapper App necessary for Mac App Store distribution, for MacOS 26.3 onward
 
 ### Epic 4: Web Viewer & Management UI (Optional)
 *   Serve a simple read-only dashboard directly from the Cloudflare Worker.
