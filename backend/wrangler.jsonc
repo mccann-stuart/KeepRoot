@@ -27,7 +27,7 @@
 	"kv_namespaces": [
 		{
 			"binding": "KEEPROOT_STORE",
-			"id": "<YOUR_KV_NAMESPACE_ID>"
+			"id": "1cad29ea9c294f3ba8e38cb5bff677a0"
 		}
 	],
 	/**
