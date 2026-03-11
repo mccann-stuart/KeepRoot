@@ -26,7 +26,7 @@ KeepRoot is divided into two primary components: the client (browser extensions)
 
 ## 🗺️ Epics
 
-### Epic 1: Cloudflare Backend Setup
+### Epic 1: Cloudflare Backend Setup (complete)
 *   Initialize the Cloudflare Worker using `wrangler`.
 *   Establish secure authentication logic to protect API endpoints using a Bearer token.
 *   Implement data storage operations (Put, Get, List, Delete) targeting Cloudflare R2/KV to store the generated `.md` files.
