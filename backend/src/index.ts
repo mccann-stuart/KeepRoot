@@ -1,0 +1,128 @@
+/**
+ * KeepRoot Cloudflare Worker API
+ */
+
+export interface Env {
+	KEEPROOT_STORE: KVNamespace;
+	API_SECRET?: string;
+}
+
+export default {
+	async fetch(request: Request, env: Env, ctx: ExecutionContext): Promise<Response> {
+		const url = new URL(request.url);
+		
+		// CORS headers
+		const corsHeaders = {
+			'Access-Control-Allow-Origin': '*',
+			'Access-Control-Allow-Methods': 'GET, POST, DELETE, OPTIONS',
+			'Access-Control-Allow-Headers': 'Content-Type, Authorization',
+		};
+
+		// Handle OPTIONS request for CORS preflight
+		if (request.method === 'OPTIONS') {
+			return new Response(null, { headers: corsHeaders });
+		}
+
+		// Authentication
+		const authHeader = request.headers.get('Authorization');
+		const expectedSecret = env.API_SECRET;
+
+		if (!expectedSecret) {
+			return new Response(JSON.stringify({ error: 'Worker API_SECRET is not configured' }), { 
+				status: 500, 
+				headers: { 'Content-Type': 'application/json', ...corsHeaders } 
+			});
+		}
+
+		if (!authHeader || authHeader !== `Bearer ${expectedSecret}`) {
+			return new Response(JSON.stringify({ error: 'Unauthorized' }), { 
+				status: 401, 
+				headers: { 'Content-Type': 'application/json', ...corsHeaders } 
+			});
+		}
+
+		try {
+			// POST /bookmarks - Save a new markdown file
+			if (request.method === 'POST' && url.pathname === '/bookmarks') {
+				const body = await request.json() as { url?: string; title?: string; markdownData?: string };
+				
+				if (!body.markdownData) {
+					return new Response(JSON.stringify({ error: 'Missing markdownData' }), { 
+						status: 400, 
+						headers: { 'Content-Type': 'application/json', ...corsHeaders } 
+					});
+				}
+
+				const id = crypto.randomUUID();
+				const metadata = {
+					url: body.url || '',
+					title: body.title || 'Untitled',
+					createdAt: new Date().toISOString()
+				};
+
+				await env.KEEPROOT_STORE.put(id, body.markdownData, {
+					metadata: metadata
+				});
+
+				return new Response(JSON.stringify({ id, message: 'Saved successfully', metadata }), { 
+					status: 200, 
+					headers: { 'Content-Type': 'application/json', ...corsHeaders } 
+				});
+			}
+
+			// GET /bookmarks - List all bookmarks
+			if (request.method === 'GET' && url.pathname === '/bookmarks') {
+				const list = await env.KEEPROOT_STORE.list();
+				return new Response(JSON.stringify({ keys: list.keys }), { 
+					status: 200, 
+					headers: { 'Content-Type': 'application/json', ...corsHeaders } 
+				});
+			}
+
+			// GET /bookmarks/:id - Retrieve a specific bookmark
+			if (request.method === 'GET' && url.pathname.startsWith('/bookmarks/')) {
+				const id = url.pathname.split('/bookmarks/')[1];
+				if (!id) {
+					return new Response(JSON.stringify({ error: 'Missing ID' }), { status: 400, headers: { 'Content-Type': 'application/json', ...corsHeaders } });
+				}
+
+				const { value, metadata } = await env.KEEPROOT_STORE.getWithMetadata(id);
+				
+				if (!value) {
+					return new Response(JSON.stringify({ error: 'Not found' }), { status: 404, headers: { 'Content-Type': 'application/json', ...corsHeaders } });
+				}
+
+				return new Response(JSON.stringify({ id, metadata, markdownData: value }), { 
+					status: 200, 
+					headers: { 'Content-Type': 'application/json', ...corsHeaders } 
+				});
+			}
+
+			// DELETE /bookmarks/:id - Delete a specific bookmark
+			if (request.method === 'DELETE' && url.pathname.startsWith('/bookmarks/')) {
+				const id = url.pathname.split('/bookmarks/')[1];
+				if (!id) {
+					return new Response(JSON.stringify({ error: 'Missing ID' }), { status: 400, headers: { 'Content-Type': 'application/json', ...corsHeaders } });
+				}
+
+				await env.KEEPROOT_STORE.delete(id);
+
+				return new Response(JSON.stringify({ message: 'Deleted successfully' }), { 
+					status: 200, 
+					headers: { 'Content-Type': 'application/json', ...corsHeaders } 
+				});
+			}
+
+			return new Response(JSON.stringify({ error: 'Not found' }), { 
+				status: 404, 
+				headers: { 'Content-Type': 'application/json', ...corsHeaders } 
+			});
+
+		} catch (error: any) {
+			return new Response(JSON.stringify({ error: error.message || 'Internal Server Error' }), { 
+				status: 500, 
+				headers: { 'Content-Type': 'application/json', ...corsHeaders } 
+			});
+		}
+	},
+};

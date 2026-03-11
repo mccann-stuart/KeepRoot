@@ -66,4 +66,33 @@ KeepRoot is divided into two primary components: the client (browser extensions)
 ---
 ## 🚀 Getting Started
 
-*(Deployment instructions and extension installation steps will be added here as the project matures.)*
+### 1. Backend Deployment (Cloudflare Worker)
+
+To self-host the backend, you must deploy the Cloudflare Worker to your own account. It uses Cloudflare KV to store your markdown bookmarks.
+
+1.  **Clone the Repository** and navigate to the backend folder:
+    ```bash
+    git clone https://github.com/your-username/KeepRoot.git
+    cd KeepRoot/backend
+    npm install
+    ```
+2.  **Create a KV Namespace**:
+    ```bash
+    npx wrangler kv:namespace create KEEPROOT_STORE
+    ```
+    *Copy the generated `id` and paste it into the `wrangler.jsonc` file under `kv_namespaces` -> `id`.*
+3.  **Deploy the Worker**:
+    ```bash
+    npm run deploy
+    ```
+4.  **Set your API Secret**:
+    Choose a secure password/token for your API and set it as a secret in Cloudflare.
+    ```bash
+    npx wrangler secret put API_SECRET
+    ```
+5.  **Save your Worker URL**:
+    After deployment, Cloudflare will provide a URL (e.g., `https://backend.<your-username>.workers.dev`). You will need this URL and your `API_SECRET` to configure the browser extension.
+
+### 2. Browser Extension Installation
+
+*(Extension installation steps will be added here once the extension development is complete.)*
