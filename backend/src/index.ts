@@ -7,6 +7,8 @@ export interface Env {
 	API_SECRET?: string;
 }
 
+import { viewerHtml } from './viewer';
+
 export default {
 	async fetch(request: Request, env: Env, ctx: ExecutionContext): Promise<Response> {
 		const url = new URL(request.url);
@@ -23,7 +25,15 @@ export default {
 			return new Response(null, { headers: corsHeaders });
 		}
 
-		// Authentication
+		// GET / - Web Viewer UI
+		if (request.method === 'GET' && url.pathname === '/') {
+			return new Response(viewerHtml, {
+				status: 200,
+				headers: { 'Content-Type': 'text/html;charset=UTF-8', ...corsHeaders }
+			});
+		}
+
+		// Authentication for API endpoints
 		const authHeader = request.headers.get('Authorization');
 		const expectedSecret = env.API_SECRET;
 
