@@ -404,13 +404,37 @@ export const viewerHtml = `<!DOCTYPE html>
 
     <!-- Login Modal -->
     <div id="login-modal">
-        <div class="modal-content">
+        <div class="modal-content" id="login-view">
             <h2>KeepRoot Auth</h2>
             <p>Enter your Worker API Secret</p>
             <form id="login-form">
                 <input type="password" id="secret-input" placeholder="API Secret" required>
                 <button type="submit">Access Dashboard</button>
             </form>
+            <div style="margin-top: 1.5rem; font-size: 0.85rem; padding-top: 1rem; border-top: 1px solid var(--border);">
+                <a href="#" id="show-generate-btn" style="color: var(--text-muted); text-decoration: none; transition: color 0.2s;">Need an API Secret? <span style="color: var(--accent);">Generate one</span></a>
+            </div>
+        </div>
+
+        <div class="modal-content" id="generate-view" style="display: none; text-align: left;">
+            <h2 style="text-align: center;">Setup API Secret</h2>
+            <p style="text-align: center; margin-bottom: 2rem; color: var(--text-muted); font-size: 0.9rem;">Follow these steps to secure your deployment.</p>
+            
+            <div style="margin-bottom: 1.5rem;">
+                <label style="display: block; font-size: 0.85rem; color: var(--text-muted); margin-bottom: 0.5rem;">1. Copy this generated secret</label>
+                <div style="display: flex; gap: 0.5rem;">
+                    <input type="text" id="generated-secret" readonly style="margin-bottom: 0; flex: 1; font-family: monospace; font-size: 0.9rem;">
+                    <button type="button" id="copy-secret-btn" style="width: auto; padding: 0.75rem 1rem;">Copy</button>
+                </div>
+            </div>
+
+            <div style="margin-bottom: 1.5rem;">
+                <label style="display: block; font-size: 0.85rem; color: var(--text-muted); margin-bottom: 0.5rem;">2. Run this locally in your terminal</label>
+                <code style="display: block; background: rgba(0,0,0,0.3); padding: 0.75rem 1rem; border-radius: 0.5rem; border: 1px solid var(--border); color: #e2e8f0; font-family: monospace; font-size: 0.9rem; margin-bottom: 0.5rem;">npx wrangler secret put API_SECRET</code>
+                <p style="font-size: 0.85rem; color: var(--text-muted); margin-bottom: 0;">Paste the copied secret when prompted.</p>
+            </div>
+
+            <button type="button" id="back-to-login-btn" style="background: transparent; border: 1px solid var(--border); margin-top: 0.5rem; color: var(--text-main);">Done, return to login</button>
         </div>
     </div>
 
@@ -482,7 +506,13 @@ export const viewerHtml = `<!DOCTYPE html>
             viewDate: document.getElementById('view-date'),
             markdownContainer: document.getElementById('markdown-container'),
             deleteBtn: document.getElementById('delete-btn'),
-            toast: document.getElementById('toast')
+            toast: document.getElementById('toast'),
+            showGenerateBtn: document.getElementById('show-generate-btn'),
+            loginView: document.getElementById('login-view'),
+            generateView: document.getElementById('generate-view'),
+            generatedSecret: document.getElementById('generated-secret'),
+            copySecretBtn: document.getElementById('copy-secret-btn'),
+            backToLoginBtn: document.getElementById('back-to-login-btn')
         };
 
         let secret = localStorage.getItem('keeproot_secret');
@@ -494,6 +524,36 @@ export const viewerHtml = `<!DOCTYPE html>
             showApp();
             fetchBookmarks();
         }
+
+        // Setup Flow
+        DOM.showGenerateBtn.addEventListener('click', (e) => {
+            e.preventDefault();
+            // Generate a secure 32-character hex secret
+            const array = new Uint8Array(16);
+            crypto.getRandomValues(array);
+            const newSecret = Array.from(array, byte => byte.toString(16).padStart(2, '0')).join('');
+            
+            DOM.generatedSecret.value = newSecret;
+            DOM.loginView.style.display = 'none';
+            DOM.generateView.style.display = 'block';
+        });
+
+        DOM.backToLoginBtn.addEventListener('click', () => {
+            // Auto-fill the generated secret to make login easier
+            if (DOM.generatedSecret.value) {
+                DOM.secretInput.value = DOM.generatedSecret.value;
+            }
+            DOM.generateView.style.display = 'none';
+            DOM.loginView.style.display = 'block';
+        });
+
+        DOM.copySecretBtn.addEventListener('click', () => {
+            navigator.clipboard.writeText(DOM.generatedSecret.value).then(() => {
+                showToast('Secret copied to clipboard', 'success');
+            }).catch(() => {
+                showToast('Failed to copy', 'error');
+            });
+        });
 
         // Login Flow
         DOM.loginForm.addEventListener('submit', async (e) => {
