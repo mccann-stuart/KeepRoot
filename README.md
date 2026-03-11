@@ -41,7 +41,7 @@ KeepRoot is divided into two primary components: the client (browser extensions)
 *   Ensure UI and background script compatibility with macOS / Safari guidelines.
 *   Build the wrapper App necessary for Mac App Store distribution, for MacOS 26.3 onward
 
-### Epic 4: Web Viewer & Management UI (Optional)
+### Epic 4: Web Viewer & Management UI (complete)
 *   Serve a simple read-only dashboard directly from the Cloudflare Worker.
 *   Allow users to search, view, and organize their saved `.md` files within the browser without needing the extension.
 
