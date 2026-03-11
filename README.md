@@ -1,5 +1,5 @@
 # KeepRoot
-An open-source, self-hosted alternative to [keep.md]
+An open-source, self-hosted alternative to keep.md
 
 KeepRoot allows you to save bookmarks for free, scrape their contents into Markdown (`.md`), and store them directly in your own Cloudflare data store. You own your data and host it on Cloudflare's generous free tier.
 
