@@ -1,0 +1,3 @@
+## 2025-05-18 - Cloudflare Workers KV Caching
+**Learning:** Cloudflare Workers frequently access KV stores for simple repetitive configuration values (like API Secrets or global settings) on every request, which incurs unnecessary latency (~10-50ms per KV read) and uses up KV read operations.
+**Action:** Use a global module-level variable to cache frequently accessed, rarely changing KV values in memory. Since a Cloudflare Worker isolate handles multiple requests over its lifetime, this pattern caches the result for the lifetime of the isolate, significantly reducing latency and KV reads on subsequent requests.
