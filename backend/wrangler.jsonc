@@ -28,6 +28,7 @@
 		{
 			"binding": "KEEPROOT_DB",
 			"database_name": "keeproot",
+			"database_id": "ec74a283-dde3-4bfe-9c24-f22c64a5801c",
 			"migrations_dir": "./migrations"
 		}
 	],
