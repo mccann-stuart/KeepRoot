@@ -24,10 +24,17 @@
 	 * databases, object storage, AI inference, real-time communication and more.
 	 * https://developers.cloudflare.com/workers/runtime-apis/bindings/
 	 */
-	"kv_namespaces": [
+	"d1_databases": [
 		{
-			"binding": "KEEPROOT_STORE",
-			"id": "1cad29ea9c294f3ba8e38cb5bff677a0"
+			"binding": "KEEPROOT_DB",
+			"database_name": "keeproot",
+			"migrations_dir": "./migrations"
+		}
+	],
+	"r2_buckets": [
+		{
+			"binding": "KEEPROOT_CONTENT",
+			"bucket_name": "keeproot-content"
 		}
 	],
 	/**

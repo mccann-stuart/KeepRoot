@@ -14,7 +14,7 @@ KeepRoot is divided into two primary components: the client (browser extensions)
 *   **Backend (Cloudflare ecosystem):**
     *   **API & Logic:** Cloudflare Workers deployed via `wrangler`.
     *   **Endpoints:** Handles secure `POST` requests from the extensions.
-    *   **Storage:** Cloudflare R2 / KV / D1 (configured via Wrangler) stores the raw Markdown files and bookmark metadata securely
+    *   **Storage:** Cloudflare D1 stores structured bookmark/auth metadata, while Cloudflare R2 stores the saved content blobs. KV is optional cache-only and is not used as the source of truth by default.
 
 ## ✨ Features
 
@@ -28,8 +28,8 @@ KeepRoot is divided into two primary components: the client (browser extensions)
 
 ### Epic 1: Cloudflare Backend Setup (complete)
 *   Initialize the Cloudflare Worker using `wrangler`.
-*   Establish secure authentication logic to protect API endpoints using a Bearer token.
-*   Implement data storage operations (Put, Get, List, Delete) targeting Cloudflare R2/KV to store the generated `.md` files.
+*   Establish secure authentication logic with WebAuthn sessions and scoped API keys.
+*   Implement hybrid storage operations with Cloudflare D1 for metadata/querying and Cloudflare R2 for saved bookmark content.
 
 ### Epic 2: Browser Extension Core (Chrome)
 *   Create the extension manifest, popup UI, and settings page, for Chrome 146 and above
@@ -48,12 +48,12 @@ KeepRoot is divided into two primary components: the client (browser extensions)
 ## 📋 Requirements
 
 ### Prerequisites
-*   A Cloudflare account with Workers and R2/KV enabled.
+*   A Cloudflare account with Workers, D1, and R2 enabled.
 *   `Node.js` and `npm` installed for running `wrangler`.
 *   Developer accounts for the Chrome Web Store and/or Apple Developer Program (only if publishing; can otherwise be loaded locally as an unpacked extension).
 
 ### Functional Requirements
-1.  **Extension Configuration:** The extension must allow the user to input and save their Cloudflare Worker root URL and API Secret securely.
+1.  **Extension Configuration:** The extension must allow the user to input and save their Cloudflare Worker root URL and generated API key securely.
 2.  **Payload Generation:** The content scraper must successfully capture the `url`, the page `title`, and the formatted `markdownData`.
 3.  **API Communication:** The extension must send the payload to the Cloudflare API and display a success or failure notification to the user.
 4.  **Backend Validation:** The Cloudflare API must strictly require and validate the authorization token before committing any data to storage.
@@ -68,7 +68,7 @@ KeepRoot is divided into two primary components: the client (browser extensions)
 
 ### 1. Backend Deployment (Cloudflare Worker)
 
-To self-host the backend, you must deploy the Cloudflare Worker to your own account. It uses Cloudflare KV to store your markdown bookmarks.
+To self-host the backend, deploy the Cloudflare Worker to your own account. The backend now uses D1 for relational metadata and R2 for bookmark content blobs.
 
 1.  **Clone the Repository** and navigate to the backend folder:
     ```bash
@@ -76,22 +76,32 @@ To self-host the backend, you must deploy the Cloudflare Worker to your own acco
     cd KeepRoot/backend
     npm install
     ```
-2.  **Create a KV Namespace**:
+2.  **Review your storage names**:
+    Update the D1 database name and R2 bucket name in `backend/wrangler.jsonc` if you want anything other than the defaults (`keeproot` and `keeproot-content`).
+3.  **Provision Cloudflare resources and apply the schema**:
     ```bash
-    npx wrangler kv:namespace create KEEPROOT_STORE
+    npm run provision
     ```
-    *Copy the generated `id` and paste it into the `wrangler.jsonc` file under `kv_namespaces` -> `id`.*
-3.  **Deploy the Worker**:
+    This creates the remote D1/R2 resources if they do not exist yet, applies the D1 migration, and regenerates Worker types.
+4.  **Deploy the Worker**:
     ```bash
     npm run deploy
     ```
-4.  **Set your API Secret**:
-    Choose a secure password/token for your API and set it as a secret in Cloudflare.
+5.  **Open the dashboard and register your account**:
+    Visit your Worker root URL in a WebAuthn-capable browser and create a KeepRoot account.
+6.  **Generate an API key for the extension**:
+    In the dashboard settings, create an API key and copy it into the browser extension configuration.
+7.  **Save your Worker URL**:
+    After deployment, Cloudflare will provide a URL (for example `https://backend.<your-username>.workers.dev`). Use the Worker root URL exactly as provided and do not append API paths like `/bookmarks`. Use that root URL with the generated API key in the extension settings.
+
+### Local Development
+
+Run the backend locally with the managed dev script:
     ```bash
-    npx wrangler secret put API_SECRET
+    cd KeepRoot/backend
+    npm run dev
     ```
-5.  **Save your Worker URL**:
-    After deployment, Cloudflare will provide a URL (e.g., `https://backend.<your-username>.workers.dev`). Use the Worker root URL exactly as provided and do not append API paths like `/bookmarks`. You will need this root URL and your `API_SECRET` to configure the browser extension.
+This regenerates Worker types, applies the local D1 migration, and starts `wrangler dev`.
 
 ### 2. Browser Extension Installation
 
