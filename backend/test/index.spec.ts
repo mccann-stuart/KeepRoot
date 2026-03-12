@@ -183,6 +183,41 @@ describe('KeepRoot Worker', () => {
 		await waitOnExecutionContext(ctx);
 	});
 
+	it('stores images to R2 when markdown contains image URLs', async () => {
+		const ctx = createExecutionContext();
+		const dataUrl = 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8Xw8AAoMBgQJ8i1QAAAAASUVORK5CYII=';
+		const createReq = new Request('http://example.com/bookmarks', {
+			method: 'POST',
+			headers: {
+				Authorization: `Bearer ${API_KEY}`,
+				'Content-Type': 'application/json',
+			},
+			body: JSON.stringify({
+				url: 'https://example.com/with-image',
+				title: 'Image Bookmark',
+				markdownData: `# Image Bookmark\n\n![inline](${dataUrl})`,
+			}),
+		});
+
+		const createRes = await worker.fetch(createReq, env, ctx);
+		expect(createRes.status).toBe(200);
+		const createData = (await createRes.json()) as any;
+
+		const getReq = new Request(`http://example.com/bookmarks/${createData.id}`, {
+			headers: { Authorization: `Bearer ${API_KEY}` },
+		});
+		const getRes = await worker.fetch(getReq, env, ctx);
+		expect(getRes.status).toBe(200);
+		const getData = (await getRes.json()) as any;
+		expect(Array.isArray(getData.metadata.images)).toBe(true);
+		expect(getData.metadata.images.length).toBeGreaterThan(0);
+
+		const imageObjects = await env.KEEPROOT_CONTENT.list({ prefix: 'images/' });
+		expect(imageObjects.objects.length).toBeGreaterThan(0);
+
+		await waitOnExecutionContext(ctx);
+	});
+
 	it('deduplicates bookmarks by canonical URL hash and updates stored content', async () => {
 		const ctx = createExecutionContext();
 		const baseHeaders = {

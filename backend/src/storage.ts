@@ -8,6 +8,7 @@ const TRACKING_QUERY_KEYS = new Set([
 	'ref_src',
 	'src',
 ]);
+const MAX_AUTO_FETCH_IMAGES = 12;
 
 const encoder = new TextEncoder();
 
@@ -26,6 +27,7 @@ export interface BookmarkImagePayload {
 	contentType?: string;
 	dataBase64?: string;
 	height?: number;
+	sourceUrl?: string;
 	variant?: string;
 	width?: number;
 }
@@ -196,6 +198,158 @@ function normalizeTagName(value: string): string {
 
 function normalizeVariant(value?: string): string {
 	return (value ?? 'original').trim().toLowerCase().replace(/[^a-z0-9_-]+/g, '-');
+}
+
+function trimWrappingDelimiters(value: string): string {
+	let normalized = value.trim();
+	if (normalized.startsWith('<') && normalized.endsWith('>')) {
+		normalized = normalized.slice(1, -1).trim();
+	}
+	return normalized;
+}
+
+function extractMarkdownImageUrls(markdown: string): string[] {
+	const imageUrls: string[] = [];
+	const markdownImagePattern = /!\[[^\]]*]\(([^)]+)\)/g;
+	let match: RegExpExecArray | null = markdownImagePattern.exec(markdown);
+
+	while (match) {
+		const rawTarget = match[1] ?? '';
+		let target = trimWrappingDelimiters(rawTarget);
+		const titleSeparatorIndex = target.search(/\s+["']/);
+		if (titleSeparatorIndex > 0) {
+			target = target.slice(0, titleSeparatorIndex).trim();
+		}
+
+		if (target) {
+			imageUrls.push(target);
+		}
+
+		match = markdownImagePattern.exec(markdown);
+	}
+
+	return imageUrls;
+}
+
+function extractHtmlImageUrls(html: string): string[] {
+	const imageUrls: string[] = [];
+	const htmlImagePattern = /<img\b[^>]*\bsrc=(["'])([^"']+)\1/gi;
+	let match: RegExpExecArray | null = htmlImagePattern.exec(html);
+
+	while (match) {
+		const target = trimWrappingDelimiters(match[2] ?? '');
+		if (target) {
+			imageUrls.push(target);
+		}
+		match = htmlImagePattern.exec(html);
+	}
+
+	return imageUrls;
+}
+
+function resolveAbsoluteImageUrl(imageUrl: string, pageUrl: string): string | null {
+	try {
+		return new URL(imageUrl, pageUrl).toString();
+	} catch {
+		return null;
+	}
+}
+
+function base64FromBytes(bytes: Uint8Array): string {
+	let binary = '';
+	for (const byte of bytes) {
+		binary += String.fromCharCode(byte);
+	}
+	return btoa(binary);
+}
+
+function parseDataUrl(dataUrl: string): BookmarkImagePayload | null {
+	const dataUrlMatch = /^data:([^;,]+)?(?:;charset=[^;,]+)?(?:;(base64))?,(.*)$/i.exec(dataUrl);
+	if (!dataUrlMatch) {
+		return null;
+	}
+
+	const contentType = dataUrlMatch[1] || 'application/octet-stream';
+	const isBase64 = Boolean(dataUrlMatch[2]);
+	const dataPart = dataUrlMatch[3] ?? '';
+	const decoded = decodeURIComponent(dataPart);
+
+	if (isBase64) {
+		return {
+			contentType,
+			dataBase64: decoded,
+			sourceUrl: dataUrl,
+		};
+	}
+
+	return {
+		contentType,
+		dataBase64: btoa(decoded),
+		sourceUrl: dataUrl,
+	};
+}
+
+async function fetchImageAsPayload(imageUrl: string, pageUrl: string): Promise<BookmarkImagePayload | null> {
+	const absoluteUrl = resolveAbsoluteImageUrl(imageUrl, pageUrl);
+	if (!absoluteUrl) {
+		return null;
+	}
+
+	if (absoluteUrl.startsWith('data:')) {
+		return parseDataUrl(absoluteUrl);
+	}
+
+	const response = await fetch(absoluteUrl);
+	if (!response.ok) {
+		return null;
+	}
+
+	const contentType = response.headers.get('content-type') ?? 'application/octet-stream';
+	if (!contentType.toLowerCase().startsWith('image/')) {
+		return null;
+	}
+
+	const buffer = await response.arrayBuffer();
+	return {
+		contentType,
+		dataBase64: base64FromBytes(new Uint8Array(buffer)),
+		sourceUrl: absoluteUrl,
+	};
+}
+
+async function hydrateImagePayloads(payload: BookmarkPayload, pageUrl: string): Promise<BookmarkImagePayload[]> {
+	const hydratedImages = [...(payload.images ?? [])];
+	const discoveredImageUrls = [
+		...extractMarkdownImageUrls(payload.markdownData ?? ''),
+		...extractHtmlImageUrls(payload.htmlData ?? ''),
+	];
+
+	const existingSourceUrls = new Set(
+		hydratedImages
+			.map((image) => image.sourceUrl)
+			.filter((sourceUrl): sourceUrl is string => Boolean(sourceUrl)),
+	);
+	const uniqueDiscoveredUrls = [...new Set(discoveredImageUrls)];
+
+	for (const imageUrl of uniqueDiscoveredUrls.slice(0, MAX_AUTO_FETCH_IMAGES)) {
+		const absoluteImageUrl = resolveAbsoluteImageUrl(imageUrl, pageUrl);
+		if (!absoluteImageUrl || existingSourceUrls.has(absoluteImageUrl)) {
+			continue;
+		}
+
+		try {
+			const fetchedImage = await fetchImageAsPayload(absoluteImageUrl, pageUrl);
+			if (!fetchedImage?.dataBase64) {
+				continue;
+			}
+			hydratedImages.push(fetchedImage);
+			existingSourceUrls.add(absoluteImageUrl);
+		} catch {
+			// Best-effort image ingestion; bookmark save should still succeed.
+		}
+	}
+
+	return hydratedImages;
 }
 
 function stripTrackingParams(searchParams: URLSearchParams): URLSearchParams {
@@ -723,6 +877,7 @@ export async function saveBookmark(
 	const domain = domainFromUrl(canonicalUrl);
 	const status = normalizeStatus(payload.status);
 	const siteName = payload.siteName?.trim() || domain;
+	const hydratedImages = await hydrateImagePayloads(payload, normalizedUrl);
 
 	let htmlKey: string | null = null;
 	if (payload.htmlData?.trim()) {
@@ -742,8 +897,8 @@ export async function saveBookmark(
 		version: 1,
 	};
 
-	if (payload.images?.length) {
-		for (const image of payload.images) {
+	if (hydratedImages.length) {
+		for (const image of hydratedImages) {
 			if (!image.dataBase64) {
 				continue;
 			}
@@ -864,8 +1019,8 @@ export async function saveBookmark(
 		await syncTags(env, user.userId, bookmarkId, payload.tags, now);
 	}
 
-	if (payload.images) {
-		await syncImages(env, bookmarkId, payload.images, now);
+	if (hydratedImages.length) {
+		await syncImages(env, bookmarkId, hydratedImages, now);
 	}
 
 	return {
