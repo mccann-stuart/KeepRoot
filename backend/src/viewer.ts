@@ -6,6 +6,7 @@ export const viewerHtml = `<!DOCTYPE html>
     <title>KeepRoot Dashboard</title>
     <!-- Use marked for markdown rendering -->
     <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/dompurify/3.0.6/purify.min.js"></script>
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
     <style>
         :root {
@@ -703,7 +704,8 @@ export const viewerHtml = `<!DOCTYPE html>
 
                 // Render Markdown safely
                 const html = marked.parse(data.markdownData || '');
-                DOM.markdownContainer.innerHTML = html;
+                // Use DOMPurify to prevent XSS attacks from stored markdown
+                DOM.markdownContainer.innerHTML = DOMPurify.sanitize(html);
 
             } catch (err) {
                 DOM.markdownContainer.innerHTML = '<div style="color: var(--danger)">Error loading bookmark contents.</div>';
