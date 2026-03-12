@@ -60,6 +60,44 @@ describe('KeepRoot Worker', () => {
 		expect(response.status).toBe(200);
 	});
 
+	it('successfully deletes an existing bookmark via DELETE /bookmarks/:id', async () => {
+		const bookmarkId = 'test-delete-bookmark-id';
+
+		// Seed the KV store with a bookmark owned by the test user
+		await env.KEEPROOT_STORE.put(
+			bookmarkId,
+			'# Test Content to Delete',
+			{
+				metadata: {
+					url: 'https://delete-me.com',
+					title: 'To Be Deleted',
+					createdAt: new Date().toISOString(),
+					userId: 'test-user-id'
+				}
+			}
+		);
+
+		// Verify it is there initially
+		const before = await env.KEEPROOT_STORE.get(bookmarkId);
+		expect(before).toBe('# Test Content to Delete');
+
+		// Perform DELETE request
+		const request = new Request(`http://example.com/bookmarks/${bookmarkId}`, {
+			method: 'DELETE',
+			headers: { 'Authorization': `Bearer ${API_KEY}` },
+		});
+		const ctx = createExecutionContext();
+		const response = await worker.fetch(request, env, ctx);
+		await waitOnExecutionContext(ctx);
+
+		expect(response.status).toBe(200);
+		expect(await response.json()).toEqual({ message: 'Deleted successfully' });
+
+		// Verify it was actually deleted from KV
+		const after = await env.KEEPROOT_STORE.get(bookmarkId);
+		expect(after).toBeNull();
+	});
+
 	it('handles bookmark CRUD operations', async () => {
 		const ctx = createExecutionContext();
 
