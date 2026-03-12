@@ -118,6 +118,15 @@ describe('KeepRoot Worker', () => {
 		const getRes2 = await worker.fetch(getReq2, env, ctx);
 		expect(getRes2.status).toBe(404);
 
+		// 6. Delete missing ID
+		const delMissingReq = new Request('http://example.com/bookmarks/', {
+			method: 'DELETE',
+			headers: { Authorization: `Bearer ${API_KEY}` },
+		});
+		const delMissingRes = await worker.fetch(delMissingReq, env, ctx);
+		expect(delMissingRes.status).toBe(400);
+		expect(await delMissingRes.json()).toEqual({ error: 'Missing ID' });
+
 		await waitOnExecutionContext(ctx);
 	});
 
