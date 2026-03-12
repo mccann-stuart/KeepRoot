@@ -37,7 +37,7 @@ export default {
 		if (request.method === 'POST' && url.pathname === '/setup') {
 			const existingSecret = env.API_SECRET || await env.KEEPROOT_STORE.get('KEEPROOT_API_SECRET');
 			if (existingSecret) {
-				return new Response(JSON.stringify({ error: 'Worker is already configured' }), { 
+				return new Response(JSON.stringify({ error: 'Worker is already configured. Please log in with your existing API Secret (set via Wrangler or previously generated).' }), { 
 					status: 403, 
 					headers: { 'Content-Type': 'application/json', ...corsHeaders } 
 				});

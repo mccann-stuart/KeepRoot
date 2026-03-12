@@ -742,7 +742,7 @@ export const viewerHtml = `<!DOCTYPE html>
             clearTimeout(toastTimeout);
             toastTimeout = setTimeout(() => {
                 DOM.toast.className = 'toast ' + type;
-            }, 3000);
+            }, 5000);
         }
     </script>
 </body>
