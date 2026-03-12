@@ -7,5 +7,10 @@ export default defineWorkersConfig({
 				wrangler: { configPath: './wrangler.jsonc' },
 			},
 		},
+		server: {
+			deps: {
+				inline: [/tslib/, /@simplewebauthn/, /@peculiar/]
+			}
+		}
 	},
 });
