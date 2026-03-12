@@ -46,7 +46,11 @@ describe('KeepRoot Worker', () => {
 
 		expect(response.status).toBe(200);
 		expect(response.headers.get('Access-Control-Allow-Origin')).toBe('*');
-		expect(response.headers.get('Access-Control-Allow-Methods')).toContain('POST');
+		expect(response.headers.get('Access-Control-Allow-Methods')).toBe('GET, POST, DELETE, OPTIONS');
+		expect(response.headers.get('Access-Control-Allow-Headers')).toBe('Content-Type, Authorization');
+
+		const text = await response.text();
+		expect(text).toBe('');
 	});
 
 	it('authenticates with a valid API key', async () => {
