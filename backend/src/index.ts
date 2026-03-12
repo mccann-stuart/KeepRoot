@@ -18,7 +18,23 @@ import type { VerifiedRegistrationResponse, VerifiedAuthenticationResponse } fro
 // Optional: you can define relying party name
 const RP_NAME = 'KeepRoot';
 
+function normalizePathname(pathname: string): string {
+	let normalizedPathname = pathname.replace(/\/{2,}/g, '/');
 
+	if (normalizedPathname.length > 1 && normalizedPathname.endsWith('/')) {
+		normalizedPathname = normalizedPathname.slice(0, -1);
+	}
+
+	if (normalizedPathname === '/bookmarks/bookmarks') {
+		return '/bookmarks';
+	}
+
+	if (normalizedPathname.startsWith('/bookmarks/bookmarks/')) {
+		return normalizedPathname.replace('/bookmarks/bookmarks/', '/bookmarks/');
+	}
+
+	return normalizedPathname;
+}
 
 // Base64URL encode/decode helpers
 function bufferToBase64URL(buffer: ArrayBuffer): string {
@@ -33,6 +49,7 @@ function bufferToBase64URL(buffer: ArrayBuffer): string {
 export default {
 	async fetch(request: Request, env: Env, ctx: ExecutionContext): Promise<Response> {
 		const url = new URL(request.url);
+		const pathname = normalizePathname(url.pathname);
 		const rpID = url.hostname;
 		const origin = url.origin;
 		
@@ -49,7 +66,7 @@ export default {
 		}
 
 		// GET / - Web Viewer UI
-		if (request.method === 'GET' && url.pathname === '/') {
+		if (request.method === 'GET' && pathname === '/') {
 			return new Response(viewerHtml, {
 				status: 200,
 				headers: { 'Content-Type': 'text/html;charset=UTF-8', ...corsHeaders }
@@ -59,7 +76,7 @@ export default {
 		// WEBAUTHN ENDPOINTS
 		
 		// 1. Generate Registration Options
-		if (request.method === 'POST' && url.pathname === '/auth/generate-registration') {
+		if (request.method === 'POST' && pathname === '/auth/generate-registration') {
 			try {
 				const { username } = await request.json() as { username: string };
 				if (!username) return new Response(JSON.stringify({ error: 'Username required' }), { status: 400, headers: { 'Content-Type': 'application/json', ...corsHeaders }});
@@ -97,7 +114,7 @@ export default {
 		}
 
 		// 2. Verify Registration
-		if (request.method === 'POST' && url.pathname === '/auth/verify-registration') {
+		if (request.method === 'POST' && pathname === '/auth/verify-registration') {
 			try {
 				const body = await request.json() as { username: string, response: any };
 				const { username, response } = body;
@@ -158,7 +175,7 @@ export default {
 		}
 
 		// 3. Generate Authentication Options
-		if (request.method === 'POST' && url.pathname === '/auth/generate-authentication') {
+		if (request.method === 'POST' && pathname === '/auth/generate-authentication') {
 			try {
 				const { username } = await request.json() as { username: string };
 				if (!username) return new Response(JSON.stringify({ error: 'Username required' }), { status: 400, headers: { 'Content-Type': 'application/json', ...corsHeaders }});
@@ -187,7 +204,7 @@ export default {
 		}
 
 		// 4. Verify Authentication
-		if (request.method === 'POST' && url.pathname === '/auth/verify-authentication') {
+		if (request.method === 'POST' && pathname === '/auth/verify-authentication') {
 			try {
 				const body = await request.json() as { username: string, response: any };
 				const { username, response } = body;
@@ -280,7 +297,7 @@ export default {
 
 		try {
 			// GET /api-keys - List API keys for user
-			if (request.method === 'GET' && url.pathname === '/api-keys') {
+			if (request.method === 'GET' && pathname === '/api-keys') {
 				const list = await env.KEEPROOT_STORE.list({ prefix: `apikey:` });
 				const keys: any[] = [];
 				for (const key of list.keys) {
@@ -299,7 +316,7 @@ export default {
 			}
 
 			// POST /api-keys - Create new API key
-			if (request.method === 'POST' && url.pathname === '/api-keys') {
+			if (request.method === 'POST' && pathname === '/api-keys') {
 				const body = await request.json() as { name?: string };
 				const keyName = body.name || 'Unnamed Key';
 				
@@ -324,8 +341,8 @@ export default {
 			}
 
 			// DELETE /api-keys/:id - Delete an API key
-			if (request.method === 'DELETE' && url.pathname.startsWith('/api-keys/')) {
-				const id = url.pathname.split('/api-keys/')[1];
+			if (request.method === 'DELETE' && pathname.startsWith('/api-keys/')) {
+				const id = pathname.split('/api-keys/')[1];
 				if (!id) return new Response(JSON.stringify({ error: 'Missing ID' }), { status: 400, headers: { 'Content-Type': 'application/json', ...corsHeaders } });
 
 				// Verify ownership
@@ -339,7 +356,7 @@ export default {
 			}
 
 			// POST /bookmarks - Save a new markdown file
-			if (request.method === 'POST' && url.pathname === '/bookmarks') {
+			if (request.method === 'POST' && pathname === '/bookmarks') {
 				const body = await request.json() as { url?: string; title?: string; markdownData?: string };
 				
 				if (!body.markdownData) {
@@ -366,7 +383,7 @@ export default {
 			}
 
 			// GET /bookmarks - List all bookmarks (filtering for the current user)
-			if (request.method === 'GET' && url.pathname === '/bookmarks') {
+			if (request.method === 'GET' && pathname === '/bookmarks') {
 				const list = await env.KEEPROOT_STORE.list();
 				const userKeys = list.keys.filter(k => {
 					const md = k.metadata as any;
@@ -380,8 +397,8 @@ export default {
 			}
 
 			// GET /bookmarks/:id - Retrieve a specific bookmark
-			if (request.method === 'GET' && url.pathname.startsWith('/bookmarks/')) {
-				const id = url.pathname.split('/bookmarks/')[1];
+			if (request.method === 'GET' && pathname.startsWith('/bookmarks/')) {
+				const id = pathname.split('/bookmarks/')[1];
 				if (!id) {
 					return new Response(JSON.stringify({ error: 'Missing ID' }), { status: 400, headers: { 'Content-Type': 'application/json', ...corsHeaders } });
 				}
@@ -404,8 +421,8 @@ export default {
 			}
 
 			// DELETE /bookmarks/:id - Delete a specific bookmark
-			if (request.method === 'DELETE' && url.pathname.startsWith('/bookmarks/')) {
-				const id = url.pathname.split('/bookmarks/')[1];
+			if (request.method === 'DELETE' && pathname.startsWith('/bookmarks/')) {
+				const id = pathname.split('/bookmarks/')[1];
 				if (!id) {
 					return new Response(JSON.stringify({ error: 'Missing ID' }), { status: 400, headers: { 'Content-Type': 'application/json', ...corsHeaders } });
 				}
@@ -438,4 +455,3 @@ export default {
 		}
 	},
 };
-

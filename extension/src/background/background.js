@@ -9,6 +9,23 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
   }
 });
 
+function normalizeWorkerUrl(rawWorkerUrl) {
+  const trimmedWorkerUrl = (rawWorkerUrl || '').trim();
+
+  let parsedUrl;
+  try {
+    parsedUrl = new URL(trimmedWorkerUrl);
+  } catch (error) {
+    throw new Error('Invalid Worker URL. Use the Worker root URL, not an API path.');
+  }
+
+  if (!['http:', 'https:'].includes(parsedUrl.protocol)) {
+    throw new Error('Invalid Worker URL. Use an http(s) Worker root URL.');
+  }
+
+  return parsedUrl.origin;
+}
+
 async function handleSavePage(tabId) {
   // 1. Configuration check — dump all stored keys for diagnostics
   const allStorage = await chrome.storage.local.get(null);
@@ -20,6 +37,11 @@ async function handleSavePage(tabId) {
 
   if (!cfg.workerUrl || !cfg.apiSecret) {
     throw new Error('Extension not configured. Please open settings.');
+  }
+
+  const normalizedWorkerUrl = normalizeWorkerUrl(cfg.workerUrl);
+  if (normalizedWorkerUrl !== cfg.workerUrl) {
+    await chrome.storage.local.set({ workerUrl: normalizedWorkerUrl });
   }
 
   // 2. Execute Content Script to extract page contents
@@ -49,7 +71,7 @@ async function handleSavePage(tabId) {
   };
 
   // 4. Send to Cloudflare Worker
-  const targetUrl = `${cfg.workerUrl}/bookmarks`;
+  const targetUrl = new URL('/bookmarks', normalizedWorkerUrl).toString();
   const authHeader = `Bearer ${cfg.apiSecret}`;
   
   console.log('[KeepRoot] Request URL:', targetUrl);

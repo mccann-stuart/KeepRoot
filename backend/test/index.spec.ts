@@ -121,6 +121,68 @@ describe('KeepRoot Worker', () => {
 		await waitOnExecutionContext(ctx);
 	});
 
+	it('normalizes malformed bookmark routes', async () => {
+		const ctx = createExecutionContext();
+
+		const createReq = new Request('http://example.com//bookmarks', {
+			method: 'POST',
+			headers: {
+				Authorization: `Bearer ${API_KEY}`,
+				'Content-Type': 'application/json',
+			},
+			body: JSON.stringify({
+				url: 'https://example.com/normalized',
+				title: 'Normalized Route',
+				markdownData: '# Normalized Content',
+			}),
+		});
+		const createRes = await worker.fetch(createReq, env, ctx);
+		expect(createRes.status).toBe(200);
+		const createData = (await createRes.json()) as any;
+		expect(createData.id).toBeDefined();
+
+		const listReq = new Request('http://example.com//bookmarks', {
+			headers: { Authorization: `Bearer ${API_KEY}` },
+		});
+		const listRes = await worker.fetch(listReq, env, ctx);
+		expect(listRes.status).toBe(200);
+		const listData = (await listRes.json()) as any;
+		expect(listData.keys.some((k: any) => k.name === createData.id)).toBe(true);
+
+		const duplicatePrefixReq = new Request('http://example.com/bookmarks/bookmarks', {
+			method: 'POST',
+			headers: {
+				Authorization: `Bearer ${API_KEY}`,
+				'Content-Type': 'application/json',
+			},
+			body: JSON.stringify({
+				url: 'https://example.com/duplicate-prefix',
+				title: 'Duplicated Prefix',
+				markdownData: '# Duplicated Prefix Content',
+			}),
+		});
+		const duplicatePrefixRes = await worker.fetch(duplicatePrefixReq, env, ctx);
+		expect(duplicatePrefixRes.status).toBe(200);
+		const duplicatePrefixData = (await duplicatePrefixRes.json()) as any;
+
+		const getDuplicatePrefixReq = new Request(`http://example.com/bookmarks/bookmarks/${duplicatePrefixData.id}`, {
+			headers: { Authorization: `Bearer ${API_KEY}` },
+		});
+		const getDuplicatePrefixRes = await worker.fetch(getDuplicatePrefixReq, env, ctx);
+		expect(getDuplicatePrefixRes.status).toBe(200);
+		const getDuplicatePrefixData = (await getDuplicatePrefixRes.json()) as any;
+		expect(getDuplicatePrefixData.markdownData).toBe('# Duplicated Prefix Content');
+
+		const notFoundReq = new Request('http://example.com/not-a-route', {
+			headers: { Authorization: `Bearer ${API_KEY}` },
+		});
+		const notFoundRes = await worker.fetch(notFoundReq, env, ctx);
+		expect(notFoundRes.status).toBe(404);
+		expect(await notFoundRes.json()).toEqual({ error: 'Not found' });
+
+		await waitOnExecutionContext(ctx);
+	});
+
 	it('handles API key CRUD operations', async () => {
 		const ctx = createExecutionContext();
 

@@ -53,7 +53,7 @@ KeepRoot is divided into two primary components: the client (browser extensions)
 *   Developer accounts for the Chrome Web Store and/or Apple Developer Program (only if publishing; can otherwise be loaded locally as an unpacked extension).
 
 ### Functional Requirements
-1.  **Extension Configuration:** The extension must allow the user to input and save their custom Cloudflare Worker URL and API Secret securely.
+1.  **Extension Configuration:** The extension must allow the user to input and save their Cloudflare Worker root URL and API Secret securely.
 2.  **Payload Generation:** The content scraper must successfully capture the `url`, the page `title`, and the formatted `markdownData`.
 3.  **API Communication:** The extension must send the payload to the Cloudflare API and display a success or failure notification to the user.
 4.  **Backend Validation:** The Cloudflare API must strictly require and validate the authorization token before committing any data to storage.
@@ -91,7 +91,7 @@ To self-host the backend, you must deploy the Cloudflare Worker to your own acco
     npx wrangler secret put API_SECRET
     ```
 5.  **Save your Worker URL**:
-    After deployment, Cloudflare will provide a URL (e.g., `https://backend.<your-username>.workers.dev`). You will need this URL and your `API_SECRET` to configure the browser extension.
+    After deployment, Cloudflare will provide a URL (e.g., `https://backend.<your-username>.workers.dev`). Use the Worker root URL exactly as provided and do not append API paths like `/bookmarks`. You will need this root URL and your `API_SECRET` to configure the browser extension.
 
 ### 2. Browser Extension Installation
 
