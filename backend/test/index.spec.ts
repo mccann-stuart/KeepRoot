@@ -60,6 +60,28 @@ describe('KeepRoot Worker', () => {
 		expect(response.status).toBe(200);
 	});
 
+	it('responds with 400 if POST /bookmarks is missing markdownData', async () => {
+		const ctx = createExecutionContext();
+
+		const request = new Request('http://example.com/bookmarks', {
+			method: 'POST',
+			headers: {
+				Authorization: `Bearer ${API_KEY}`,
+				'Content-Type': 'application/json',
+			},
+			body: JSON.stringify({
+				url: 'https://example.com',
+				title: 'Example',
+			}),
+		});
+
+		const response = await worker.fetch(request, env, ctx);
+		await waitOnExecutionContext(ctx);
+
+		expect(response.status).toBe(400);
+		expect(await response.json()).toEqual({ error: 'Missing markdownData' });
+	});
+
 	it('handles bookmark CRUD operations', async () => {
 		const ctx = createExecutionContext();
 
