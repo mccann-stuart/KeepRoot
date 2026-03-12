@@ -30,19 +30,26 @@ function bufferToBase64URL(buffer: ArrayBuffer): string {
     return btoa(str).replace(/\+/g, '-').replace(/\//g, '_').replace(/=/g, '');
 }
 
+// CORS headers
+const corsHeaders = {
+	'Access-Control-Allow-Origin': '*',
+	'Access-Control-Allow-Methods': 'GET, POST, DELETE, OPTIONS',
+	'Access-Control-Allow-Headers': 'Content-Type, Authorization',
+};
+
+function jsonResponse(data: any, status: number = 200): Response {
+	return new Response(JSON.stringify(data), {
+		status,
+		headers: { 'Content-Type': 'application/json', ...corsHeaders },
+	});
+}
+
 export default {
 	async fetch(request: Request, env: Env, ctx: ExecutionContext): Promise<Response> {
 		const url = new URL(request.url);
 		const rpID = url.hostname;
 		const origin = url.origin;
 		
-		// CORS headers
-		const corsHeaders = {
-			'Access-Control-Allow-Origin': '*',
-			'Access-Control-Allow-Methods': 'GET, POST, DELETE, OPTIONS',
-			'Access-Control-Allow-Headers': 'Content-Type, Authorization',
-		};
-
 		// Handle OPTIONS request for CORS preflight
 		if (request.method === 'OPTIONS') {
 			return new Response(null, { headers: corsHeaders });
@@ -62,12 +69,12 @@ export default {
 		if (request.method === 'POST' && url.pathname === '/auth/generate-registration') {
 			try {
 				const { username } = await request.json() as { username: string };
-				if (!username) return new Response(JSON.stringify({ error: 'Username required' }), { status: 400, headers: { 'Content-Type': 'application/json', ...corsHeaders }});
+				if (!username) return jsonResponse({ error: 'Username required' }, 400);
 
 				// Check if user already exists
 				const existingUser = await env.KEEPROOT_STORE.get(`user:${username}`, 'json');
 				if (existingUser) {
-					return new Response(JSON.stringify({ error: 'User already exists' }), { status: 400, headers: { 'Content-Type': 'application/json', ...corsHeaders }});
+					return jsonResponse({ error: 'User already exists' }, 400);
 				}
 
 				const userID = crypto.randomUUID();
@@ -90,9 +97,9 @@ export default {
 				// Store pending user ID
 				await env.KEEPROOT_STORE.put(`pending_user:${username}`, userID, { expirationTtl: 300 });
 
-				return new Response(JSON.stringify(options), { status: 200, headers: { 'Content-Type': 'application/json', ...corsHeaders } });
+				return jsonResponse(options);
 			} catch (err: any) {
-				return new Response(JSON.stringify({ error: err.message }), { status: 500, headers: { 'Content-Type': 'application/json', ...corsHeaders } });
+				return jsonResponse({ error: err.message }, 500);
 			}
 		}
 
@@ -106,7 +113,7 @@ export default {
 				const userID = await env.KEEPROOT_STORE.get(`pending_user:${username}`);
 
 				if (!expectedChallenge || !userID) {
-					return new Response(JSON.stringify({ error: 'Session expired' }), { status: 400, headers: { 'Content-Type': 'application/json', ...corsHeaders }});
+					return jsonResponse({ error: 'Session expired' }, 400);
 				}
 
 				let verification: VerifiedRegistrationResponse;
@@ -118,7 +125,7 @@ export default {
 						expectedRPID: rpID,
 					});
 				} catch (error: any) {
-					return new Response(JSON.stringify({ error: error.message }), { status: 400, headers: { 'Content-Type': 'application/json', ...corsHeaders }});
+					return jsonResponse({ error: error.message }, 400);
 				}
 
 				const { verified, registrationInfo } = verification;
@@ -148,12 +155,12 @@ export default {
 					const sessionId = crypto.randomUUID();
 					await env.KEEPROOT_STORE.put(`session:${sessionId}`, JSON.stringify({ userId: userID, username }), { expirationTtl: 60 * 60 * 24 * 7 }); // 7 days
 
-					return new Response(JSON.stringify({ verified: true, token: sessionId }), { status: 200, headers: { 'Content-Type': 'application/json', ...corsHeaders }});
+					return jsonResponse({ verified: true, token: sessionId });
 				} else {
-					return new Response(JSON.stringify({ error: 'Verification failed' }), { status: 400, headers: { 'Content-Type': 'application/json', ...corsHeaders }});
+					return jsonResponse({ error: 'Verification failed' }, 400);
 				}
 			} catch (err: any) {
-				return new Response(JSON.stringify({ error: err.message }), { status: 500, headers: { 'Content-Type': 'application/json', ...corsHeaders } });
+				return jsonResponse({ error: err.message }, 500);
 			}
 		}
 
@@ -161,11 +168,11 @@ export default {
 		if (request.method === 'POST' && url.pathname === '/auth/generate-authentication') {
 			try {
 				const { username } = await request.json() as { username: string };
-				if (!username) return new Response(JSON.stringify({ error: 'Username required' }), { status: 400, headers: { 'Content-Type': 'application/json', ...corsHeaders }});
+				if (!username) return jsonResponse({ error: 'Username required' }, 400);
 
 				const user = await env.KEEPROOT_STORE.get(`user:${username}`, 'json') as any;
 				if (!user) {
-					return new Response(JSON.stringify({ error: 'User not found' }), { status: 404, headers: { 'Content-Type': 'application/json', ...corsHeaders }});
+					return jsonResponse({ error: 'User not found' }, 404);
 				}
 
 				const options = await generateAuthenticationOptions({
@@ -180,9 +187,9 @@ export default {
 
 				await env.KEEPROOT_STORE.put(`auth_challenge:${username}`, options.challenge, { expirationTtl: 300 });
 
-				return new Response(JSON.stringify(options), { status: 200, headers: { 'Content-Type': 'application/json', ...corsHeaders } });
+				return jsonResponse(options);
 			} catch (err: any) {
-				return new Response(JSON.stringify({ error: err.message }), { status: 500, headers: { 'Content-Type': 'application/json', ...corsHeaders } });
+				return jsonResponse({ error: err.message }, 500);
 			}
 		}
 
@@ -194,12 +201,12 @@ export default {
 
 				const expectedChallenge = await env.KEEPROOT_STORE.get(`auth_challenge:${username}`);
 				if (!expectedChallenge) {
-					return new Response(JSON.stringify({ error: 'Session expired' }), { status: 400, headers: { 'Content-Type': 'application/json', ...corsHeaders }});
+					return jsonResponse({ error: 'Session expired' }, 400);
 				}
 
 				const user = await env.KEEPROOT_STORE.get(`user:${username}`, 'json') as any;
 				if (!user) {
-					return new Response(JSON.stringify({ error: 'User not found' }), { status: 404, headers: { 'Content-Type': 'application/json', ...corsHeaders }});
+					return jsonResponse({ error: 'User not found' }, 404);
 				}
 
 				// Find exactly which credential was used
@@ -207,7 +214,7 @@ export default {
 				const authenticator = user.credentials.find((c: any) => c.id === bodyCredID);
 
 				if (!authenticator) {
-					return new Response(JSON.stringify({ error: 'Authenticator not registered' }), { status: 400, headers: { 'Content-Type': 'application/json', ...corsHeaders }});
+					return jsonResponse({ error: 'Authenticator not registered' }, 400);
 				}
 
 				let verification: VerifiedAuthenticationResponse;
@@ -225,7 +232,7 @@ export default {
 						},
 					});
 				} catch (error: any) {
-					return new Response(JSON.stringify({ error: error.message }), { status: 400, headers: { 'Content-Type': 'application/json', ...corsHeaders }});
+					return jsonResponse({ error: error.message }, 400);
 				}
 
 				const { verified, authenticationInfo } = verification;
@@ -240,12 +247,12 @@ export default {
 					const sessionId = crypto.randomUUID();
 					await env.KEEPROOT_STORE.put(`session:${sessionId}`, JSON.stringify({ userId: user.id, username }), { expirationTtl: 60 * 60 * 24 * 7 });
 
-					return new Response(JSON.stringify({ verified: true, token: sessionId }), { status: 200, headers: { 'Content-Type': 'application/json', ...corsHeaders }});
+					return jsonResponse({ verified: true, token: sessionId });
 				} else {
-					return new Response(JSON.stringify({ error: 'Verification failed' }), { status: 400, headers: { 'Content-Type': 'application/json', ...corsHeaders }});
+					return jsonResponse({ error: 'Verification failed' }, 400);
 				}
 			} catch (err: any) {
-				return new Response(JSON.stringify({ error: err.message }), { status: 500, headers: { 'Content-Type': 'application/json', ...corsHeaders } });
+				return jsonResponse({ error: err.message }, 500);
 			}
 		}
 
@@ -270,10 +277,7 @@ export default {
 		}
 
 		if (!authUser) {
-			return new Response(JSON.stringify({ error: 'Unauthorized' }), { 
-				status: 401, 
-				headers: { 'Content-Type': 'application/json', ...corsHeaders } 
-			});
+			return jsonResponse({ error: 'Unauthorized' }, 401);
 		}
 
 		// Protected endpoints below
@@ -292,10 +296,7 @@ export default {
 						});
 					}
 				}
-				return new Response(JSON.stringify({ keys }), { 
-					status: 200, 
-					headers: { 'Content-Type': 'application/json', ...corsHeaders } 
-				});
+				return jsonResponse({ keys });
 			}
 
 			// POST /api-keys - Create new API key
@@ -317,25 +318,22 @@ export default {
 
 				await env.KEEPROOT_STORE.put(`apikey:${newKey}`, JSON.stringify({ userId: authUser.userId, username: authUser.username }), { metadata });
 
-				return new Response(JSON.stringify({ secret: newKey, metadata }), { 
-					status: 200, 
-					headers: { 'Content-Type': 'application/json', ...corsHeaders } 
-				});
+				return jsonResponse({ secret: newKey, metadata });
 			}
 
 			// DELETE /api-keys/:id - Delete an API key
 			if (request.method === 'DELETE' && url.pathname.startsWith('/api-keys/')) {
 				const id = url.pathname.split('/api-keys/')[1];
-				if (!id) return new Response(JSON.stringify({ error: 'Missing ID' }), { status: 400, headers: { 'Content-Type': 'application/json', ...corsHeaders } });
+				if (!id) return jsonResponse({ error: 'Missing ID' }, 400);
 
 				// Verify ownership
 				const { metadata } = await env.KEEPROOT_STORE.getWithMetadata(`apikey:${id}`);
 				if (!metadata || (metadata as any).userId !== authUser.userId) {
-					return new Response(JSON.stringify({ error: 'Key not found or unauthorized' }), { status: 404, headers: { 'Content-Type': 'application/json', ...corsHeaders } });
+					return jsonResponse({ error: 'Key not found or unauthorized' }, 404);
 				}
 
 				await env.KEEPROOT_STORE.delete(`apikey:${id}`);
-				return new Response(JSON.stringify({ message: 'Deleted successfully' }), { status: 200, headers: { 'Content-Type': 'application/json', ...corsHeaders } });
+				return jsonResponse({ message: 'Deleted successfully' });
 			}
 
 			// POST /bookmarks - Save a new markdown file
@@ -343,10 +341,7 @@ export default {
 				const body = await request.json() as { url?: string; title?: string; markdownData?: string };
 				
 				if (!body.markdownData) {
-					return new Response(JSON.stringify({ error: 'Missing markdownData' }), { 
-						status: 400, 
-						headers: { 'Content-Type': 'application/json', ...corsHeaders } 
-					});
+					return jsonResponse({ error: 'Missing markdownData' }, 400);
 				}
 
 				const id = crypto.randomUUID();
@@ -359,10 +354,7 @@ export default {
 
 				await env.KEEPROOT_STORE.put(id, body.markdownData, { metadata });
 
-				return new Response(JSON.stringify({ id, message: 'Saved successfully', metadata }), { 
-					status: 200, 
-					headers: { 'Content-Type': 'application/json', ...corsHeaders } 
-				});
+				return jsonResponse({ id, message: 'Saved successfully', metadata });
 			}
 
 			// GET /bookmarks - List all bookmarks (filtering for the current user)
@@ -373,68 +365,53 @@ export default {
 					return md && md.userId === authUser.userId;
 				});
 
-				return new Response(JSON.stringify({ keys: userKeys }), { 
-					status: 200, 
-					headers: { 'Content-Type': 'application/json', ...corsHeaders } 
-				});
+				return jsonResponse({ keys: userKeys });
 			}
 
 			// GET /bookmarks/:id - Retrieve a specific bookmark
 			if (request.method === 'GET' && url.pathname.startsWith('/bookmarks/')) {
 				const id = url.pathname.split('/bookmarks/')[1];
 				if (!id) {
-					return new Response(JSON.stringify({ error: 'Missing ID' }), { status: 400, headers: { 'Content-Type': 'application/json', ...corsHeaders } });
+					return jsonResponse({ error: 'Missing ID' }, 400);
 				}
 
 				const { value, metadata } = await env.KEEPROOT_STORE.getWithMetadata(id);
 				
 				if (!value) {
-					return new Response(JSON.stringify({ error: 'Not found' }), { status: 404, headers: { 'Content-Type': 'application/json', ...corsHeaders } });
+					return jsonResponse({ error: 'Not found' }, 404);
 				}
 
 				const md = metadata as any;
 				if (md && md.userId !== authUser.userId) {
-					return new Response(JSON.stringify({ error: 'Unauthorized' }), { status: 403, headers: { 'Content-Type': 'application/json', ...corsHeaders } });
+					return jsonResponse({ error: 'Unauthorized' }, 403);
 				}
 
-				return new Response(JSON.stringify({ id, metadata, markdownData: value }), { 
-					status: 200, 
-					headers: { 'Content-Type': 'application/json', ...corsHeaders } 
-				});
+				return jsonResponse({ id, metadata, markdownData: value });
 			}
 
 			// DELETE /bookmarks/:id - Delete a specific bookmark
 			if (request.method === 'DELETE' && url.pathname.startsWith('/bookmarks/')) {
 				const id = url.pathname.split('/bookmarks/')[1];
 				if (!id) {
-					return new Response(JSON.stringify({ error: 'Missing ID' }), { status: 400, headers: { 'Content-Type': 'application/json', ...corsHeaders } });
+					return jsonResponse({ error: 'Missing ID' }, 400);
 				}
 
 				const { metadata } = await env.KEEPROOT_STORE.getWithMetadata(id);
 				const md = metadata as any;
 				if (md && md.userId !== authUser.userId) {
-					return new Response(JSON.stringify({ error: 'Unauthorized' }), { status: 403, headers: { 'Content-Type': 'application/json', ...corsHeaders } });
+					return jsonResponse({ error: 'Unauthorized' }, 403);
 				}
 
 				await env.KEEPROOT_STORE.delete(id);
 
-				return new Response(JSON.stringify({ message: 'Deleted successfully' }), { 
-					status: 200, 
-					headers: { 'Content-Type': 'application/json', ...corsHeaders } 
-				});
+				return jsonResponse({ message: 'Deleted successfully' });
 			}
 
-			return new Response(JSON.stringify({ error: 'Not found' }), { 
-				status: 404, 
-				headers: { 'Content-Type': 'application/json', ...corsHeaders } 
-			});
+			return jsonResponse({ error: 'Not found' }, 404);
 
 		} catch (error: any) {
 			console.error(error);
-			return new Response(JSON.stringify({ error: 'Internal Server Error' }), {
-				status: 500, 
-				headers: { 'Content-Type': 'application/json', ...corsHeaders } 
-			});
+			return jsonResponse({ error: 'Internal Server Error' }, 500);
 		}
 	},
 };
