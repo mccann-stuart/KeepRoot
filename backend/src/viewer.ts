@@ -418,23 +418,14 @@ export const viewerHtml = `<!DOCTYPE html>
     <div id="login-modal">
         <div class="modal-content" id="login-view">
             <h2>KeepRoot Auth</h2>
-            <p>Login with a Passkey or enter your Legacy Secret</p>
+            <p>Login with a Passkey</p>
             
-            <form id="passkey-form" style="margin-bottom: 2rem;">
+            <form id="passkey-form">
                 <input type="text" id="username-input" placeholder="Username" required autocomplete="username webauthn">
                 <div style="display: flex; gap: 0.5rem;">
                     <button type="button" id="btn-register" style="flex: 1; background: var(--panel-bg); color: var(--text-main); border: 1px solid var(--border); transition: background 0.2s;">Register</button>
                     <button type="submit" id="btn-login" style="flex: 1;">Login</button>
                 </div>
-            </form>
-
-            <div style="margin: 1.5rem 0; text-align: center; border-bottom: 1px solid var(--border); line-height: 0.1em;">
-                <span style="background: rgba(30, 41, 59, 1); padding: 0 10px; color: var(--text-muted); font-size: 0.85rem;">OR</span>
-            </div>
-
-            <form id="legacy-form">
-                <input type="password" id="secret-input" placeholder="Legacy API Secret" autocomplete="current-password">
-                <button type="submit" style="background: transparent; border: 1px solid var(--border); color: var(--text-main);">Access with Legacy Secret</button>
             </form>
         </div>
     </div>
@@ -525,9 +516,7 @@ export const viewerHtml = `<!DOCTYPE html>
         const DOM = {
             loginModal: document.getElementById('login-modal'),
             passkeyForm: document.getElementById('passkey-form'),
-            legacyForm: document.getElementById('legacy-form'),
             usernameInput: document.getElementById('username-input'),
-            secretInput: document.getElementById('secret-input'),
             btnRegister: document.getElementById('btn-register'),
             btnLogin: document.getElementById('btn-login'),
             
@@ -643,22 +632,6 @@ export const viewerHtml = `<!DOCTYPE html>
             }
         });
 
-        // Legacy Login Form
-        DOM.legacyForm.addEventListener('submit', async (e) => {
-            e.preventDefault();
-            const legacySecret = DOM.secretInput.value.trim();
-            if (!legacySecret) return;
-            
-            try {
-                const res = await fetch('/bookmarks', {
-                    headers: { 'Authorization': 'Bearer ' + legacySecret }
-                });
-                if (!res.ok) throw new Error('Invalid Secret');
-                loginSuccess(legacySecret);
-            } catch (err) {
-                showToast('Invalid API Secret or network error', 'error');
-            }
-        });
 
         function loginSuccess(token) {
             secret = token;
@@ -673,7 +646,6 @@ export const viewerHtml = `<!DOCTYPE html>
             secret = null;
             DOM.app.style.display = 'none';
             DOM.loginModal.style.display = 'flex';
-            DOM.secretInput.value = '';
             DOM.bookmarkList.innerHTML = '';
             showEmptyState();
         });
@@ -769,7 +741,7 @@ export const viewerHtml = `<!DOCTYPE html>
                 DOM.newKeyResult.style.display = 'block';
                 fetchApiKeys();
             } catch (err) {
-                showToast('Failed to generate key', 'error');
+                showToast('Failed to generate key: ' + err.message, 'error');
             }
         });
 
@@ -896,7 +868,8 @@ export const viewerHtml = `<!DOCTYPE html>
             });
 
             if (!res.ok) {
-                const error = new Error('API Error');
+                const body = await res.json().catch(() => ({}));
+                const error = new Error(body.error || 'API Error (' + res.status + ')');
                 error.status = res.status;
                 throw error;
             }

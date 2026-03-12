@@ -4,7 +4,6 @@
 
 export interface Env {
 	KEEPROOT_STORE: KVNamespace;
-	API_SECRET?: string;
 }
 
 import { viewerHtml } from './viewer';
@@ -19,9 +18,7 @@ import type { VerifiedRegistrationResponse, VerifiedAuthenticationResponse } fro
 // Optional: you can define relying party name
 const RP_NAME = 'KeepRoot';
 
-// Performance optimization: Cache the KV API secret in memory to prevent
-// redundant KV reads on every request. This reduces latency and KV operations.
-let cachedKvSecret: string | null = null;
+
 
 // Base64URL encode/decode helpers
 function bufferToBase64URL(buffer: ArrayBuffer): string {
@@ -254,11 +251,6 @@ export default {
 
 		// Authentication logic for Protected Routes
 		const authHeader = request.headers.get('Authorization');
-		if (!cachedKvSecret && !env.API_SECRET) {
-			cachedKvSecret = await env.KEEPROOT_STORE.get('KEEPROOT_API_SECRET');
-		}
-		const legacySecret = env.API_SECRET || cachedKvSecret;
-
 		let authUser = null;
 		
 		if (authHeader && authHeader.startsWith('Bearer ')) {
@@ -270,12 +262,9 @@ export default {
 				authUser = session;
 			} else {
 				// 2. Check API Key
-				const apikeyStr = await env.KEEPROOT_STORE.get(`apikey:${token}`, 'json') as any;
-				if (apikeyStr) {
-					authUser = apikeyStr;
-				} else if (legacySecret && token === legacySecret) {
-					// 3. Check Legacy Secret
-					authUser = { userId: 'legacy', username: 'legacy' };
+				const apikeyData = await env.KEEPROOT_STORE.get(`apikey:${token}`, 'json') as any;
+				if (apikeyData) {
+					authUser = apikeyData;
 				}
 			}
 		}
@@ -379,12 +368,8 @@ export default {
 			// GET /bookmarks - List all bookmarks (filtering for the current user)
 			if (request.method === 'GET' && url.pathname === '/bookmarks') {
 				const list = await env.KEEPROOT_STORE.list();
-				// Filter legacy vs authenticated user
 				const userKeys = list.keys.filter(k => {
 					const md = k.metadata as any;
-					// If legacy user, let them see everything for backward compatibility. 
-					// Otherwise only their bookmarks. If bookmarks lack userId, they are considered legacy.
-					if (authUser.userId === 'legacy') return true;
 					return md && md.userId === authUser.userId;
 				});
 
@@ -408,7 +393,7 @@ export default {
 				}
 
 				const md = metadata as any;
-				if (authUser.userId !== 'legacy' && md && md.userId !== authUser.userId) {
+				if (md && md.userId !== authUser.userId) {
 					return new Response(JSON.stringify({ error: 'Unauthorized' }), { status: 403, headers: { 'Content-Type': 'application/json', ...corsHeaders } });
 				}
 
@@ -427,7 +412,7 @@ export default {
 
 				const { metadata } = await env.KEEPROOT_STORE.getWithMetadata(id);
 				const md = metadata as any;
-				if (authUser.userId !== 'legacy' && md && md.userId !== authUser.userId) {
+				if (md && md.userId !== authUser.userId) {
 					return new Response(JSON.stringify({ error: 'Unauthorized' }), { status: 403, headers: { 'Content-Type': 'application/json', ...corsHeaders } });
 				}
 
