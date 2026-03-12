@@ -2,417 +2,377 @@
  * KeepRoot Cloudflare Worker API
  */
 
-export interface Env {
-	KEEPROOT_STORE: KVNamespace;
-}
-
 import { viewerHtml } from './viewer';
 import {
-	generateRegistrationOptions,
-	verifyRegistrationResponse,
-	generateAuthenticationOptions,
-	verifyAuthenticationResponse,
-} from '@simplewebauthn/server';
-import type { VerifiedRegistrationResponse, VerifiedAuthenticationResponse } from '@simplewebauthn/server';
+	authenticateBearerToken,
+	createApiKey,
+	createSession,
+	createUserWithCredential,
+	deleteApiKey,
+	deleteAuthChallenge,
+	deleteBookmark,
+	getBookmark,
+	getUserByUsername,
+	getUserCredentials,
+	getValidAuthChallenge,
+	listApiKeys,
+	listBookmarks,
+	saveBookmark,
+	storeAuthChallenge,
+	updateCredentialCounter,
+	type BookmarkPayload,
+	type StorageEnv,
+} from './storage';
+import type { AuthenticatorTransportFuture } from '@simplewebauthn/server';
+import type { VerifiedAuthenticationResponse, VerifiedRegistrationResponse } from '@simplewebauthn/server';
 
-// Optional: you can define relying party name
+export interface Env extends StorageEnv {}
+
 const RP_NAME = 'KeepRoot';
-
-
-
-// Base64URL encode/decode helpers
-function bufferToBase64URL(buffer: ArrayBuffer): string {
-    const bytes = new Uint8Array(buffer);
-    let str = '';
-    for (const charCode of bytes) {
-        str += String.fromCharCode(charCode);
-    }
-    return btoa(str).replace(/\+/g, '-').replace(/\//g, '_').replace(/=/g, '');
-}
-
-// CORS headers
 const corsHeaders = {
 	'Access-Control-Allow-Origin': '*',
 	'Access-Control-Allow-Methods': 'GET, POST, DELETE, OPTIONS',
 	'Access-Control-Allow-Headers': 'Content-Type, Authorization',
 };
 
-function jsonResponse(data: any, status: number = 200): Response {
-	return new Response(JSON.stringify(data), {
+function normalizePathname(pathname: string): string {
+	let normalizedPathname = pathname.replace(/\/{2,}/g, '/');
+
+	if (normalizedPathname.length > 1 && normalizedPathname.endsWith('/')) {
+		normalizedPathname = normalizedPathname.slice(0, -1);
+	}
+
+	if (normalizedPathname === '/bookmarks/bookmarks') {
+		return '/bookmarks';
+	}
+
+	if (normalizedPathname.startsWith('/bookmarks/bookmarks/')) {
+		return normalizedPathname.replace('/bookmarks/bookmarks/', '/bookmarks/');
+	}
+
+	return normalizedPathname;
+}
+
+function jsonResponse(body: unknown, status = 200): Response {
+	return new Response(JSON.stringify(body), {
 		status,
-		headers: { 'Content-Type': 'application/json', ...corsHeaders },
+		headers: {
+			'Content-Type': 'application/json',
+			...corsHeaders,
+		},
 	});
 }
 
+function textResponse(body: string, contentType: string): Response {
+	return new Response(body, {
+		status: 200,
+		headers: {
+			'Content-Type': contentType,
+			...corsHeaders,
+		},
+	});
+}
+
+function errorResponse(message: string, status: number): Response {
+	return jsonResponse({ error: message }, status);
+}
+
+async function parseJson<T>(request: Request): Promise<T> {
+	return request.json() as Promise<T>;
+}
+
+async function loadWebAuthn() {
+	return import('@simplewebauthn/server');
+}
+
 export default {
-	async fetch(request: Request, env: Env, ctx: ExecutionContext): Promise<Response> {
+	async fetch(request: Request, env: Env): Promise<Response> {
 		const url = new URL(request.url);
+		const pathname = normalizePathname(url.pathname);
 		const rpID = url.hostname;
 		const origin = url.origin;
-		
-		// Handle OPTIONS request for CORS preflight
+
 		if (request.method === 'OPTIONS') {
 			return new Response(null, { headers: corsHeaders });
 		}
 
-		// GET / - Web Viewer UI
-		if (request.method === 'GET' && url.pathname === '/') {
-			return new Response(viewerHtml, {
-				status: 200,
-				headers: { 'Content-Type': 'text/html;charset=UTF-8', ...corsHeaders }
-			});
+		if (request.method === 'GET' && pathname === '/') {
+			return textResponse(viewerHtml, 'text/html;charset=UTF-8');
 		}
 
-		// WEBAUTHN ENDPOINTS
-		
-		// 1. Generate Registration Options
-		if (request.method === 'POST' && url.pathname === '/auth/generate-registration') {
+		if (request.method === 'POST' && pathname === '/auth/generate-registration') {
 			try {
-				const { username } = await request.json() as { username: string };
-				if (!username) return jsonResponse({ error: 'Username required' }, 400);
-
-				// Check if user already exists
-				const existingUser = await env.KEEPROOT_STORE.get(`user:${username}`, 'json');
-				if (existingUser) {
-					return jsonResponse({ error: 'User already exists' }, 400);
+				const { username } = await parseJson<{ username?: string }>(request);
+				const normalizedUsername = username?.trim();
+				if (!normalizedUsername) {
+					return errorResponse('Username required', 400);
 				}
 
-				const userID = crypto.randomUUID();
-				// The authenticator expects a Uint8Array, we'll pass a string representation
+				const existingUser = await getUserByUsername(env, normalizedUsername);
+				if (existingUser) {
+					return errorResponse('User already exists', 400);
+				}
+
+				const { generateRegistrationOptions } = await loadWebAuthn();
+				const userId = crypto.randomUUID();
 				const options = await generateRegistrationOptions({
-					rpName: RP_NAME,
-					rpID,
-					userID: new TextEncoder().encode(userID) as any,
-					userName: username,
 					attestationType: 'none',
 					authenticatorSelection: {
 						residentKey: 'required',
 						userVerification: 'preferred',
 					},
+					rpID,
+					rpName: RP_NAME,
+					userID: new TextEncoder().encode(userId) as unknown as Uint8Array<ArrayBuffer>,
+					userName: normalizedUsername,
 				});
 
-				// Store challenge
-				await env.KEEPROOT_STORE.put(`reg_challenge:${username}`, options.challenge, { expirationTtl: 300 }); // 5 mins
-
-				// Store pending user ID
-				await env.KEEPROOT_STORE.put(`pending_user:${username}`, userID, { expirationTtl: 300 });
+				await storeAuthChallenge(env, {
+					challenge: options.challenge,
+					type: 'registration',
+					userId,
+					username: normalizedUsername,
+				});
 
 				return jsonResponse(options);
-			} catch (err: any) {
-				return jsonResponse({ error: err.message }, 500);
+			} catch (error) {
+				return errorResponse(error instanceof Error ? error.message : 'Invalid request', 400);
 			}
 		}
 
-		// 2. Verify Registration
-		if (request.method === 'POST' && url.pathname === '/auth/verify-registration') {
+		if (request.method === 'POST' && pathname === '/auth/verify-registration') {
 			try {
-				const body = await request.json() as { username: string, response: any };
-				const { username, response } = body;
-
-				const expectedChallenge = await env.KEEPROOT_STORE.get(`reg_challenge:${username}`);
-				const userID = await env.KEEPROOT_STORE.get(`pending_user:${username}`);
-
-				if (!expectedChallenge || !userID) {
-					return jsonResponse({ error: 'Session expired' }, 400);
+				const body = await parseJson<{ response: any; username?: string }>(request);
+				const normalizedUsername = body.username?.trim();
+				if (!normalizedUsername || !body.response) {
+					return errorResponse('Invalid registration payload', 400);
 				}
 
+				const challenge = await getValidAuthChallenge(env, normalizedUsername, 'registration');
+				if (!challenge?.user_id) {
+					return errorResponse('Session expired', 400);
+				}
+
+				const { verifyRegistrationResponse } = await loadWebAuthn();
 				let verification: VerifiedRegistrationResponse;
 				try {
 					verification = await verifyRegistrationResponse({
-						response,
-						expectedChallenge,
+						expectedChallenge: challenge.challenge,
 						expectedOrigin: origin,
 						expectedRPID: rpID,
+						response: body.response,
 					});
-				} catch (error: any) {
-					return jsonResponse({ error: error.message }, 400);
+				} catch (error) {
+					return errorResponse(error instanceof Error ? error.message : 'Verification failed', 400);
 				}
 
-				const { verified, registrationInfo } = verification;
-				if (verified && registrationInfo) {
-					const { credential, credentialBackedUp, credentialDeviceType } = registrationInfo;
-					
-					const newCredential = {
-						id: credential.id,
-						publicKey: Array.from(credential.publicKey),
-						counter: credential.counter,
-						transports: credential.transports,
-					};
-
-					// Save user
-					const user = {
-						id: userID,
-						username,
-						credentials: [newCredential]
-					};
-					await env.KEEPROOT_STORE.put(`user:${username}`, JSON.stringify(user));
-
-					// Clear pending
-					await env.KEEPROOT_STORE.delete(`reg_challenge:${username}`);
-					await env.KEEPROOT_STORE.delete(`pending_user:${username}`);
-
-					// Create session
-					const sessionId = crypto.randomUUID();
-					await env.KEEPROOT_STORE.put(`session:${sessionId}`, JSON.stringify({ userId: userID, username }), { expirationTtl: 60 * 60 * 24 * 7 }); // 7 days
-
-					return jsonResponse({ verified: true, token: sessionId });
-				} else {
-					return jsonResponse({ error: 'Verification failed' }, 400);
+				if (!verification.verified || !verification.registrationInfo) {
+					return errorResponse('Verification failed', 400);
 				}
-			} catch (err: any) {
-				return jsonResponse({ error: err.message }, 500);
+
+				const existingUser = await getUserByUsername(env, normalizedUsername);
+				if (existingUser) {
+					return errorResponse('User already exists', 400);
+				}
+
+				const { credential, credentialBackedUp, credentialDeviceType } = verification.registrationInfo;
+				await createUserWithCredential(env, normalizedUsername, challenge.user_id, {
+					backedUp: credentialBackedUp,
+					counter: credential.counter,
+					credentialId: credential.id,
+					deviceType: credentialDeviceType ?? null,
+					publicKey: new Uint8Array(credential.publicKey),
+					transports: credential.transports,
+				});
+				await deleteAuthChallenge(env, normalizedUsername, 'registration');
+
+				const token = await createSession(env, {
+					userId: challenge.user_id,
+					username: normalizedUsername,
+				});
+
+				return jsonResponse({ token, verified: true });
+			} catch (error) {
+				return errorResponse(error instanceof Error ? error.message : 'Unable to verify registration', 500);
 			}
 		}
 
-		// 3. Generate Authentication Options
-		if (request.method === 'POST' && url.pathname === '/auth/generate-authentication') {
+		if (request.method === 'POST' && pathname === '/auth/generate-authentication') {
 			try {
-				const { username } = await request.json() as { username: string };
-				if (!username) return jsonResponse({ error: 'Username required' }, 400);
-
-				const user = await env.KEEPROOT_STORE.get(`user:${username}`, 'json') as any;
-				if (!user) {
-					return jsonResponse({ error: 'User not found' }, 404);
+				const { username } = await parseJson<{ username?: string }>(request);
+				const normalizedUsername = username?.trim();
+				if (!normalizedUsername) {
+					return errorResponse('Username required', 400);
 				}
 
+				const user = await getUserByUsername(env, normalizedUsername);
+				if (!user) {
+					return errorResponse('User not found', 404);
+				}
+
+				const { generateAuthenticationOptions } = await loadWebAuthn();
+				const credentials = await getUserCredentials(env, normalizedUsername);
 				const options = await generateAuthenticationOptions({
-					rpID,
-					allowCredentials: user.credentials.map((c: any) => ({
-						id: c.id,
-						type: 'public-key',
-						transports: c.transports,
+					allowCredentials: credentials.map((credential) => ({
+						id: credential.credentialId,
+						transports: credential.transports as AuthenticatorTransportFuture[] | undefined,
 					})),
+					rpID,
 					userVerification: 'preferred',
 				});
 
-				await env.KEEPROOT_STORE.put(`auth_challenge:${username}`, options.challenge, { expirationTtl: 300 });
+				await storeAuthChallenge(env, {
+					challenge: options.challenge,
+					type: 'authentication',
+					userId: user.id,
+					username: normalizedUsername,
+				});
 
 				return jsonResponse(options);
-			} catch (err: any) {
-				return jsonResponse({ error: err.message }, 500);
+			} catch (error) {
+				return errorResponse(error instanceof Error ? error.message : 'Unable to generate authentication options', 400);
 			}
 		}
 
-		// 4. Verify Authentication
-		if (request.method === 'POST' && url.pathname === '/auth/verify-authentication') {
+		if (request.method === 'POST' && pathname === '/auth/verify-authentication') {
 			try {
-				const body = await request.json() as { username: string, response: any };
-				const { username, response } = body;
-
-				const expectedChallenge = await env.KEEPROOT_STORE.get(`auth_challenge:${username}`);
-				if (!expectedChallenge) {
-					return jsonResponse({ error: 'Session expired' }, 400);
+				const body = await parseJson<{ response: any; username?: string }>(request);
+				const normalizedUsername = body.username?.trim();
+				if (!normalizedUsername || !body.response) {
+					return errorResponse('Invalid authentication payload', 400);
 				}
 
-				const user = await env.KEEPROOT_STORE.get(`user:${username}`, 'json') as any;
+				const challenge = await getValidAuthChallenge(env, normalizedUsername, 'authentication');
+				if (!challenge) {
+					return errorResponse('Session expired', 400);
+				}
+
+				const user = await getUserByUsername(env, normalizedUsername);
 				if (!user) {
-					return jsonResponse({ error: 'User not found' }, 404);
+					return errorResponse('User not found', 404);
 				}
 
-				// Find exactly which credential was used
-				const bodyCredID = response.id;
-				const authenticator = user.credentials.find((c: any) => c.id === bodyCredID);
-
+				const credentials = await getUserCredentials(env, normalizedUsername);
+				const authenticator = credentials.find((credential) => credential.credentialId === body.response.id);
 				if (!authenticator) {
-					return jsonResponse({ error: 'Authenticator not registered' }, 400);
+					return errorResponse('Authenticator not registered', 400);
 				}
 
+				const { verifyAuthenticationResponse } = await loadWebAuthn();
 				let verification: VerifiedAuthenticationResponse;
 				try {
 					verification = await verifyAuthenticationResponse({
-						response,
-						expectedChallenge,
+						credential: {
+							counter: authenticator.counter,
+							id: authenticator.credentialId,
+							publicKey: authenticator.publicKey as unknown as Uint8Array<ArrayBuffer>,
+							transports: authenticator.transports as AuthenticatorTransportFuture[] | undefined,
+						},
+						expectedChallenge: challenge.challenge,
 						expectedOrigin: origin,
 						expectedRPID: rpID,
-						credential: {
-							id: authenticator.id,
-							publicKey: new Uint8Array(authenticator.publicKey),
-							counter: authenticator.counter,
-							transports: authenticator.transports,
-						},
+						response: body.response,
 					});
-				} catch (error: any) {
-					return jsonResponse({ error: error.message }, 400);
+				} catch (error) {
+					return errorResponse(error instanceof Error ? error.message : 'Verification failed', 400);
 				}
 
-				const { verified, authenticationInfo } = verification;
-				if (verified && authenticationInfo) {
-					// Update counter in DB for security
-					authenticator.counter = authenticationInfo.newCounter;
-					await env.KEEPROOT_STORE.put(`user:${username}`, JSON.stringify(user));
-
-					await env.KEEPROOT_STORE.delete(`auth_challenge:${username}`);
-
-					// Create session
-					const sessionId = crypto.randomUUID();
-					await env.KEEPROOT_STORE.put(`session:${sessionId}`, JSON.stringify({ userId: user.id, username }), { expirationTtl: 60 * 60 * 24 * 7 });
-
-					return jsonResponse({ verified: true, token: sessionId });
-				} else {
-					return jsonResponse({ error: 'Verification failed' }, 400);
+				if (!verification.verified || !verification.authenticationInfo) {
+					return errorResponse('Verification failed', 400);
 				}
-			} catch (err: any) {
-				return jsonResponse({ error: err.message }, 500);
+
+				await updateCredentialCounter(env, normalizedUsername, authenticator.credentialId, verification.authenticationInfo.newCounter);
+				await deleteAuthChallenge(env, normalizedUsername, 'authentication');
+
+				const token = await createSession(env, {
+					userId: user.id,
+					username: normalizedUsername,
+				});
+
+				return jsonResponse({ token, verified: true });
+			} catch (error) {
+				return errorResponse(error instanceof Error ? error.message : 'Unable to verify authentication', 500);
 			}
 		}
 
-		// Authentication logic for Protected Routes
 		const authHeader = request.headers.get('Authorization');
-		let authUser = null;
-		
-		if (authHeader && authHeader.startsWith('Bearer ')) {
-			const token = authHeader.substring(7);
-			
-			// 1. Check Session Token
-			const session = await env.KEEPROOT_STORE.get(`session:${token}`, 'json') as any;
-			if (session) {
-				authUser = session;
-			} else {
-				// 2. Check API Key
-				const apikeyData = await env.KEEPROOT_STORE.get(`apikey:${token}`, 'json') as any;
-				if (apikeyData) {
-					authUser = apikeyData;
-				}
-			}
-		}
+		const token = authHeader?.startsWith('Bearer ') ? authHeader.slice(7) : null;
+		const authUser = token ? await authenticateBearerToken(env, token) : null;
 
 		if (!authUser) {
-			return jsonResponse({ error: 'Unauthorized' }, 401);
+			return errorResponse('Unauthorized', 401);
 		}
 
-		// Protected endpoints below
-
 		try {
-			// GET /api-keys - List API keys for user
-			if (request.method === 'GET' && url.pathname === '/api-keys') {
-				const list = await env.KEEPROOT_STORE.list({ prefix: `apikey:` });
-				const keys: any[] = [];
-				for (const key of list.keys) {
-					if (key.metadata && (key.metadata as any).userId === authUser.userId) {
-						keys.push({
-							id: key.name.split(':')[1], // Extract actual key ID
-							name: (key.metadata as any).name || 'Unnamed Key',
-							createdAt: (key.metadata as any).createdAt || new Date().toISOString()
-						});
-					}
-				}
+			if (request.method === 'GET' && pathname === '/api-keys') {
+				const keys = await listApiKeys(env, authUser.userId);
 				return jsonResponse({ keys });
 			}
 
-			// POST /api-keys - Create new API key
-			if (request.method === 'POST' && url.pathname === '/api-keys') {
-				const body = await request.json() as { name?: string };
-				const keyName = body.name || 'Unnamed Key';
-				
-				// Generate API key
-				const array = new Uint8Array(24); // 48 hex chars
-				crypto.getRandomValues(array);
-				const newKey = Array.from(array, byte => byte.toString(16).padStart(2, '0')).join('');
-
-				const metadata = {
-					userId: authUser.userId,
-					username: authUser.username,
-					name: keyName,
-					createdAt: new Date().toISOString()
-				};
-
-				await env.KEEPROOT_STORE.put(`apikey:${newKey}`, JSON.stringify({ userId: authUser.userId, username: authUser.username }), { metadata });
-
-				return jsonResponse({ secret: newKey, metadata });
+			if (request.method === 'POST' && pathname === '/api-keys') {
+				const body = await parseJson<{ name?: string }>(request);
+				const keyName = body.name?.trim() || 'Unnamed Key';
+				const { metadata, secret } = await createApiKey(env, authUser, keyName);
+				return jsonResponse({ metadata, secret });
 			}
 
-			// DELETE /api-keys/:id - Delete an API key
-			if (request.method === 'DELETE' && url.pathname.startsWith('/api-keys/')) {
-				const id = url.pathname.split('/api-keys/')[1];
-				if (!id) return jsonResponse({ error: 'Missing ID' }, 400);
-
-				// Verify ownership
-				const { metadata } = await env.KEEPROOT_STORE.getWithMetadata(`apikey:${id}`);
-				if (!metadata || (metadata as any).userId !== authUser.userId) {
-					return jsonResponse({ error: 'Key not found or unauthorized' }, 404);
+			if (request.method === 'DELETE' && pathname.startsWith('/api-keys/')) {
+				const keyId = pathname.slice('/api-keys/'.length);
+				if (!keyId) {
+					return errorResponse('Missing ID', 400);
 				}
 
-				await env.KEEPROOT_STORE.delete(`apikey:${id}`);
+				const deleted = await deleteApiKey(env, authUser.userId, keyId);
+				if (!deleted) {
+					return errorResponse('Key not found or unauthorized', 404);
+				}
+
 				return jsonResponse({ message: 'Deleted successfully' });
 			}
 
-			// POST /bookmarks - Save a new markdown file
-			if (request.method === 'POST' && url.pathname === '/bookmarks') {
-				const body = await request.json() as { url?: string; title?: string; markdownData?: string };
-				
-				if (!body.markdownData) {
-					return jsonResponse({ error: 'Missing markdownData' }, 400);
-				}
-
-				const id = crypto.randomUUID();
-				const metadata = {
-					url: body.url || '',
-					title: body.title || 'Untitled',
-					createdAt: new Date().toISOString(),
-					userId: authUser.userId
-				};
-
-				await env.KEEPROOT_STORE.put(id, body.markdownData, { metadata });
-
+			if (request.method === 'POST' && pathname === '/bookmarks') {
+				const body = await parseJson<BookmarkPayload>(request);
+				const { id, metadata } = await saveBookmark(env, authUser, body);
 				return jsonResponse({ id, message: 'Saved successfully', metadata });
 			}
 
-			// GET /bookmarks - List all bookmarks (filtering for the current user)
-			if (request.method === 'GET' && url.pathname === '/bookmarks') {
-				const list = await env.KEEPROOT_STORE.list();
-				const userKeys = list.keys.filter(k => {
-					const md = k.metadata as any;
-					return md && md.userId === authUser.userId;
-				});
-
-				return jsonResponse({ keys: userKeys });
+			if (request.method === 'GET' && pathname === '/bookmarks') {
+				const keys = await listBookmarks(env, authUser.userId);
+				return jsonResponse({ keys });
 			}
 
-			// GET /bookmarks/:id - Retrieve a specific bookmark
-			if (request.method === 'GET' && url.pathname.startsWith('/bookmarks/')) {
-				const id = url.pathname.split('/bookmarks/')[1];
-				if (!id) {
-					return jsonResponse({ error: 'Missing ID' }, 400);
+			if (request.method === 'GET' && pathname.startsWith('/bookmarks/')) {
+				const bookmarkId = pathname.slice('/bookmarks/'.length);
+				if (!bookmarkId) {
+					return errorResponse('Missing ID', 400);
 				}
 
-				const { value, metadata } = await env.KEEPROOT_STORE.getWithMetadata(id);
-				
-				if (!value) {
-					return jsonResponse({ error: 'Not found' }, 404);
+				const bookmark = await getBookmark(env, authUser.userId, bookmarkId);
+				if (!bookmark) {
+					return errorResponse('Not found', 404);
 				}
 
-				const md = metadata as any;
-				if (md && md.userId !== authUser.userId) {
-					return jsonResponse({ error: 'Unauthorized' }, 403);
-				}
-
-				return jsonResponse({ id, metadata, markdownData: value });
+				return jsonResponse(bookmark);
 			}
 
-			// DELETE /bookmarks/:id - Delete a specific bookmark
-			if (request.method === 'DELETE' && url.pathname.startsWith('/bookmarks/')) {
-				const id = url.pathname.split('/bookmarks/')[1];
-				if (!id) {
-					return jsonResponse({ error: 'Missing ID' }, 400);
+			if (request.method === 'DELETE' && pathname.startsWith('/bookmarks/')) {
+				const bookmarkId = pathname.slice('/bookmarks/'.length);
+				if (!bookmarkId) {
+					return errorResponse('Missing ID', 400);
 				}
 
-				const { metadata } = await env.KEEPROOT_STORE.getWithMetadata(id);
-				const md = metadata as any;
-				if (md && md.userId !== authUser.userId) {
-					return jsonResponse({ error: 'Unauthorized' }, 403);
+				const deleted = await deleteBookmark(env, authUser.userId, bookmarkId);
+				if (!deleted) {
+					return errorResponse('Not found', 404);
 				}
-
-				await env.KEEPROOT_STORE.delete(id);
 
 				return jsonResponse({ message: 'Deleted successfully' });
 			}
 
-			return jsonResponse({ error: 'Not found' }, 404);
-
-		} catch (error: any) {
+			return errorResponse('Not found', 404);
+		} catch (error) {
 			console.error(error);
-			return jsonResponse({ error: 'Internal Server Error' }, 500);
+			return errorResponse('Internal Server Error', 500);
 		}
 	},
 };
-
