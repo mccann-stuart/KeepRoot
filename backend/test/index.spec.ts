@@ -121,6 +121,19 @@ describe('KeepRoot Worker', () => {
 		await waitOnExecutionContext(ctx);
 	});
 
+	it('responds with 404 when getting a non-existent bookmark', async () => {
+		const ctx = createExecutionContext();
+		const getReq = new Request(`http://example.com/bookmarks/non-existent-id-123`, {
+			headers: { Authorization: `Bearer ${API_KEY}` },
+		});
+		const getRes = await worker.fetch(getReq, env, ctx);
+
+		expect(getRes.status).toBe(404);
+		expect(await getRes.json()).toEqual({ error: 'Not found' });
+
+		await waitOnExecutionContext(ctx);
+	});
+
 	it('handles API key CRUD operations', async () => {
 		const ctx = createExecutionContext();
 
