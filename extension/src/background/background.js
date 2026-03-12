@@ -39,14 +39,14 @@ async function handleSavePage(tabId) {
   const payload = {
     title: extraction.title,
     url: extraction.url,
-    body: extraction.markdownData,
+    markdownData: extraction.markdownData,
     date: new Date().toISOString()
   };
 
   // 4. Send to Cloudflare Worker
-  console.log(`Sending to ${cfg.workerUrl}/api/bookmarks`);
+  console.log(`Sending to ${cfg.workerUrl}/bookmarks`);
   
-  const response = await fetch(`${cfg.workerUrl}/api/bookmarks`, {
+  const response = await fetch(`${cfg.workerUrl}/bookmarks`, {
     method: 'POST',
     headers: {
       'Content-Type': 'application/json',
