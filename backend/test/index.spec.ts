@@ -378,4 +378,16 @@ describe('KeepRoot Worker', () => {
 
 		await waitOnExecutionContext(ctx);
 	});
+
+	it('responds with 404 for unknown routes', async () => {
+		const request = new Request('http://example.com/nonexistent', {
+			headers: { 'Authorization': `Bearer ${API_KEY}` },
+		});
+		const ctx = createExecutionContext();
+		const response = await worker.fetch(request, env, ctx);
+		await waitOnExecutionContext(ctx);
+
+		expect(response.status).toBe(404);
+		expect(await response.json()).toEqual({ error: 'Not found' });
+	});
 });
