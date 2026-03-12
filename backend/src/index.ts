@@ -9,6 +9,10 @@ export interface Env {
 
 import { viewerHtml } from './viewer';
 
+// Performance optimization: Cache the KV API secret in memory to prevent
+// redundant KV reads on every request. This reduces latency and KV operations.
+let cachedKvSecret: string | null = null;
+
 export default {
 	async fetch(request: Request, env: Env, ctx: ExecutionContext): Promise<Response> {
 		const url = new URL(request.url);
@@ -35,7 +39,10 @@ export default {
 
 		// Setup Endpoint - Allow initial generation of API Secret
 		if (request.method === 'POST' && url.pathname === '/setup') {
-			const existingSecret = env.API_SECRET || await env.KEEPROOT_STORE.get('KEEPROOT_API_SECRET');
+			if (!cachedKvSecret && !env.API_SECRET) {
+				cachedKvSecret = await env.KEEPROOT_STORE.get('KEEPROOT_API_SECRET');
+			}
+			const existingSecret = env.API_SECRET || cachedKvSecret;
 			if (existingSecret) {
 				return new Response(JSON.stringify({ error: 'Worker is already configured. Please log in with your existing API Secret (set via Wrangler or previously generated).' }), { 
 					status: 403, 
@@ -50,6 +57,7 @@ export default {
 			
 			// Store in KV
 			await env.KEEPROOT_STORE.put('KEEPROOT_API_SECRET', newSecret);
+			cachedKvSecret = newSecret; // Update the cache
 
 			return new Response(JSON.stringify({ secret: newSecret }), { 
 				status: 200, 
@@ -59,7 +67,10 @@ export default {
 
 		// Authentication for API endpoints
 		const authHeader = request.headers.get('Authorization');
-		const expectedSecret = env.API_SECRET || await env.KEEPROOT_STORE.get('KEEPROOT_API_SECRET');
+		if (!cachedKvSecret && !env.API_SECRET) {
+			cachedKvSecret = await env.KEEPROOT_STORE.get('KEEPROOT_API_SECRET');
+		}
+		const expectedSecret = env.API_SECRET || cachedKvSecret;
 
 		if (!expectedSecret) {
 			return new Response(JSON.stringify({ error: 'Worker API_SECRET is not configured. Setup required.', setupRequired: true }), { 
@@ -153,7 +164,8 @@ export default {
 			});
 
 		} catch (error: any) {
-			return new Response(JSON.stringify({ error: error.message || 'Internal Server Error' }), { 
+			console.error(error);
+			return new Response(JSON.stringify({ error: 'Internal Server Error' }), {
 				status: 500, 
 				headers: { 'Content-Type': 'application/json', ...corsHeaders } 
 			});

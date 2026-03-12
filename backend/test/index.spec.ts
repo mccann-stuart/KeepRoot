@@ -16,7 +16,7 @@ describe('KeepRoot Worker', () => {
 		expect(await response.json()).toEqual({ error: 'Unauthorized' });
 	});
 
-	it('responds with 500 if API_SECRET is not configured', async () => {
+	it('responds with 401 if API_SECRET is not configured', async () => {
 		const request = new Request('http://example.com/bookmarks', {
 			headers: { 'Authorization': `Bearer ${SECRET}` },
 		});
@@ -24,8 +24,8 @@ describe('KeepRoot Worker', () => {
 		const response = await worker.fetch(request, { ...env, API_SECRET: undefined } as any, ctx);
 		await waitOnExecutionContext(ctx);
 
-		expect(response.status).toBe(500);
-		expect(await response.json()).toEqual({ error: 'Worker API_SECRET is not configured' });
+		expect(response.status).toBe(401);
+		expect(await response.json()).toEqual({ error: 'Worker API_SECRET is not configured. Setup required.', setupRequired: true });
 	});
 
 	it('responds with 200 and CORS headers for OPTIONS request', async () => {
