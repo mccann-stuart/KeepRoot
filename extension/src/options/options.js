@@ -1,6 +1,5 @@
 document.addEventListener('DOMContentLoaded', restoreOptions);
 document.getElementById('settings-form').addEventListener('submit', saveOptions);
-document.getElementById('generate-btn').addEventListener('click', generateSecret);
 
 function showStatus(message, isError = false) {
   const statusEl = document.getElementById('status-message');
@@ -11,18 +10,6 @@ function showStatus(message, isError = false) {
     statusEl.className = 'status-msg text-center';
     statusEl.textContent = '';
   }, 3000);
-}
-
-function generateSecret() {
-  const array = new Uint8Array(24);
-  window.crypto.getRandomValues(array);
-  const secret = Array.from(array, byte => byte.toString(16).padStart(2, '0')).join('');
-  
-  const apiSecretInput = document.getElementById('apiSecret');
-  apiSecretInput.value = secret;
-  apiSecretInput.type = 'text'; // Show the generated secret
-  
-  showStatus('Generated! Save, then copy this to your Cloudflare Worker.', false);
 }
 
 function normalizeWorkerUrl(rawWorkerUrl) {
