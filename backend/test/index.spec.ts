@@ -121,6 +121,34 @@ describe('KeepRoot Worker', () => {
 		await waitOnExecutionContext(ctx);
 	});
 
+	it('retrieves a specific bookmark successfully (GET /bookmarks/:id)', async () => {
+		const ctx = createExecutionContext();
+		const bookmarkId = 'test-bookmark-123';
+		const bookmarkData = '# My Test Bookmark';
+		const metadata = {
+			url: 'https://test.com',
+			title: 'Test Title',
+			createdAt: new Date().toISOString(),
+			userId: 'test-user-id', // Matches the API key's user
+		};
+
+		// Seed KV store
+		await env.KEEPROOT_STORE.put(bookmarkId, bookmarkData, { metadata });
+
+		// Make GET request
+		const request = new Request(`http://example.com/bookmarks/${bookmarkId}`, {
+			headers: { Authorization: `Bearer ${API_KEY}` },
+		});
+		const response = await worker.fetch(request, env, ctx);
+		await waitOnExecutionContext(ctx);
+
+		expect(response.status).toBe(200);
+		const data = (await response.json()) as any;
+		expect(data.id).toBe(bookmarkId);
+		expect(data.markdownData).toBe(bookmarkData);
+		expect(data.metadata.title).toBe(metadata.title);
+	});
+
 	it('handles API key CRUD operations', async () => {
 		const ctx = createExecutionContext();
 
