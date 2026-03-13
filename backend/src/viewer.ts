@@ -551,6 +551,7 @@ export const viewerHtml = `<!DOCTYPE html>
         let secret = localStorage.getItem('keeproot_secret');
         let bookmarks = [];
         let currentBookmarkId = null;
+        let pollingInterval = null;
 
         // Initialize
         if (secret) {
@@ -767,8 +768,6 @@ export const viewerHtml = `<!DOCTYPE html>
             document.querySelectorAll('.bookmark-item').forEach(el => el.classList.remove('active'));
             DOM.newKeyResult.style.display = 'none';
         }
-
-        let pollingInterval = null;
 
         function startPolling() {
             if (pollingInterval) return;
