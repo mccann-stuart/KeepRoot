@@ -205,17 +205,17 @@ export async function listSources(env: StorageEnv, userId: string, options: Sour
 			last_polled_at, last_success_at, last_error, created_at, updated_at
 		FROM sources
 		WHERE user_id = ?
+			AND ((? IS NULL AND status != 'removed') OR status = ?)
 			AND (? IS NULL OR kind = ?)
-			AND (? IS NULL OR status = ?)
 		ORDER BY created_at DESC
 		LIMIT ? OFFSET ?`,
 	)
 		.bind(
 			userId,
-			options.kind ?? null,
-			options.kind ?? null,
 			options.status ?? null,
 			options.status ?? null,
+			options.kind ?? null,
+			options.kind ?? null,
 			limit + 1,
 			offset,
 		)

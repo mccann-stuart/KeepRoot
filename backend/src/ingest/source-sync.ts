@@ -60,40 +60,40 @@ function parseFeedEntries(xml: string): FeedEntry[] {
 
 	if (parsed.rss && typeof parsed.rss === 'object') {
 		const channel = (parsed.rss as Record<string, unknown>).channel as Record<string, unknown> | undefined;
-		return ensureArray(channel?.item as Record<string, unknown> | Array<Record<string, unknown>> | undefined)
-			.map((item) => {
-				const link = firstDefinedString(item.link, item.guid);
-				if (!link) {
-					return null;
-				}
+		const entries: FeedEntry[] = [];
+		for (const item of ensureArray(channel?.item as Record<string, unknown> | Array<Record<string, unknown>> | undefined)) {
+			const link = firstDefinedString(item.link, item.guid);
+			if (!link) {
+				continue;
+			}
 
-				return {
-					publishedAt: firstDefinedString(item.pubDate, item.isoDate),
-					summary: firstDefinedString(item.description, item['content:encoded']),
-					title: firstDefinedString(item.title) ?? link,
-					url: link,
-				};
-			})
-			.filter((entry): entry is FeedEntry => Boolean(entry));
+			entries.push({
+				publishedAt: firstDefinedString(item.pubDate, item.isoDate),
+				summary: firstDefinedString(item.description, item['content:encoded']),
+				title: firstDefinedString(item.title) ?? link,
+				url: link,
+			});
+		}
+		return entries;
 	}
 
 	if (parsed.feed && typeof parsed.feed === 'object') {
 		const feed = parsed.feed as Record<string, unknown>;
-		return ensureArray(feed.entry as Record<string, unknown> | Array<Record<string, unknown>> | undefined)
-			.map((entry) => {
-				const link = extractAtomLink(entry);
-				if (!link) {
-					return null;
-				}
+		const entries: FeedEntry[] = [];
+		for (const entry of ensureArray(feed.entry as Record<string, unknown> | Array<Record<string, unknown>> | undefined)) {
+			const link = extractAtomLink(entry);
+			if (!link) {
+				continue;
+			}
 
-				return {
-					publishedAt: firstDefinedString(entry.updated, entry.published),
-					summary: firstDefinedString(entry.summary, entry.content),
-					title: firstDefinedString(entry.title) ?? link,
-					url: link,
-				};
-			})
-			.filter((entry): entry is FeedEntry => Boolean(entry));
+			entries.push({
+				publishedAt: firstDefinedString(entry.updated, entry.published),
+				summary: firstDefinedString(entry.summary, entry.content),
+				title: firstDefinedString(entry.title) ?? link,
+				url: link,
+			});
+		}
+		return entries;
 	}
 
 	return [];

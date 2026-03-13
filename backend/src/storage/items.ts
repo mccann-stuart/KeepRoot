@@ -1,7 +1,23 @@
-import { getBookmark, listBookmarks, patchBookmark, saveBookmark, type BookmarkPatchPayload, type BookmarkPayload, type BookmarkRecord } from './bookmarks';
+import { getBookmark, listBookmarks, patchBookmark, saveBookmark } from './bookmarks';
 import { upsertInboxEntry } from './inbox';
 import { searchBookmarkIds } from './search';
-import { compactObject, type AuthenticatedUser, type ItemListOptions, type ItemSearchOptions, type StorageEnv } from './shared';
+import {
+	compactObject,
+	type AuthenticatedUser,
+	type BookmarkPatchPayload,
+	type BookmarkPayload,
+	type BookmarkRecord,
+	type ItemListOptions,
+	type ItemSearchOptions,
+	type StorageEnv,
+} from './shared';
+
+interface SearchItemResult {
+	id: string;
+	matchReason: 'keyword' | 'semantic' | 'hybrid';
+	metadata: Record<string, unknown>;
+	score: number;
+}
 
 function decodeCursor(cursor?: string | null): number {
 	if (!cursor) {
@@ -166,7 +182,7 @@ export async function updateItem(
 	});
 }
 
-export async function searchItems(env: StorageEnv, userId: string, options: ItemSearchOptions): Promise<{ items: Array<Record<string, unknown>> }> {
+export async function searchItems(env: StorageEnv, userId: string, options: ItemSearchOptions): Promise<{ items: SearchItemResult[] }> {
 	const matches = await searchBookmarkIds(env, userId, options);
 	if (matches.length === 0) {
 		return { items: [] };
@@ -178,7 +194,7 @@ export async function searchItems(env: StorageEnv, userId: string, options: Item
 
 	return {
 		items: matches
-			.map((match) => {
+			.map<SearchItemResult | null>((match) => {
 				const item = itemMap.get(match.id);
 				if (!item) {
 					return null;
@@ -191,6 +207,6 @@ export async function searchItems(env: StorageEnv, userId: string, options: Item
 					metadata: item.metadata,
 				});
 			})
-			.filter((item): item is Record<string, unknown> => Boolean(item)),
+			.filter((item): item is SearchItemResult => item !== null),
 	};
 }
