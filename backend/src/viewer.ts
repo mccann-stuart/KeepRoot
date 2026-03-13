@@ -511,6 +511,62 @@ export const viewerHtml = `<!DOCTYPE html>
     <!-- Toast -->
     <div id="toast" class="toast">Message here</div>
 
+    <!-- List Modal -->
+    <div id="list-modal" class="modal-overlay hidden-view">
+        <div class="bg-white dark:bg-slate-900 p-6 rounded-xl border border-slate-200 dark:border-slate-800 shadow-xl max-w-sm w-full mx-4">
+            <h3 id="list-modal-title" class="font-bold text-lg mb-4">Create List</h3>
+            <div class="space-y-4">
+                <div>
+                    <label class="block text-xs font-medium text-slate-500 mb-1">List Name</label>
+                    <input type="text" id="list-name-input" class="w-full bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg p-2.5 text-sm focus:ring-2 focus:ring-primary/50 outline-none" placeholder="My Reading List">
+                </div>
+            </div>
+            <div class="flex gap-2 justify-end mt-6">
+                <button id="btn-cancel-list" class="px-4 py-2 text-sm font-medium text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800 rounded-lg">Cancel</button>
+                <button id="btn-save-list" class="px-4 py-2 text-sm font-medium bg-primary text-white hover:bg-primary/90 rounded-lg shadow-md">Save</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Smart List Modal -->
+    <div id="smart-list-modal" class="modal-overlay hidden-view">
+        <div class="bg-white dark:bg-slate-900 p-6 rounded-xl border border-slate-200 dark:border-slate-800 shadow-xl max-w-sm w-full mx-4">
+            <h3 id="smart-list-modal-title" class="font-bold text-lg mb-4">Create Smart List</h3>
+            <div class="space-y-4">
+                <div>
+                    <label class="block text-xs font-medium text-slate-500 mb-1">Smart List Name</label>
+                    <input type="text" id="smart-list-name-input" class="w-full bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg p-2.5 text-sm focus:ring-2 focus:ring-primary/50 outline-none" placeholder="Tech Articles">
+                </div>
+                <div>
+                    <label class="block text-xs font-medium text-slate-500 mb-1">Rules (comma-separated tags)</label>
+                    <input type="text" id="smart-list-rules-input" class="w-full bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg p-2.5 text-sm focus:ring-2 focus:ring-primary/50 outline-none" placeholder="tech, ai, programming">
+                    <p class="text-xs text-slate-400 mt-1">Bookmarks matching any of these tags will appear in this list.</p>
+                </div>
+            </div>
+            <div class="flex gap-2 justify-end mt-6">
+                <button id="btn-cancel-smart-list" class="px-4 py-2 text-sm font-medium text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800 rounded-lg">Cancel</button>
+                <button id="btn-save-smart-list" class="px-4 py-2 text-sm font-medium bg-primary text-white hover:bg-primary/90 rounded-lg shadow-md">Save</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Edit Tags Modal -->
+    <div id="tags-modal" class="modal-overlay hidden-view">
+        <div class="bg-white dark:bg-slate-900 p-6 rounded-xl border border-slate-200 dark:border-slate-800 shadow-xl max-w-sm w-full mx-4">
+            <h3 class="font-bold text-lg mb-4">Edit Tags</h3>
+            <div class="space-y-4">
+                <div>
+                    <label class="block text-xs font-medium text-slate-500 mb-1">Tags (Comma Separated)</label>
+                    <input type="text" id="tags-input" class="w-full bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg p-2.5 text-sm focus:ring-2 focus:ring-primary/50 outline-none" placeholder="work/project-a, tech">
+                </div>
+            </div>
+            <div class="flex gap-2 justify-end mt-6">
+                <button id="btn-cancel-tags" class="px-4 py-2 text-sm font-medium text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800 rounded-lg">Cancel</button>
+                <button id="btn-save-tags" class="px-4 py-2 text-sm font-medium bg-primary text-white hover:bg-primary/90 rounded-lg shadow-md">Save Tags</button>
+            </div>
+        </div>
+    </div>
+
     <script>
         const { startRegistration, startAuthentication } = window.SimpleWebAuthnBrowser;
 
@@ -1219,14 +1275,16 @@ export const viewerHtml = `<!DOCTYPE html>
                 DOM.bookmarkList.innerHTML = '<div class="py-12 border-2 border-dashed border-slate-200 dark:border-slate-800 rounded-xl flex items-center justify-center"><div class="spinner"></div></div>';
             }
             try {
-                const [bRes, lRes, slRes] = await Promise.all([
+                const [bResult, lResult, slResult] = await Promise.allSettled([
                     apiFetch('/bookmarks'),
                     apiFetch('/lists'),
                     apiFetch('/smart-lists')
                 ]);
 
-                lists = lRes.lists || [];
-                smartLists = slRes.lists || [];
+                if (bResult.status === 'rejected') throw bResult.reason;
+                const bRes = bResult.value;
+                lists = lResult.status === 'fulfilled' ? (lResult.value.lists || []) : [];
+                smartLists = slResult.status === 'fulfilled' ? (slResult.value.lists || []) : [];
                 
                 const newKeys = bRes.keys || [];
                 
