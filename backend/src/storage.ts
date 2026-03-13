@@ -912,20 +912,15 @@ export async function saveBookmark(
 	const siteName = payload.siteName?.trim() || domain;
 	const hydratedImages = await hydrateImagePayloads(payload, normalizedUrl);
 
-	let htmlKey: string | null = null;
-	if (payload.htmlData?.trim()) {
-		const htmlData = payload.htmlData.trim();
-		const htmlHash = await sha256Hex(htmlData);
-		htmlKey = `html/${htmlHash}.html`;
-		await putIfMissing(env.KEEPROOT_CONTENT, htmlKey, htmlData, 'text/html;charset=UTF-8');
-	}
+	let rewrittenMarkdownData = markdownData;
+	let rewrittenHtmlData = payload.htmlData;
 
 	const contentDocument: StoredContentDocument = {
 		contentHash: '',
-		htmlKey,
+		htmlKey: null, // Set below
 		images: [],
 		lang: payload.lang ?? null,
-		markdownData,
+		markdownData: '', // Set below
 		textContent: plainText,
 		version: 1,
 	};
@@ -938,16 +933,36 @@ export async function saveBookmark(
 			const bytes = base64ToUint8Array(image.dataBase64);
 			const imageHash = await sha256Hex(bytes);
 			const variant = normalizeVariant(image.variant);
+			const imageKey = variant === 'original' ? `images/${imageHash}` : `thumbs/${imageHash}/${variant}`;
 			contentDocument.images.push({
 				height: image.height ?? null,
 				imageHash,
-				key: variant === 'original' ? `images/${imageHash}` : `thumbs/${imageHash}/${variant}`,
+				key: imageKey,
 				type: image.contentType ?? null,
 				variant: image.variant ?? null,
 				width: image.width ?? null,
 			});
+
+			if (image.sourceUrl) {
+				const sourceUrl = image.sourceUrl;
+				rewrittenMarkdownData = rewrittenMarkdownData.split(sourceUrl).join(`/${imageKey}`);
+				if (rewrittenHtmlData) {
+					rewrittenHtmlData = rewrittenHtmlData.split(sourceUrl).join(`/${imageKey}`);
+				}
+			}
 		}
 	}
+
+	let htmlKey: string | null = null;
+	if (rewrittenHtmlData?.trim()) {
+		const htmlData = rewrittenHtmlData.trim();
+		const htmlHash = await sha256Hex(htmlData);
+		htmlKey = `html/${htmlHash}.html`;
+		await putIfMissing(env.KEEPROOT_CONTENT, htmlKey, htmlData, 'text/html;charset=UTF-8');
+	}
+
+	contentDocument.htmlKey = htmlKey;
+	contentDocument.markdownData = rewrittenMarkdownData;
 
 	const contentJsonWithoutHash = JSON.stringify(contentDocument);
 	const contentHash = await sha256Hex(contentJsonWithoutHash);

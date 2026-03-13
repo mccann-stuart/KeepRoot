@@ -253,7 +253,7 @@ export const viewerHtml = `<!DOCTYPE html>
                 <!-- Content Reading View -->
                 <div id="content-view" class="hidden-view flex flex-col h-full">
                     <div class="p-8 border-b border-slate-200 dark:border-slate-800 bg-white dark:bg-background-dark">
-                        <div class="max-w-3xl mx-auto flex items-start justify-between">
+                        <div class="max-w-5xl transition-all duration-300 mx-auto flex items-start justify-between" id="reading-header-container">
                             <div class="flex-1 pr-8">
                                 <h1 class="text-3xl font-bold mb-3 leading-tight" id="view-title">Loading...</h1>
                                 <div class="flex items-center gap-4 text-sm text-slate-500 mb-2">
@@ -275,7 +275,7 @@ export const viewerHtml = `<!DOCTYPE html>
                     </div>
                     
                     <div class="flex-1 overflow-y-auto w-full p-8 bg-slate-50 dark:bg-slate-900/50">
-                        <div class="markdown-body max-w-3xl mx-auto bg-white dark:bg-slate-900 p-8 md:p-12 rounded-2xl shadow-sm border border-slate-200 dark:border-slate-800" id="markdown-container">
+                        <div class="markdown-body max-w-5xl transition-all duration-300 mx-auto bg-white dark:bg-slate-900 p-8 md:p-12 rounded-2xl shadow-sm border border-slate-200 dark:border-slate-800" id="markdown-container">
                             <!-- Content -->
                         </div>
                     </div>
@@ -470,6 +470,7 @@ export const viewerHtml = `<!DOCTYPE html>
             inboxView: document.getElementById('inbox-view'),
             statsPanel: document.getElementById('stats-panel'),
             toggleStatsBtn: document.getElementById('toggle-stats-btn'),
+            readingHeaderContainer: document.getElementById('reading-header-container'),
             
             viewTitle: document.getElementById('view-title'),
             viewUrl: document.getElementById('view-url'),
@@ -685,6 +686,14 @@ export const viewerHtml = `<!DOCTYPE html>
         if (DOM.toggleStatsBtn) {
             DOM.toggleStatsBtn.addEventListener('click', () => {
                 DOM.statsPanel.classList.toggle('hidden-view');
+                if (DOM.readingHeaderContainer) {
+                    DOM.readingHeaderContainer.classList.toggle('max-w-5xl');
+                    DOM.readingHeaderContainer.classList.toggle('max-w-3xl');
+                }
+                if (DOM.markdownContainer) {
+                    DOM.markdownContainer.classList.toggle('max-w-5xl');
+                    DOM.markdownContainer.classList.toggle('max-w-3xl');
+                }
             });
         }
 

@@ -105,6 +105,24 @@ export default {
 			return textResponse(swJs, 'application/javascript;charset=UTF-8');
 		}
 
+		if (request.method === 'GET' && (pathname.startsWith('/images/') || pathname.startsWith('/thumbs/'))) {
+			const objectKey = pathname.slice(1);
+			const objectBody = await env.KEEPROOT_CONTENT.get(objectKey);
+			if (!objectBody) {
+				return errorResponse('Not found', 404);
+			}
+
+			const headers = new Headers();
+			objectBody.writeHttpMetadata(headers);
+			headers.set('etag', objectBody.httpEtag);
+			headers.set('Cache-Control', 'public, max-age=31536000, immutable');
+			for (const [key, value] of Object.entries(corsHeaders)) {
+				headers.set(key, value);
+			}
+
+			return new Response(objectBody.body, { headers });
+		}
+
 		if (request.method === 'POST' && pathname === '/auth/generate-registration') {
 			try {
 				const { username } = await parseJson<{ username?: string }>(request);
