@@ -1,466 +1,64 @@
 export const viewerHtml = `<!DOCTYPE html>
-<html lang="en">
+<html class="dark" lang="en">
 <head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta charset="utf-8"/>
+    <meta content="width=device-width, initial-scale=1.0" name="viewport"/>
     <title>KeepRoot Dashboard</title>
-    <!-- Use marked for markdown rendering -->
+    
+    <!-- Standard utilities -->
     <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/dompurify/3.0.6/purify.min.js"></script>
-    <!-- WebAuthn Browser script -->
     <script src="https://unpkg.com/@simplewebauthn/browser/dist/bundle/index.umd.min.js"></script>
-    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+    
+    <!-- Tailwind & Fonts -->
+    <script src="https://cdn.tailwindcss.com?plugins=forms,container-queries"></script>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800;900&display=swap" rel="stylesheet"/>
+    <link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght@100..700,0..1&display=swap" rel="stylesheet"/>
+    <link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&display=swap" rel="stylesheet"/>
+    
+    <script id="tailwind-config">
+        tailwind.config = {
+            darkMode: "class",
+            theme: {
+                extend: {
+                    colors: {
+                        "primary": "#258cf4",
+                        "background-light": "#f5f7f8",
+                        "background-dark": "#101922",
+                    },
+                    fontFamily: {
+                        "display": ["Inter", "sans-serif"]
+                    },
+                    borderRadius: { "DEFAULT": "0.25rem", "lg": "0.5rem", "xl": "0.75rem", "full": "9999px" },
+                },
+            },
+        }
+    </script>
+    
     <style>
-        :root {
-            --bg-color: #0f172a;
-            --bg-gradient-start: #0f172a;
-            --bg-gradient-end: #1e293b;
-            --sidebar-bg: rgba(30, 41, 59, 0.7);
-            --panel-bg: rgba(15, 23, 42, 0.7);
-            --modal-bg: rgba(30, 41, 59, 0.9);
-            --text-main: #f8fafc;
-            --text-muted: #94a3b8;
-            --text-content: #cbd5e1;
-            --accent: #3b82f6;
-            --accent-hover: #2563eb;
-            --danger: #ef4444;
-            --danger-hover: #dc2626;
-            --success: #10b981;
-            --border: rgba(255, 255, 255, 0.1);
-            --item-hover: rgba(255, 255, 255, 0.08);
-            --item-active: rgba(59, 130, 246, 0.15);
-            --item-active-border: rgba(59, 130, 246, 0.3);
-            --code-bg: rgba(0, 0, 0, 0.3);
-            --pre-bg: rgba(0, 0, 0, 0.4);
-            --input-bg: rgba(15, 23, 42, 0.5);
-            --empty-icon: 0.5;
-            --spinner-border: rgba(255,255,255,0.1);
-            --scrollbar-thumb: rgba(255,255,255,0.1);
-            --scrollbar-thumb-main: rgba(255,255,255,0.15);
-        }
-
-        [data-theme="light"] {
-            --bg-color: #f8fafc;
-            --bg-gradient-start: #f1f5f9;
-            --bg-gradient-end: #e2e8f0;
-            --sidebar-bg: rgba(255, 255, 255, 0.7);
-            --panel-bg: rgba(248, 250, 252, 0.7);
-            --modal-bg: rgba(255, 255, 255, 0.95);
-            --text-main: #0f172a;
-            --text-muted: #64748b;
-            --text-content: #334155;
-            --accent: #2563eb;
-            --accent-hover: #1d4ed8;
-            --danger: #ef4444;
-            --danger-hover: #dc2626;
-            --success: #059669;
-            --border: rgba(0, 0, 0, 0.1);
-            --item-hover: rgba(0, 0, 0, 0.05);
-            --item-active: rgba(37, 99, 235, 0.1);
-            --item-active-border: rgba(37, 99, 235, 0.3);
-            --code-bg: rgba(0, 0, 0, 0.05);
-            --pre-bg: #f1f5f9;
-            --input-bg: #ffffff;
-            --empty-icon: 0.2;
-            --spinner-border: rgba(0,0,0,0.1);
-            --scrollbar-thumb: rgba(0,0,0,0.1);
-            --scrollbar-thumb-main: rgba(0,0,0,0.15);
-        }
-
-        * {
-            box-sizing: border-box;
-            margin: 0;
-            padding: 0;
-        }
-
-        body {
-            font-family: 'Inter', sans-serif;
-            background: linear-gradient(135deg, var(--bg-gradient-start) 0%, var(--bg-gradient-end) 100%);
-            color: var(--text-main);
-            height: 100vh;
-            display: flex;
-            overflow: hidden;
-            flex-direction: column;
-        }
-
-        /* Glassmorphism utils */
-        .glass {
-            background: var(--sidebar-bg);
-            backdrop-filter: blur(12px);
-            -webkit-backdrop-filter: blur(12px);
-            border-right: 1px solid var(--border);
-        }
-
-        /* Login Modal */
-        #login-modal {
-            position: fixed;
-            top: 0; left: 0; right: 0; bottom: 0;
-            background: var(--panel-bg);
-            backdrop-filter: blur(8px);
-            display: flex;
-            align-items: center;
-            justify-content: center;
-            z-index: 50;
-        }
-
-        .modal-content {
-            background: var(--modal-bg);
-            padding: 2.5rem;
-            border-radius: 1rem;
-            border: 1px solid var(--border);
-            text-align: center;
-            box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.5);
-            max-width: 400px;
-            width: 90%;
-            animation: fadeIn 0.3s ease-out;
-        }
-
-        .modal-content h2 {
-            margin-bottom: 0.5rem;
-            font-weight: 600;
-        }
-
-        .modal-content p {
-            color: var(--text-muted);
-            margin-bottom: 1.5rem;
-            font-size: 0.9rem;
-        }
-
-        input[type="password"], input[type="text"] {
-            width: 100%;
-            padding: 0.75rem 1rem;
-            border-radius: 0.5rem;
-            border: 1px solid var(--border);
-            background: var(--input-bg);
-            color: var(--text-main);
-            font-family: inherit;
-            margin-bottom: 1rem;
-            outline: none;
-            transition: border-color 0.2s;
-        }
-
-        input[type="password"]:focus, input[type="text"]:focus {
-            border-color: var(--accent);
-        }
-
-        button {
-            background: var(--accent);
-            color: white;
-            border: none;
-            padding: 0.75rem 1.5rem;
-            border-radius: 0.5rem;
-            font-weight: 500;
-            cursor: pointer;
-            transition: all 0.2s;
-            font-family: inherit;
-            width: 100%;
-        }
-
-        button:hover {
-            background: var(--accent-hover);
-            transform: translateY(-1px);
-        }
-
-        /* Main Layout */
-        #app {
-            display: flex;
-            height: 100vh;
-            width: 100%;
-            display: none; /* hidden until logged in */
-        }
-
-        /* Sidebar */
-        #sidebar {
-            width: 320px;
-            display: flex;
-            flex-direction: column;
-            z-index: 10;
-        }
-
-        .sidebar-header {
-            padding: 1.5rem;
-            border-bottom: 1px solid var(--border);
-            display: flex;
-            flex-direction: column;
-            gap: 1rem;
-        }
-
-        .sidebar-header h1 {
-            font-size: 1.25rem;
-            font-weight: 600;
-            display: flex;
-            align-items: center;
-            gap: 0.5rem;
-            cursor: pointer;
-        }
-
-        .sidebar-header h1 span {
-            color: var(--accent);
-        }
-
-        .search-container {
-            position: relative;
-        }
-
-        #search-input {
-            margin-bottom: 0;
-            padding-left: 2.5rem;
-        }
-
-        .search-icon {
-            position: absolute;
-            left: 0.75rem;
-            top: 50%;
-            transform: translateY(-50%);
-            color: var(--text-muted);
-        }
-
-        #bookmark-list {
-            flex: 1;
-            overflow-y: auto;
-            padding: 1rem;
-            display: flex;
-            flex-direction: column;
-            gap: 0.5rem;
-        }
-
-        #bookmark-list::-webkit-scrollbar {
-            width: 6px;
-        }
-        #bookmark-list::-webkit-scrollbar-thumb {
-            background: var(--scrollbar-thumb);
-            border-radius: 3px;
-        }
-
-        .bookmark-item {
-            padding: 1rem;
-            border-radius: 0.5rem;
-            background: var(--code-bg);
-            border: 1px solid transparent;
-            cursor: pointer;
-            transition: all 0.2s;
-            animation: slideIn 0.3s ease-out forwards;
-            opacity: 0;
-        }
-
-        .bookmark-item:hover {
-            background: var(--item-hover);
-            border-color: var(--border);
-            transform: translateX(2px);
-        }
-
-        .bookmark-item.active {
-            background: var(--item-active);
-            border-color: var(--item-active-border);
-            border-left: 3px solid var(--accent);
-        }
-
-        .bookmark-title {
-            font-weight: 500;
-            margin-bottom: 0.25rem;
-            display: -webkit-box;
-            -webkit-line-clamp: 2;
-            -webkit-box-orient: vertical;
-            overflow: hidden;
-            line-height: 1.4;
-        }
-
-        .bookmark-date {
-            font-size: 0.75rem;
-            color: var(--text-muted);
-        }
-
-        #logout-btn {
-            background: transparent;
-            border: 1px solid var(--danger);
-            color: var(--danger);
-        }
-        #logout-btn:hover {
-            background: rgba(239, 68, 68, 0.1);
-        }
-
-        #settings-btn {
-            background: var(--item-hover);
-            border: 1px solid var(--border);
-            margin-bottom: 0.5rem;
-        }
-        #settings-btn:hover {
-            background: var(--scrollbar-thumb-main);
-        }
-
-        /* Main Content Panel */
-        #main-content {
-            flex: 1;
-            display: flex;
-            flex-direction: column;
-            background: var(--panel-bg);
-            position: relative;
-        }
-
-        /* Setup Top Bar for the main content block */
-        .content-header {
-            padding: 1.5rem;
-            border-bottom: 1px solid var(--border);
-            display: flex;
-            justify-content: space-between;
-            align-items: flex-start;
-            min-height: 80px;
-        }
-
-        .content-header-info {
-            flex: 1;
-        }
-
-        .content-title {
-            font-size: 1.5rem;
-            font-weight: 600;
-            margin-bottom: 0.5rem;
-        }
-
-        .content-url {
-            color: var(--accent);
-            text-decoration: none;
-            font-size: 0.9rem;
-            word-break: break-all;
-            transition: color 0.2s;
-        }
-        .content-url:hover {
-            color: var(--accent-hover);
-            text-decoration: underline;
-        }
-
-        .content-actions {
-            display: flex;
-            gap: 1rem;
-        }
-
-        .font-actions {
-            display: flex; 
-            gap: 0.25rem; 
-            background: var(--item-hover); 
-            border-radius: 0.5rem; 
-            padding: 0.25rem;
-        }
-
-        .font-actions button {
-            background: transparent; 
-            color: var(--text-main); 
-            padding: 0.5rem 0.75rem; 
-            width: auto;
-            border-radius: 0.25rem;
-        }
-        .font-actions button:hover {
-            background: var(--item-active);
-        }
-
-        .btn-danger {
-            background: transparent;
-            color: var(--danger);
-            border: 1px solid var(--danger);
-            padding: 0.5rem 1rem;
-            width: auto;
-        }
-        .btn-danger:hover {
-            background: var(--danger);
-            color: white;
-        }
-
-        .markdown-body {
-            flex: 1;
-            overflow-y: auto;
-            padding: 2rem;
-            line-height: 1.6;
-            max-width: 800px;
-            margin: 0 auto;
-            width: 100%;
-            transition: font-size 0.2s ease-out;
-        }
-
-        .markdown-body::-webkit-scrollbar {
-            width: 8px;
-        }
-        .markdown-body::-webkit-scrollbar-thumb {
-            background: var(--scrollbar-thumb-main);
-            border-radius: 4px;
-        }
-
-        /* Basic Markdown Styling */
-        .markdown-body h1, .markdown-body h2, .markdown-body h3 { margin-top: 1.5rem; margin-bottom: 1rem; font-weight: 600; color: var(--text-main); }
-        .markdown-body h1 { font-size: 2rem; border-bottom: 1px solid var(--border); padding-bottom: 0.5rem; }
-        .markdown-body h2 { font-size: 1.5rem; }
-        .markdown-body p { margin-bottom: 1rem; color: var(--text-content); }
-        .markdown-body a { color: var(--accent); text-decoration: none; }
-        .markdown-body a:hover { text-decoration: underline; }
-        .markdown-body ul, .markdown-body ol { margin-bottom: 1rem; padding-left: 2rem; color: var(--text-content); }
-        .markdown-body li { margin-bottom: 0.25rem; }
-        .markdown-body blockquote { border-left: 4px solid var(--border); padding-left: 1rem; color: var(--text-muted); font-style: italic; margin-bottom: 1rem; }
-        .markdown-body code { background: var(--code-bg); padding: 0.2rem 0.4rem; border-radius: 0.25rem; font-family: monospace; font-size: 0.9em; color: var(--text-content); }
-        .markdown-body pre { background: var(--pre-bg); padding: 1rem; border-radius: 0.5rem; overflow-x: auto; margin-bottom: 1rem; border: 1px solid var(--border); }
-        .markdown-body pre code { background: none; padding: 0; color: inherit; }
+        body { font-family: 'Inter', sans-serif; }
+        .material-symbols-outlined { font-variation-settings: 'FILL' 0, 'wght' 400, 'GRAD' 0, 'opsz' 24; }
+        .active-nav { background-color: rgba(37, 140, 244, 0.1) !important; color: #258cf4 !important; }
+        .hidden-view { display: none !important; }
+        
+        /* Markdown Styling */
+        .markdown-body { line-height: 1.6; }
+        .markdown-body h1 { font-size: 2rem; font-weight: 700; margin-top: 2rem; margin-bottom: 1rem; border-bottom: 1px solid rgba(148, 163, 184, 0.2); padding-bottom: 0.5rem; }
+        .markdown-body h2 { font-size: 1.5rem; font-weight: 600; margin-top: 1.5rem; margin-bottom: 1rem; }
+        .markdown-body h3 { font-size: 1.25rem; font-weight: 600; margin-top: 1.25rem; margin-bottom: 0.75rem; }
+        .markdown-body p { margin-bottom: 1rem; }
+        .markdown-body a { color: #258cf4; text-decoration: underline; }
+        .markdown-body ul, .markdown-body ol { margin-left: 1.5rem; margin-bottom: 1rem; }
+        .markdown-body ul { list-style-type: disc; }
+        .markdown-body blockquote { border-left: 4px solid #258cf4; padding-left: 1rem; color: #64748b; font-style: italic; }
+        .markdown-body code { background: rgba(148, 163, 184, 0.1); padding: 0.2rem 0.4rem; border-radius: 0.25rem; font-family: monospace; font-size: 0.9em; }
+        .markdown-body pre { background: #1e293b; color: #f8fafc; padding: 1rem; border-radius: 0.5rem; overflow-x: auto; margin-bottom: 1rem; }
+        .markdown-body pre code { background: transparent; padding: 0; }
         .markdown-body img { max-width: 100%; border-radius: 0.5rem; margin: 1rem 0; }
-        .markdown-body hr { border: 0; border-top: 1px solid var(--border); margin: 2rem 0; }
-
-
-        #empty-state {
-            display: flex;
-            flex-direction: column;
-            align-items: center;
-            justify-content: center;
-            height: 100%;
-            color: var(--text-muted);
-            text-align: center;
-        }
-
-        #empty-state svg {
-            width: 64px;
-            height: 64px;
-            margin-bottom: 1rem;
-            opacity: var(--empty-icon);
-        }
-
-        /* Loading Spinner */
-        .spinner {
-            border: 3px solid var(--spinner-border);
-            width: 24px;
-            height: 24px;
-            border-radius: 50%;
-            border-left-color: var(--accent);
-            animation: spin 1s linear infinite;
-            margin: auto;
-        }
-
-        .loader-container {
-            display: flex;
-            justify-content: center;
-            align-items: center;
-            padding: 2rem;
-            width: 100%;
-        }
-
-        .toast {
-            position: fixed;
-            bottom: 2rem;
-            right: 2rem;
-            background: var(--modal-bg);
-            backdrop-filter: blur(8px);
-            border: 1px solid var(--border);
-            padding: 1rem 1.5rem;
-            border-radius: 0.5rem;
-            box-shadow: 0 10px 15px -3px rgba(0, 0, 0, 0.5);
-            transform: translateY(100px);
-            opacity: 0;
-            transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
-            z-index: 100;
-        }
-
-        .toast.show {
-            transform: translateY(0);
-            opacity: 1;
-        }
-
-        .toast.error { border-left: 4px solid var(--danger); }
-        .toast.success { border-left: 4px solid var(--success); }
-
+        .dark .markdown-body { color: #f1f5f9; }
+        .dark .markdown-body code { background: rgba(0, 0, 0, 0.3); }
+        
+        /* Highlights */
         .highlight {
             background-color: rgba(250, 204, 21, 0.3);
             border-bottom: 2px solid rgba(250, 204, 21, 0.8);
@@ -469,280 +67,377 @@ export const viewerHtml = `<!DOCTYPE html>
             color: inherit;
         }
         .highlight:hover { background-color: rgba(250, 204, 21, 0.5); }
-        .highlight.has-note {
-            background-color: rgba(59, 130, 246, 0.3);
-            border-bottom: 2px solid rgba(59, 130, 246, 0.8);
-        }
+        .highlight.has-note { background-color: rgba(59, 130, 246, 0.3); border-bottom: 2px solid rgba(59, 130, 246, 0.8); }
         .highlight.has-note:hover { background-color: rgba(59, 130, 246, 0.5); }
-        [data-theme="light"] .highlight { background-color: rgba(250, 204, 21, 0.4); }
-
-        @keyframes fadeIn { from { opacity: 0; transform: scale(0.95); } to { opacity: 1; transform: scale(1); } }
-        @keyframes slideIn { from { opacity: 0; transform: translateX(-10px); } to { opacity: 1; transform: translateX(0); } }
-        @keyframes spin { 0% { transform: rotate(0deg); } 100% { transform: rotate(360deg); } }
-
-        /* Settings UI */
-        .settings-heading {
-            font-size: 1.25rem;
-            font-weight: 600;
-            margin-bottom: 1rem;
-            color: var(--text-main);
-        }
-
-        .theme-option, .font-option {
-            cursor: pointer;
-            display: flex;
-            flex-direction: column;
-            align-items: center;
-        }
-
-        .theme-preview {
-            width: 120px;
-            height: 80px;
-            border-radius: 0.5rem;
-            border: 2px solid var(--border);
-            transition: all 0.2s;
-            position: relative;
-            overflow: hidden;
-        }
-        .theme-preview.light-preview { background: #f8fafc; }
-        .theme-preview.dark-preview { background: #0f172a; }
-        .theme-preview.auto-preview { background: linear-gradient(to right, #f8fafc 50%, #0f172a 50%); }
-
-        .theme-option.active .theme-preview, .font-option.active .font-preview {
-            border-color: var(--accent);
-            box-shadow: 0 0 0 1px var(--accent);
-        }
-
-        .font-preview {
-            width: 100px;
-            height: 100px;
-            border-radius: 0.5rem;
-            border: 2px solid var(--border);
-            display: flex;
-            align-items: center;
-            justify-content: center;
-            font-size: 2rem;
-            background: var(--panel-bg);
-            transition: all 0.2s;
-            color: var(--text-main);
-        }
-
-        /* Switch */
+        .dark .highlight { background-color: rgba(250, 204, 21, 0.4); }
+        
+        /* Settings Switch */
         .switch { position: relative; display: inline-block; width: 44px; height: 24px; }
         .switch input { opacity: 0; width: 0; height: 0; }
-        .slider { position: absolute; cursor: pointer; top: 0; left: 0; right: 0; bottom: 0; background-color: rgba(150,150,150,0.5); transition: .2s; border-radius: 24px; }
+        .slider { position: absolute; cursor: pointer; top: 0; left: 0; right: 0; bottom: 0; background-color: #cbd5e1; transition: .2s; border-radius: 24px; }
+        .dark .slider { background-color: #475569; }
         .slider:before { position: absolute; content: ""; height: 18px; width: 18px; left: 3px; bottom: 3px; background-color: white; transition: .2s; border-radius: 50%; }
-        input:checked + .slider { background-color: var(--accent); }
+        input:checked + .slider { background-color: #258cf4; }
         input:checked + .slider:before { transform: translateX(20px); }
-
-        /* Mobile Responsive */
-        @media (max-width: 768px) {
-            #app { flex-direction: column; }
-            #sidebar { width: 100%; height: 40vh; border-right: none; border-bottom: 1px solid var(--border); }
-            #main-content { height: 60vh; }
-            .content-header { flex-direction: column; gap: 1rem; }
-            .content-actions { width: 100%; justify-content: flex-end; }
+        
+        /* Theme Option Styling */
+        .theme-preview { width: 120px; height: 80px; border-radius: 0.5rem; border: 2px solid transparent; transition: all 0.2s; position: relative; overflow: hidden; cursor: pointer; }
+        .theme-preview.light-preview { background: #f8fafc; border-color: #e2e8f0; }
+        .theme-preview.dark-preview { background: #0f172a; border-color: #1e293b; }
+        .theme-preview.auto-preview { background: linear-gradient(to right, #f8fafc 50%, #0f172a 50%); border-color: #cbd5e1; }
+        .theme-option.active .theme-preview { border-color: #258cf4; box-shadow: 0 0 0 1px #258cf4; }
+        
+        .font-preview { width: 100px; height: 100px; border-radius: 0.5rem; border: 2px solid transparent; display: flex; align-items: center; justify-content: center; font-size: 2rem; background: #f1f5f9; transition: all 0.2s; cursor: pointer; }
+        .dark .font-preview { background: #1e293b; border-color: #334155; }
+        .font-option.active .font-preview { border-color: #258cf4; box-shadow: 0 0 0 1px #258cf4; }
+        
+        /* Loader */
+        .spinner {
+            border: 3px solid rgba(148, 163, 184, 0.2);
+            width: 24px;
+            height: 24px;
+            border-radius: 50%;
+            border-left-color: #258cf4;
+            animation: spin 1s linear infinite;
+            margin: auto;
+        }
+        @keyframes spin { 0% { transform: rotate(0deg); } 100% { transform: rotate(360deg); } }
+        
+        /* Toast */
+        .toast {
+            position: fixed; bottom: 2rem; right: 2rem;
+            background: white; color: #0f172a;
+            padding: 1rem 1.5rem; border-radius: 0.5rem;
+            box-shadow: 0 10px 15px -3px rgba(0, 0, 0, 0.1);
+            transform: translateY(100px); opacity: 0;
+            transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+            z-index: 100; font-weight: 500;
+        }
+        .dark .toast { background: #1e293b; color: white; border: 1px solid #334155; }
+        .toast.show { transform: translateY(0); opacity: 1; }
+        .toast.error { border-left: 4px solid #ef4444; }
+        .toast.success { border-left: 4px solid #10b981; }
+        
+        .bookmark-item.active {
+            border-color: rgba(37, 140, 244, 0.5) !important;
+            background-color: rgba(37, 140, 244, 0.05);
+        }
+        
+        /* Modals */
+        .modal-overlay {
+            position: fixed; inset: 0; background: rgba(0,0,0,0.5); backdrop-filter: blur(4px);
+            display: flex; align-items: center; justify-content: center; z-index: 50;
         }
     </style>
 </head>
-<body>
+
+<body class="bg-background-light dark:bg-background-dark text-slate-900 dark:text-slate-100 font-display min-h-screen">
 
     <!-- Login Modal -->
-    <div id="login-modal">
-        <div class="modal-content" id="login-view">
-            <h2>KeepRoot Auth</h2>
-            <p>Login with a Passkey</p>
+    <div id="login-modal" class="modal-overlay">
+        <div class="bg-white dark:bg-slate-900 p-8 rounded-2xl border border-slate-200 dark:border-slate-800 shadow-2xl max-w-sm w-full mx-4" id="login-view">
+            <div class="flex items-center justify-center gap-2 mb-6">
+                <div class="size-10 bg-primary rounded-lg flex items-center justify-center text-white">
+                    <span class="material-symbols-outlined">bookmarks</span>
+                </div>
+                <h2 class="text-2xl font-bold">KeepRoot</h2>
+            </div>
+            <p class="text-slate-500 dark:text-slate-400 text-center mb-6 text-sm">Login with a Passkey to access your personal librarian.</p>
             
-            <form id="passkey-form">
-                <input type="text" id="username-input" placeholder="Username" required autocomplete="username webauthn">
-                <div style="display: flex; gap: 0.5rem;">
-                    <button type="button" id="btn-register" style="flex: 1; background: var(--panel-bg); color: var(--text-main); border: 1px solid var(--border); transition: background 0.2s;">Register</button>
-                    <button type="submit" id="btn-login" style="flex: 1;">Login</button>
+            <form id="passkey-form" class="space-y-4">
+                <div>
+                    <input type="text" id="username-input" class="w-full px-4 py-3 bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg text-sm focus:ring-2 focus:ring-primary/50 focus:border-primary outline-none transition-all dark:text-white" placeholder="Username" required autocomplete="username webauthn">
+                </div>
+                <div class="flex gap-3">
+                    <button type="button" id="btn-register" class="flex-1 py-3 px-4 bg-white dark:bg-slate-800 text-slate-700 dark:text-slate-300 border border-slate-200 dark:border-slate-700 rounded-lg text-sm font-semibold hover:bg-slate-50 dark:hover:bg-slate-700 transition-colors">Register</button>
+                    <button type="submit" id="btn-login" class="flex-1 py-3 px-4 bg-primary text-white rounded-lg text-sm font-semibold hover:bg-primary/90 transition-colors shadow-lg shadow-primary/20">Login</button>
                 </div>
             </form>
         </div>
     </div>
 
-    <!-- Main App -->
-    <div id="app">
-        <!-- Sidebar -->
-        <div id="sidebar" class="glass">
-            <div class="sidebar-header">
-                <h1 id="brand-title">
-                    <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="color:var(--accent)"><path d="M19 21l-7-5-7 5V5a2 2 0 0 1 2-2h10a2 2 0 0 1 2 2z"></path></svg>
-                    Keep<span>Root</span>
-                </h1>
-                <div class="search-container">
-                    <svg class="search-icon" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="8"></circle><line x1="21" y1="21" x2="16.65" y2="16.65"></line></svg>
-                    <input type="text" id="search-input" placeholder="Search bookmarks...">
-                </div>
-            </div>
-            <div id="bookmark-list">
-                <!-- Bookmarks will be injected here -->
-            </div>
-            <div style="padding: 1rem; border-top: 1px solid var(--border); display: flex; flex-direction: column; gap: 0.5rem;">
-                <div style="display: flex; gap: 0.5rem;">
-                    <button id="open-settings-btn" style="flex: 1; background: var(--item-hover); border: 1px solid var(--border); color: var(--text-main);">
-                        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="margin-bottom:-3px; margin-right:4px"><circle cx="12" cy="12" r="3"></circle><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z"></path></svg> 
-                        Settings
-                    </button>
-                </div>
-                <button id="setup-btn">Setup</button>
-                <button id="logout-btn">Log Out</button>
-            </div>
-        </div>
+    <!-- Main Application (Hidden initially) -->
+    <div id="app" class="flex h-screen overflow-hidden hidden-view" style="display: none;">
 
-        <!-- Main Content -->
-        <div id="main-content">
-            <div id="empty-state">
-                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"></path><polyline points="14 2 14 8 20 8"></polyline><line x1="16" y1="13" x2="8" y2="13"></line><line x1="16" y1="17" x2="8" y2="17"></line><polyline points="10 9 9 9 8 9"></polyline></svg>
-                <h2>Select a Bookmark</h2>
-                <p>Choose a saved page from the sidebar to read it.</p>
+        <!-- Sidebar Navigation -->
+        <aside class="w-64 flex-shrink-0 border-r border-slate-200 dark:border-slate-800 bg-white dark:bg-background-dark flex flex-col">
+            <div class="p-6 flex items-center gap-3 cursor-pointer" id="brand-title">
+                <div class="size-10 bg-primary rounded-lg flex items-center justify-center text-white">
+                    <span class="material-symbols-outlined">bookmarks</span>
+                </div>
+                <div>
+                    <h1 class="font-bold text-lg leading-tight">KeepRoot</h1>
+                    <p class="text-xs text-slate-500 dark:text-slate-400">Personal Librarian</p>
+                </div>
             </div>
-            
-            <div id="setup-view" style="display: none; height: 100%; flex-direction: column; overflow-y: auto; padding: 2rem; max-width: 800px; margin: 0 auto; width: 100%;">
-                <h2 style="font-size: 2rem; border-bottom: 1px solid var(--border); padding-bottom: 0.5rem; margin-bottom: 2rem;">Setup & API Keys</h2>
+
+            <nav class="flex-1 px-4 py-4 space-y-1 overflow-y-auto">
+                <div class="text-xs font-semibold text-slate-400 uppercase tracking-wider px-3 mb-2">Main</div>
+                <a class="flex items-center gap-3 px-3 py-2.5 rounded-lg active-nav group cursor-pointer" id="nav-inbox">
+                    <span class="material-symbols-outlined text-[22px]">inbox</span>
+                    <span class="text-sm font-medium">Inbox</span>
+                </a>
+                <a class="flex items-center gap-3 px-3 py-2.5 rounded-lg text-slate-600 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors cursor-pointer" id="nav-all">
+                    <span class="material-symbols-outlined text-[22px]">list_alt</span>
+                    <span class="text-sm font-medium">All Bookmarks</span>
+                </a>
                 
-                <div style="background: var(--sidebar-bg); border: 1px solid var(--border); border-radius: 0.5rem; padding: 1.5rem; margin-bottom: 2rem;">
-                    <h3>Generate New API Key</h3>
-                    <p style="color: var(--text-muted); margin-bottom: 1rem; font-size: 0.9rem;">Create a key for the KeepRoot Chrome Extension. This key will only be shown once!</p>
-                    <form id="generate-key-form" style="display: flex; gap: 0.5rem;">
-                        <input type="text" id="new-key-name" placeholder="Key Name (e.g. My Laptop)" style="margin-bottom: 0; flex: 1;" required>
-                        <button type="submit" style="width: auto;">Generate</button>
-                    </form>
-                    <div id="new-key-result" style="display: none; margin-top: 1rem; padding: 1rem; background: rgba(16, 185, 129, 0.1); border: 1px solid #10b981; border-radius: 0.5rem;">
-                        <p style="margin-bottom: 0.5rem; color: #10b981; font-weight: 500;">Success! Copy your new API key:</p>
-                        <div style="display: flex; gap: 0.5rem;">
-                            <input type="text" id="new-key-value" readonly style="margin-bottom: 0; flex: 1; font-family: monospace;">
-                            <button type="button" id="copy-new-key-btn" style="width: auto; background: #10b981; border: none; color: white;">Copy</button>
+                <div class="pt-8 mb-2">
+                    <div class="text-xs font-semibold text-slate-400 uppercase tracking-wider px-3 mb-2">Manage</div>
+                    <div class="space-y-1">
+                        <a class="flex items-center gap-3 px-3 py-2.5 rounded-lg text-slate-600 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors cursor-pointer" id="setup-btn">
+                            <span class="material-symbols-outlined text-[20px]">key</span>
+                            <span class="text-sm font-medium">API Keys</span>
+                        </a>
+                    </div>
+                </div>
+            </nav>
+
+            <div class="p-4 border-t border-slate-200 dark:border-slate-800">
+                <a class="flex items-center gap-3 px-3 py-2 rounded-lg text-slate-600 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors cursor-pointer" id="open-settings-btn">
+                    <span class="material-symbols-outlined">settings</span>
+                    <span class="text-sm font-medium">Settings</span>
+                </a>
+                <a class="flex items-center gap-3 px-3 py-2 mt-1 rounded-lg text-red-600 dark:text-red-400 hover:bg-red-50 dark:hover:bg-red-900/10 transition-colors cursor-pointer" id="logout-btn">
+                    <span class="material-symbols-outlined">logout</span>
+                    <span class="text-sm font-medium">Log out</span>
+                </a>
+            </div>
+        </aside>
+
+        <!-- Main Content Area -->
+        <main class="flex-1 flex flex-col bg-slate-50 dark:bg-slate-900/50 overflow-hidden relative">
+
+            <!-- Header -->
+            <header class="h-16 border-b border-slate-200 dark:border-slate-800 bg-white dark:bg-background-dark flex items-center justify-between px-8 shrink-0">
+                <div class="flex items-center gap-4">
+                    <h2 class="text-xl font-bold" id="current-view-title">Inbox</h2>
+                </div>
+
+                <div class="flex items-center gap-4">
+                    <div class="relative">
+                        <span class="material-symbols-outlined absolute left-3 top-1/2 -translate-y-1/2 text-slate-400 text-lg">search</span>
+                        <input type="text" id="search-input" class="pl-10 pr-4 py-2 bg-slate-100 dark:bg-slate-800/50 border border-transparent dark:border-slate-700/50 rounded-lg text-sm w-64 focus:ring-2 focus:ring-primary/50 transition-all outline-none" placeholder="Search your bookmarks..."/>
+                    </div>
+                </div>
+            </header>
+
+            <!-- Dynamic Views -->
+            <div class="flex-1 overflow-y-auto relative w-full h-full">
+
+                <!-- Empty State / Splash -->
+                <div id="empty-state" class="absolute inset-0 flex flex-col flex-1 items-center justify-center text-slate-500 hidden-view h-full">
+                    <span class="material-symbols-outlined text-6xl text-slate-300 dark:text-slate-700 mb-4">auto_stories</span>
+                    <h2 class="text-xl font-semibold text-slate-700 dark:text-slate-300 mb-2">No bookmark selected</h2>
+                    <p class="text-sm">Choose an item from your list or add a new one.</p>
+                </div>
+
+                <!-- Inbox / List View -->
+                <div id="inbox-view" class="p-8 h-full">
+                    <div class="max-w-5xl mx-auto space-y-6">
+                        <!-- Filters/Tags Bar (Static visually for now) -->
+                        <div class="flex items-center gap-2 overflow-x-auto pb-2 scrollbar-hide">
+                            <button class="px-4 py-1.5 bg-primary text-white rounded-full text-xs font-medium whitespace-nowrap">All</button>
+                        </div>
+
+                        <!-- Bookmark List Injection -->
+                        <div id="bookmark-list" class="grid gap-3">
+                            <!-- Bookmarks injected by JS -->
                         </div>
                     </div>
                 </div>
 
-                <h3>Active Keys</h3>
-                <div id="api-keys-list" style="display: flex; flex-direction: column; gap: 0.5rem; margin-top: 1rem;">
-                    <!-- Keys injected here -->
-                </div>
-            </div>
-
-            <div id="settings-view" style="display: none; height: 100%; flex-direction: column; overflow-y: auto; padding: 2rem; max-width: 800px; margin: 0 auto; width: 100%;">
-                <h2 style="font-size: 2rem; margin-bottom: 2rem;">Settings</h2>
-                
-                <div class="settings-section">
-                    <h3 class="settings-heading">Notifications</h3>
-                    <div style="display: flex; justify-content: space-between; align-items: flex-start; padding: 1rem 0; border-bottom: 1px solid var(--border);">
-                        <div>
-                            <div style="font-weight: 500; margin-bottom: 0.25rem;">Task completions</div>
-                            <div style="font-size: 0.9rem; color: var(--text-muted); line-height: 1.4;">Get notified when KeepRoot has finished a task</div>
+                <!-- Content Reading View -->
+                <div id="content-view" class="hidden-view flex flex-col h-full">
+                    <div class="p-8 border-b border-slate-200 dark:border-slate-800 bg-white dark:bg-background-dark">
+                        <div class="max-w-3xl mx-auto flex items-start justify-between">
+                            <div class="flex-1 pr-8">
+                                <h1 class="text-3xl font-bold mb-3 leading-tight" id="view-title">Loading...</h1>
+                                <div class="flex items-center gap-4 text-sm text-slate-500 mb-2">
+                                    <span class="flex items-center gap-1"><span class="material-symbols-outlined text-sm">schedule</span> <span id="view-date"></span></span>
+                                    <a href="#" target="_blank" class="flex items-center gap-1 text-primary hover:underline" id="view-url"><span class="material-symbols-outlined text-sm">link</span> Visit Original</a>
+                                </div>
+                            </div>
+                            <div class="flex items-center gap-2">
+                                <div class="flex items-center bg-slate-100 dark:bg-slate-800 rounded-lg p-1">
+                                    <button id="font-decrease-btn" class="p-2 text-slate-500 hover:text-slate-900 dark:hover:text-white rounded hover:bg-white dark:hover:bg-slate-700 transition-colors" title="Decrease Font Size"><span class="material-symbols-outlined text-sm">text_decrease</span></button>
+                                    <button id="font-increase-btn" class="p-2 text-slate-500 hover:text-slate-900 dark:hover:text-white rounded hover:bg-white dark:hover:bg-slate-700 transition-colors" title="Increase Font Size"><span class="material-symbols-outlined text-sm">text_increase</span></button>
+                                </div>
+                                <button id="delete-btn" class="p-2.5 text-red-500 bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800/50 hover:bg-red-500 hover:text-white transition-colors rounded-lg flex items-center gap-2 text-sm font-medium">
+                                    <span class="material-symbols-outlined text-[18px]">delete</span>
+                                    Delete
+                                </button>
+                            </div>
                         </div>
-                        <label class="switch">
-                            <input type="checkbox" id="notification-toggle" checked>
-                            <span class="slider"></span>
-                        </label>
                     </div>
-                </div>
-
-                <div class="settings-section" style="margin-top: 2.5rem;">
-                    <h3 class="settings-heading">Appearance</h3>
                     
-                    <div style="margin-top: 1rem;">
-                        <div style="margin-bottom: 0.75rem; color: var(--text-main);">Color mode</div>
-                        <div style="display: flex; gap: 1rem;">
-                            <div class="theme-option" data-theme-val="light">
-                                <div class="theme-preview light-preview">
-                                    <div style="position: absolute; top: 8px; left: 8px; right: 8px; height: 8px; background: #e2e8f0; border-radius: 4px;"></div>
-                                    <div style="position: absolute; top: 24px; left: 8px; width: 60%; height: 2px; background: #cbd5e1;"></div>
-                                    <div style="position: absolute; bottom: 8px; right: 8px; width: 8px; height: 8px; background: #ea580c; border-radius: 50%;"></div>
-                                </div>
-                                <div style="text-align: center; margin-top: 0.5rem; font-size: 0.9rem; color: var(--text-muted);">Light</div>
-                            </div>
-                            <div class="theme-option" data-theme-val="auto">
-                                <div class="theme-preview auto-preview">
-                                    <div style="position: absolute; top: 8px; left: 8px; right: 8px; height: 8px; background: rgba(128,128,128,0.2); border-radius: 4px;"></div>
-                                    <div style="position: absolute; bottom: 8px; right: 8px; width: 8px; height: 8px; background: #ea580c; border-radius: 50%;"></div>
-                                </div>
-                                <div style="text-align: center; margin-top: 0.5rem; font-size: 0.9rem; color: var(--text-muted);">Auto</div>
-                            </div>
-                            <div class="theme-option" data-theme-val="dark">
-                                <div class="theme-preview dark-preview">
-                                    <div style="position: absolute; top: 8px; left: 8px; right: 8px; height: 8px; background: #334155; border-radius: 4px;"></div>
-                                    <div style="position: absolute; top: 24px; left: 8px; width: 60%; height: 2px; background: #475569;"></div>
-                                    <div style="position: absolute; bottom: 8px; right: 8px; width: 8px; height: 8px; background: #ea580c; border-radius: 50%;"></div>
-                                </div>
-                                <div style="text-align: center; margin-top: 0.5rem; font-size: 0.9rem; color: var(--text-muted);">Dark</div>
-                            </div>
+                    <div class="flex-1 overflow-y-auto w-full p-8 bg-slate-50 dark:bg-slate-900/50">
+                        <div class="markdown-body max-w-3xl mx-auto bg-white dark:bg-slate-900 p-8 md:p-12 rounded-2xl shadow-sm border border-slate-200 dark:border-slate-800" id="markdown-container">
+                            <!-- Content -->
                         </div>
                     </div>
+                </div>
 
-                    <div style="margin-top: 2rem;">
-                        <div style="margin-bottom: 0.75rem; color: var(--text-main);">Font</div>
-                        <div style="display: flex; gap: 1rem; flex-wrap: wrap;">
-                            <div class="font-option" data-font-val="default">
-                                <div class="font-preview" style="font-family: inherit;"><span>Aa</span></div>
-                                <div style="text-align: center; margin-top: 0.5rem; font-size: 0.9rem; color: var(--text-muted);">Default</div>
+                <!-- Setup / API Keys View -->
+                <div id="setup-view" class="hidden-view p-8">
+                    <div class="max-w-2xl mx-auto">
+                        <h2 class="text-3xl font-bold mb-8">API Keys</h2>
+                        
+                        <div class="bg-white dark:bg-slate-900 p-6 rounded-2xl border border-slate-200 dark:border-slate-800 shadow-sm mb-8">
+                            <div class="flex items-center gap-3 mb-2">
+                                <div class="size-8 rounded bg-primary/10 flex items-center justify-center text-primary"><span class="material-symbols-outlined text-[20px]">add_key</span></div>
+                                <h3 class="text-lg font-semibold">Generate New Key</h3>
                             </div>
-                            <div class="font-option" data-font-val="sans">
-                                <div class="font-preview" style="font-family: sans-serif;"><span>Aa</span></div>
-                                <div style="text-align: center; margin-top: 0.5rem; font-size: 0.9rem; color: var(--text-muted);">Sans</div>
+                            <p class="text-sm text-slate-500 mb-6">Create a key to use with the Chrome Extension. The key will only be shown once.</p>
+                            
+                            <form id="generate-key-form" class="flex gap-3">
+                                <input type="text" id="new-key-name" class="flex-1 px-4 py-2 border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 rounded-lg text-sm focus:ring-2 focus:ring-primary/50 outline-none" placeholder="Key Name (e.g. My Laptop)" required>
+                                <button type="submit" class="px-6 py-2 bg-primary text-white rounded-lg text-sm font-medium hover:bg-primary/90 transition-colors">Generate</button>
+                            </form>
+                            
+                            <div id="new-key-result" class="hidden mt-6 p-4 bg-emerald-50 dark:bg-emerald-900/20 border border-emerald-200 dark:border-emerald-800/50 rounded-lg">
+                                <p class="text-emerald-700 dark:text-emerald-400 font-medium text-sm mb-2">Success! Copy your new API key:</p>
+                                <div class="flex gap-2">
+                                    <input type="text" id="new-key-value" readonly class="flex-1 px-3 py-2 bg-white dark:bg-slate-950 border border-emerald-200 dark:border-emerald-800 rounded font-mono text-sm">
+                                    <button type="button" id="copy-new-key-btn" class="px-4 py-2 bg-emerald-600 hover:bg-emerald-700 text-white rounded text-sm font-medium transition-colors">Copy</button>
+                                </div>
                             </div>
-                            <div class="font-option" data-font-val="system">
-                                <div class="font-preview" style="font-family: system-ui, -apple-system, BlinkMacSystemFont;"><span>Aa</span></div>
-                                <div style="text-align: center; margin-top: 0.5rem; font-size: 0.9rem; color: var(--text-muted);">System</div>
-                            </div>
-                            <div class="font-option" data-font-val="dyslexic">
-                                <div class="font-preview" style="font-family: 'OpenDyslexic', 'Comic Sans MS', sans-serif;"><span>Aa</span></div>
-                                <div style="text-align: center; margin-top: 0.5rem; font-size: 0.9rem; color: var(--text-muted);">Dyslexic friendly</div>
+                        </div>
+
+                        <div class="bg-white dark:bg-slate-900 p-6 rounded-2xl border border-slate-200 dark:border-slate-800 shadow-sm">
+                            <h3 class="text-lg font-semibold mb-4">Active Keys</h3>
+                            <div id="api-keys-list" class="space-y-3">
+                                <!-- Keys injected -->
                             </div>
                         </div>
                     </div>
                 </div>
+
+                <!-- Settings View -->
+                <div id="settings-view" class="hidden-view p-8">
+                    <div class="max-w-2xl mx-auto">
+                        <h2 class="text-3xl font-bold mb-8">Settings</h2>
+                        
+                        <div class="bg-white dark:bg-slate-900 p-6 rounded-2xl border border-slate-200 dark:border-slate-800 shadow-sm space-y-8">
+                            <!-- Notifications -->
+                            <section>
+                                <div class="flex items-center gap-3 mb-4">
+                                    <div class="size-8 rounded bg-slate-100 dark:bg-slate-800 flex items-center justify-center text-slate-600 dark:text-slate-400"><span class="material-symbols-outlined text-[20px]">notifications</span></div>
+                                    <h3 class="text-lg font-semibold">Notifications</h3>
+                                </div>
+                                <div class="flex items-center justify-between p-4 bg-slate-50 dark:bg-slate-800/50 rounded-xl border border-slate-100 dark:border-slate-700/50">
+                                    <div>
+                                        <div class="font-medium">Task completions</div>
+                                        <div class="text-sm text-slate-500">Get notified when KeepRoot finishes a task</div>
+                                    </div>
+                                    <label class="switch">
+                                        <input type="checkbox" id="notification-toggle" checked>
+                                        <span class="slider"></span>
+                                    </label>
+                                </div>
+                            </section>
+
+                            <hr class="border-slate-200 dark:border-slate-800">
+
+                            <!-- Appearance -->
+                            <section>
+                                <div class="flex items-center gap-3 mb-4">
+                                    <div class="size-8 rounded bg-slate-100 dark:bg-slate-800 flex items-center justify-center text-slate-600 dark:text-slate-400"><span class="material-symbols-outlined text-[20px]">palette</span></div>
+                                    <h3 class="text-lg font-semibold">Appearance</h3>
+                                </div>
+                                
+                                <div class="mb-6">
+                                    <div class="text-sm font-medium mb-3">Color Mode</div>
+                                    <div class="flex gap-4">
+                                        <div class="theme-option" data-theme-val="light">
+                                            <div class="theme-preview light-preview"></div>
+                                            <div class="text-center mt-2 text-sm text-slate-500">Light</div>
+                                        </div>
+                                        <div class="theme-option" data-theme-val="auto">
+                                            <div class="theme-preview auto-preview"></div>
+                                            <div class="text-center mt-2 text-sm text-slate-500">Auto</div>
+                                        </div>
+                                        <div class="theme-option" data-theme-val="dark">
+                                            <div class="theme-preview dark-preview"></div>
+                                            <div class="text-center mt-2 text-sm text-slate-500">Dark</div>
+                                        </div>
+                                    </div>
+                                </div>
+
+                                <div>
+                                    <div class="text-sm font-medium mb-3">Reader Font</div>
+                                    <div class="flex gap-4 flex-wrap">
+                                        <div class="font-option p-2 rounded-xl" data-font-val="default">
+                                            <div class="font-preview" style="font-family: 'Inter', sans-serif;">Aa</div>
+                                            <div class="text-center mt-2 text-sm text-slate-500">Default</div>
+                                        </div>
+                                        <div class="font-option p-2 rounded-xl" data-font-val="sans">
+                                            <div class="font-preview" style="font-family: sans-serif;">Aa</div>
+                                            <div class="text-center mt-2 text-sm text-slate-500">System</div>
+                                        </div>
+                                        <div class="font-option p-2 rounded-xl" data-font-val="dyslexic">
+                                            <div class="font-preview" style="font-family: 'OpenDyslexic', 'Comic Sans MS', sans-serif;">Aa</div>
+                                            <div class="text-center mt-2 text-sm text-slate-500">Dyslexic</div>
+                                        </div>
+                                    </div>
+                                </div>
+                            </section>
+                        </div>
+                    </div>
+                </div>
+
             </div>
+        </main>
 
-            <div id="content-view" style="display: none; height: 100%; flex-direction: column;">
-                <div class="content-header">
-                    <div class="content-header-info">
-                        <h2 class="content-title" id="view-title">Loading...</h2>
-                        <a href="#" target="_blank" class="content-url" id="view-url">loading...</a>
-                        <div class="bookmark-date" id="view-date" style="margin-top:0.5rem"></div>
+        <!-- Right Panel (Stats) hidden on small -->
+        <aside class="w-72 border-l border-slate-200 dark:border-slate-800 bg-white dark:bg-background-dark p-6 hidden xl:flex flex-col gap-8 shrink-0">
+            <section>
+                <h4 class="font-bold text-sm mb-4 flex items-center gap-2">
+                    <span class="material-symbols-outlined text-primary text-lg">analytics</span>
+                    Reading Stats
+                </h4>
+                <div class="grid grid-cols-2 gap-4">
+                    <div class="bg-slate-50 dark:bg-slate-900 p-3 rounded-lg border border-slate-100 dark:border-slate-800 text-center">
+                        <div class="text-xl font-bold" id="stat-total">0</div>
+                        <div class="text-[10px] text-slate-500 uppercase tracking-tight">Total Saved</div>
                     </div>
-                    <div class="content-actions">
-                        <div class="font-actions">
-                            <button id="font-decrease-btn" title="Decrease Font Size">A-</button>
-                            <button id="font-increase-btn" title="Increase Font Size">A+</button>
-                        </div>
-                        <button id="delete-btn" class="btn-danger">
-                            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="margin-bottom:-3px; margin-right:4px"><polyline points="3 6 5 6 21 6"></polyline><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"></path><line x1="10" y1="11" x2="10" y2="17"></line><line x1="14" y1="11" x2="14" y2="17"></line></svg>
-                            Delete
-                        </button>
+                    <div class="bg-slate-50 dark:bg-slate-900 p-3 rounded-lg border border-slate-100 dark:border-slate-800 text-center">
+                        <div class="text-xl font-bold" id="stat-recent">0</div>
+                        <div class="text-[10px] text-slate-500 uppercase tracking-tight">Recent</div>
                     </div>
                 </div>
-                <div class="markdown-body" id="markdown-container">
-                    <!-- Markdown parses here -->
+            </section>
+
+            <section class="mt-auto">
+                <div class="bg-primary/5 rounded-xl p-4 border border-primary/20">
+                    <h5 class="font-bold text-xs text-primary mb-2 uppercase tracking-widest">Chrome Extension</h5>
+                    <p class="text-xs text-slate-600 dark:text-slate-400 mb-4">Capture bookmarks with one click using our browser extension.</p>
+                    <a href="#" class="block w-full text-center bg-primary text-white text-xs font-bold py-2 rounded hover:bg-primary/90 transition-colors">Install Now</a>
                 </div>
-            </div>
-        </div>
-    </div>
+            </section>
+        </aside>
 
-    <!-- Toast Notification -->
-    <div id="toast" class="toast">Message here</div>
-
-    <!-- Highlight Tooltips -->
-    <div id="highlight-tooltip" style="position: absolute; display: none; background: var(--modal-bg); border: 1px solid var(--border); border-radius: 0.5rem; padding: 0.25rem; box-shadow: 0 4px 6px rgba(0,0,0,0.3); z-index: 100; gap: 0.25rem;">
-        <button id="btn-add-highlight" style="padding: 0.25rem 0.5rem; font-size: 0.8rem; width: auto; background: var(--accent);">Highlight</button>
     </div>
 
     <!-- Note Modal -->
-    <div id="note-modal" style="position: fixed; top: 0; left: 0; right: 0; bottom: 0; background: rgba(0,0,0,0.5); display: none; align-items: center; justify-content: center; z-index: 200;">
-        <div style="background: var(--modal-bg); padding: 1.5rem; border-radius: 0.5rem; width: 90%; max-width: 400px; border: 1px solid var(--border);">
-            <h3 style="margin-bottom: 1rem;">Add Note</h3>
-            <textarea id="note-input" style="width: 100%; height: 100px; background: var(--input-bg); color: var(--text-main); border: 1px solid var(--border); border-radius: 0.25rem; padding: 0.5rem; margin-bottom: 1rem; font-family: inherit;"></textarea>
-            <div style="display: flex; gap: 0.5rem; justify-content: flex-end;">
-                <button id="btn-cancel-note" style="background: transparent; border: 1px solid var(--border); width: auto; color: var(--text-main);">Cancel</button>
-                <button id="btn-save-note" style="width: auto;">Save</button>
-                <button id="btn-delete-highlight" style="width: auto; background: var(--danger); display: none;">Delete</button>
+    <div id="note-modal" class="modal-overlay hidden-view">
+        <div class="bg-white dark:bg-slate-900 p-6 rounded-xl border border-slate-200 dark:border-slate-800 shadow-xl max-w-sm w-full mx-4">
+            <h3 class="font-bold text-lg mb-4">Add Note</h3>
+            <textarea id="note-input" class="w-full h-24 bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg p-3 text-sm focus:ring-2 focus:ring-primary/50 outline-none mb-4 resize-none"></textarea>
+            <div class="flex gap-2 justify-end">
+                <button id="btn-delete-highlight" class="px-4 py-2 text-sm font-medium text-red-500 hover:bg-red-50 dark:hover:bg-red-900/20 rounded-lg hidden">Delete</button>
+                <button id="btn-cancel-note" class="px-4 py-2 text-sm font-medium text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800 rounded-lg">Cancel</button>
+                <button id="btn-save-note" class="px-4 py-2 text-sm font-medium bg-primary text-white hover:bg-primary/90 rounded-lg shadow-md">Save Note</button>
             </div>
         </div>
     </div>
+
+    <div id="highlight-tooltip" class="absolute hidden bg-slate-800 text-white p-1 rounded-md shadow-lg z-50 text-sm flex gap-1 items-center">
+        <button id="btn-add-highlight" class="px-3 py-1 bg-primary hover:bg-primary/90 rounded font-medium">Highlight</button>
+    </div>
+
+    <!-- Toast -->
+    <div id="toast" class="toast">Message here</div>
 
     <script>
         const { startRegistration, startAuthentication } = window.SimpleWebAuthnBrowser;
@@ -761,11 +456,15 @@ export const viewerHtml = `<!DOCTYPE html>
             logoutBtn: document.getElementById('logout-btn'),
             setupBtn: document.getElementById('setup-btn'),
             openSettingsBtn: document.getElementById('open-settings-btn'),
+            navInbox: document.getElementById('nav-inbox'),
+            navAll: document.getElementById('nav-all'),
+            currentViewTitle: document.getElementById('current-view-title'),
             
             emptyState: document.getElementById('empty-state'),
             contentView: document.getElementById('content-view'),
             settingsView: document.getElementById('settings-view'),
             setupView: document.getElementById('setup-view'),
+            inboxView: document.getElementById('inbox-view'),
             
             viewTitle: document.getElementById('view-title'),
             viewUrl: document.getElementById('view-url'),
@@ -791,7 +490,10 @@ export const viewerHtml = `<!DOCTYPE html>
             noteInput: document.getElementById('note-input'),
             btnCancelNote: document.getElementById('btn-cancel-note'),
             btnSaveNote: document.getElementById('btn-save-note'),
-            btnDeleteHighlight: document.getElementById('btn-delete-highlight')
+            btnDeleteHighlight: document.getElementById('btn-delete-highlight'),
+
+            statTotal: document.getElementById('stat-total'),
+            statRecent: document.getElementById('stat-recent')
         };
 
         let secret = localStorage.getItem('keeproot_secret');
@@ -804,9 +506,9 @@ export const viewerHtml = `<!DOCTYPE html>
             currentTheme = theme;
             if (theme === 'auto') {
                 const isDark = window.matchMedia('(prefers-color-scheme: dark)').matches;
-                document.body.setAttribute('data-theme', isDark ? 'dark' : 'light');
+                document.documentElement.classList.toggle('dark', isDark);
             } else {
-                document.body.setAttribute('data-theme', theme);
+                document.documentElement.classList.toggle('dark', theme === 'dark');
             }
             localStorage.setItem('keeproot_theme', theme);
             
@@ -820,10 +522,9 @@ export const viewerHtml = `<!DOCTYPE html>
             const fonts = {
                 'default': "'Inter', sans-serif",
                 'sans': 'sans-serif',
-                'system': 'system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif',
                 'dyslexic': "'OpenDyslexic', 'Comic Sans MS', sans-serif"
             };
-            document.body.style.fontFamily = fonts[font] || fonts['default'];
+            DOM.markdownContainer.style.fontFamily = fonts[font] || fonts['default'];
             localStorage.setItem('keeproot_font', font);
             
             document.querySelectorAll('.font-option').forEach(el => {
@@ -833,7 +534,7 @@ export const viewerHtml = `<!DOCTYPE html>
 
         window.matchMedia('(prefers-color-scheme: dark)').addEventListener('change', e => {
             if (currentTheme === 'auto') {
-                document.body.setAttribute('data-theme', e.matches ? 'dark' : 'light');
+                document.documentElement.classList.toggle('dark', e.matches);
             }
         });
 
@@ -845,22 +546,22 @@ export const viewerHtml = `<!DOCTYPE html>
         let currentBookmarkId = null;
         let pollingInterval = null;
 
-        // Initialize
         if (secret) {
             showApp();
             fetchBookmarks();
             startPolling();
+        } else {
+            DOM.loginModal.classList.remove('hidden-view');
+            DOM.app.classList.add('hidden-view');
         }
 
         // WebAuthn Passkey Forms
         DOM.btnRegister.addEventListener('click', async () => {
             const username = DOM.usernameInput.value.trim();
             if (!username) return showToast('Enter a username first', 'error');
-            
             try {
                 DOM.btnRegister.textContent = 'Registering...';
                 DOM.btnRegister.disabled = true;
-
                 const resp = await fetch('/auth/generate-registration', {
                     method: 'POST', headers: { 'Content-Type': 'application/json' },
                     body: JSON.stringify({ username })
@@ -869,18 +570,13 @@ export const viewerHtml = `<!DOCTYPE html>
                 if (options.error) throw new Error(options.error);
 
                 const attResp = await startRegistration({ optionsJSON: options });
-
                 const verificationResp = await fetch('/auth/verify-registration', {
                     method: 'POST', headers: { 'Content-Type': 'application/json' },
                     body: JSON.stringify({ username, response: attResp })
                 });
                 const verification = await verificationResp.json();
-                
-                if (verification.verified) {
-                    loginSuccess(verification.token);
-                } else {
-                    throw new Error(verification.error || 'Verification failed');
-                }
+                if (verification.verified) loginSuccess(verification.token);
+                else throw new Error(verification.error || 'Verification failed');
             } catch (err) {
                 showToast(err.message, 'error');
             } finally {
@@ -893,11 +589,9 @@ export const viewerHtml = `<!DOCTYPE html>
             e.preventDefault();
             const username = DOM.usernameInput.value.trim();
             if (!username) return showToast('Enter a username first', 'error');
-            
             try {
                 DOM.btnLogin.textContent = 'Verifying...';
                 DOM.btnLogin.disabled = true;
-
                 const resp = await fetch('/auth/generate-authentication', {
                     method: 'POST', headers: { 'Content-Type': 'application/json' },
                     body: JSON.stringify({ username })
@@ -906,18 +600,13 @@ export const viewerHtml = `<!DOCTYPE html>
                 if (options.error) throw new Error(options.error);
 
                 const asseResp = await startAuthentication({ optionsJSON: options });
-
                 const verificationResp = await fetch('/auth/verify-authentication', {
                     method: 'POST', headers: { 'Content-Type': 'application/json' },
                     body: JSON.stringify({ username, response: asseResp })
                 });
                 const verification = await verificationResp.json();
-                
-                if (verification.verified) {
-                    loginSuccess(verification.token);
-                } else {
-                    throw new Error(verification.error || 'Verification failed');
-                }
+                if (verification.verified) loginSuccess(verification.token);
+                else throw new Error(verification.error || 'Verification failed');
             } catch (err) {
                 showToast(err.message, 'error');
             } finally {
@@ -925,7 +614,6 @@ export const viewerHtml = `<!DOCTYPE html>
                 DOM.btnLogin.disabled = false;
             }
         });
-
 
         function loginSuccess(token) {
             secret = token;
@@ -940,63 +628,79 @@ export const viewerHtml = `<!DOCTYPE html>
             localStorage.removeItem('keeproot_secret');
             secret = null;
             stopPolling();
-            DOM.app.style.display = 'none';
-            DOM.loginModal.style.display = 'flex';
+            DOM.app.classList.add('hidden-view');
+            DOM.loginModal.classList.remove('hidden-view');
             DOM.bookmarkList.innerHTML = '';
-            showEmptyState();
+            switchView('empty');
         });
 
-        DOM.brandTitle.addEventListener('click', () => {
-            showEmptyState();
-        });
+        // View Routing
+        function switchView(viewName) {
+            DOM.emptyState.classList.add('hidden-view');
+            DOM.contentView.classList.add('hidden-view');
+            DOM.settingsView.classList.add('hidden-view');
+            DOM.setupView.classList.add('hidden-view');
+            DOM.inboxView.classList.add('hidden-view');
 
-        // Search Filter
+            // Reset active navs
+            [DOM.navInbox, DOM.navAll, DOM.setupBtn, DOM.openSettingsBtn].forEach(el => el.classList.remove('active-nav'));
+
+            if (viewName === 'inbox') {
+                DOM.inboxView.classList.remove('hidden-view');
+                DOM.currentViewTitle.textContent = "Inbox";
+                DOM.navInbox.classList.add('active-nav');
+            } else if (viewName === 'setup') {
+                DOM.setupView.classList.remove('hidden-view');
+                DOM.currentViewTitle.textContent = "API Keys Setup";
+                DOM.setupBtn.classList.add('active-nav');
+                fetchApiKeys();
+            } else if (viewName === 'settings') {
+                DOM.settingsView.classList.remove('hidden-view');
+                DOM.currentViewTitle.textContent = "Settings";
+                DOM.openSettingsBtn.classList.add('active-nav');
+                document.getElementById('notification-toggle').checked = notificationsEnabled;
+            } else if (viewName === 'content') {
+                DOM.contentView.classList.remove('hidden-view');
+                DOM.currentViewTitle.textContent = "Reading View";
+            } else {
+                // Empty state
+                DOM.emptyState.classList.remove('hidden-view');
+                DOM.currentViewTitle.textContent = "Dashboard";
+                currentBookmarkId = null;
+                document.querySelectorAll('.bookmark-item').forEach(el => el.classList.remove('active', 'border-primary', 'bg-primary/5'));
+            }
+        }
+
+        DOM.brandTitle.addEventListener('click', () => switchView('empty'));
+        DOM.navInbox.addEventListener('click', () => switchView('inbox'));
+        DOM.navAll.addEventListener('click', () => switchView('inbox'));
+        DOM.setupBtn.addEventListener('click', () => switchView('setup'));
+        DOM.openSettingsBtn.addEventListener('click', () => switchView('settings'));
+
+        // Search
         DOM.searchInput.addEventListener('input', (e) => {
             const query = e.target.value.toLowerCase();
+            switchView('inbox');
             const items = document.querySelectorAll('.bookmark-item');
             items.forEach(item => {
-                const text = item.textContent.toLowerCase();
-                item.style.display = text.includes(query) ? 'block' : 'none';
+                const titleEl = item.querySelector('h3');
+                const text = titleEl ? titleEl.textContent.toLowerCase() : '';
+                item.style.display = text.includes(query) ? 'flex' : 'none';
             });
         });
 
-        // Setup View Actions
-        DOM.setupBtn.addEventListener('click', () => {
-            DOM.emptyState.style.display = 'none';
-            DOM.contentView.style.display = 'none';
-            DOM.settingsView.style.display = 'none';
-            DOM.setupView.style.display = 'flex';
-            document.querySelectorAll('.bookmark-item').forEach(el => el.classList.remove('active'));
-            fetchApiKeys();
-        });
-
-        // Settings View Actions
-        DOM.openSettingsBtn.addEventListener('click', () => {
-            DOM.emptyState.style.display = 'none';
-            DOM.contentView.style.display = 'none';
-            DOM.setupView.style.display = 'none';
-            DOM.settingsView.style.display = 'flex';
-            document.querySelectorAll('.bookmark-item').forEach(el => el.classList.remove('active'));
-            
-            // Init toggles
-            document.getElementById('notification-toggle').checked = notificationsEnabled;
-        });
-
-        // Settings Toggles
+        // Settings logic
         document.getElementById('notification-toggle').addEventListener('change', (e) => {
             notificationsEnabled = e.target.checked;
             localStorage.setItem('keeproot_notifications', notificationsEnabled);
         });
-
         document.querySelectorAll('.theme-option').forEach(el => {
             el.addEventListener('click', () => applyTheme(el.dataset.themeVal));
         });
-
         document.querySelectorAll('.font-option').forEach(el => {
             el.addEventListener('click', () => applyFont(el.dataset.fontVal));
         });
 
-        // Font Size adjust
         DOM.fontDecreaseBtn.addEventListener('click', () => {
             currentFontSize = Math.max(12, currentFontSize - 2);
             DOM.markdownContainer.style.fontSize = currentFontSize + 'px';
@@ -1008,7 +712,7 @@ export const viewerHtml = `<!DOCTYPE html>
             localStorage.setItem('keeproot_fontSize', currentFontSize);
         });
 
-        // Highlight Logic
+        // Highlights
         let currentHighlightSelection = '';
         let currentHighlightId = null;
 
@@ -1034,14 +738,12 @@ export const viewerHtml = `<!DOCTYPE html>
         DOM.btnAddHighlight.addEventListener('click', () => {
             DOM.highlightTooltip.style.display = 'none';
             if (!currentHighlightSelection || !currentBookmarkId) return;
-
             const highlights = JSON.parse(localStorage.getItem('keeproot_highlights_' + currentBookmarkId) || '[]');
             const id = 'hl-' + Date.now();
             highlights.push({ id, text: currentHighlightSelection, note: '' });
             localStorage.setItem('keeproot_highlights_' + currentBookmarkId, JSON.stringify(highlights));
-
-            const currEl = document.querySelector('.bookmark-item.active');
-            loadBookmark(currentBookmarkId, currEl);
+            
+            loadBookmark(currentBookmarkId); // Re-render to show highlight
             window.getSelection().removeAllRanges();
         });
 
@@ -1050,14 +752,15 @@ export const viewerHtml = `<!DOCTYPE html>
                 currentHighlightId = e.target.dataset.id;
                 const highlights = JSON.parse(localStorage.getItem('keeproot_highlights_' + currentBookmarkId) || '[]');
                 const hl = highlights.find(h => h.id === currentHighlightId);
-                
                 DOM.noteInput.value = hl ? hl.note : '';
+                DOM.noteModal.classList.remove('hidden-view');
                 DOM.noteModal.style.display = 'flex';
-                DOM.btnDeleteHighlight.style.display = 'block';
+                DOM.btnDeleteHighlight.classList.remove('hidden');
             }
         });
 
         DOM.btnCancelNote.addEventListener('click', () => {
+            DOM.noteModal.classList.add('hidden-view');
             DOM.noteModal.style.display = 'none';
         });
 
@@ -1068,10 +771,9 @@ export const viewerHtml = `<!DOCTYPE html>
             if (hl) {
                 hl.note = DOM.noteInput.value.trim();
                 localStorage.setItem('keeproot_highlights_' + currentBookmarkId, JSON.stringify(highlights));
+                DOM.noteModal.classList.add('hidden-view');
                 DOM.noteModal.style.display = 'none';
-                
-                const currEl = document.querySelector('.bookmark-item.active');
-                loadBookmark(currentBookmarkId, currEl);
+                loadBookmark(currentBookmarkId);
             }
         });
 
@@ -1080,10 +782,9 @@ export const viewerHtml = `<!DOCTYPE html>
             let highlights = JSON.parse(localStorage.getItem('keeproot_highlights_' + currentBookmarkId) || '[]');
             highlights = highlights.filter(h => h.id !== currentHighlightId);
             localStorage.setItem('keeproot_highlights_' + currentBookmarkId, JSON.stringify(highlights));
+            DOM.noteModal.classList.add('hidden-view');
             DOM.noteModal.style.display = 'none';
-            
-            const currEl = document.querySelector('.bookmark-item.active');
-            loadBookmark(currentBookmarkId, currEl);
+            loadBookmark(currentBookmarkId);
         });
 
         function encodeHTMLEntities(text) {
@@ -1092,45 +793,34 @@ export const viewerHtml = `<!DOCTYPE html>
             return div.innerHTML;
         }
 
-        // Delete Bookmark
         DOM.deleteBtn.addEventListener('click', async () => {
             if (!currentBookmarkId) return;
             if (!confirm('Are you sure you want to delete this bookmark?')) return;
-
             try {
                 await apiFetch('/bookmarks/' + currentBookmarkId, { method: 'DELETE' });
                 showToast('Bookmark deleted', 'success');
-                showEmptyState();
-                fetchBookmarks(); // refresh list
+                switchView('inbox');
+                fetchBookmarks();
             } catch (err) {
                 showToast('Failed to delete: ' + err.message, 'error');
             }
-        });
-
-        // Settings View Actions
-        DOM.settingsBtn.addEventListener('click', () => {
-            DOM.emptyState.style.display = 'none';
-            DOM.contentView.style.display = 'none';
-            DOM.settingsView.style.display = 'flex';
-            document.querySelectorAll('.bookmark-item').forEach(el => el.classList.remove('active'));
-            fetchApiKeys();
         });
 
         async function fetchApiKeys() {
             try {
                 const data = await apiFetch('/api-keys');
                 const keys = data.keys || [];
-                DOM.apiKeysList.innerHTML = keys.length === 0 ? '<p style="color:var(--text-muted)">No active API keys.</p>' : '';
+                DOM.apiKeysList.innerHTML = keys.length === 0 ? '<p class="text-slate-500 text-sm">No active API keys.</p>' : '';
                 
                 keys.forEach(key => {
                     const div = document.createElement('div');
-                    div.style = 'background: rgba(255,255,255,0.03); border: 1px solid var(--border); padding: 1rem; border-radius: 0.5rem; display: flex; justify-content: space-between; align-items: center;';
+                    div.className = 'flex items-center justify-between p-4 bg-slate-50 dark:bg-slate-800/50 border border-slate-100 dark:border-slate-700/50 rounded-xl';
                     div.innerHTML = \`
                         <div>
-                            <div style="font-weight: 500;">\${escapeHtml(key.name)}</div>
-                            <div style="font-size: 0.8rem; color: var(--text-muted); margin-top: 0.25rem;">Created: \${new Date(key.createdAt).toLocaleDateString()}</div>
+                            <div class="font-medium">\${escapeHtml(key.name)}</div>
+                            <div class="text-xs text-slate-500 mt-1">Created: \${new Date(key.createdAt).toLocaleDateString()}</div>
                         </div>
-                        <button class="delete-key-btn" data-id="\${key.id}" style="width: auto; background: transparent; border: 1px solid var(--danger); color: var(--danger); padding: 0.5rem 1rem;">Delete</button>
+                        <button class="delete-key-btn px-3 py-1.5 text-xs font-medium text-red-500 hover:bg-red-50 dark:hover:bg-red-900/20 rounded-md transition-colors" data-id="\${key.id}">Delete</button>
                     \`;
                     DOM.apiKeysList.appendChild(div);
                 });
@@ -1139,7 +829,7 @@ export const viewerHtml = `<!DOCTYPE html>
                     btn.addEventListener('click', async (e) => {
                         if (!confirm('Are you sure you want to delete this key? Extensions using it will stop working immediately.')) return;
                         try {
-                            btn.textContent = 'Deleting...';
+                            btn.textContent = '...';
                             await apiFetch('/api-keys/' + e.target.dataset.id, { method: 'DELETE' });
                             showToast('Key deleted', 'success');
                             fetchApiKeys();
@@ -1149,7 +839,7 @@ export const viewerHtml = `<!DOCTYPE html>
                     });
                 });
             } catch (err) {
-                DOM.apiKeysList.innerHTML = '<p style="color:var(--danger)">Failed to load keys.</p>';
+                DOM.apiKeysList.innerHTML = '<p class="text-red-500 text-sm">Failed to load keys.</p>';
             }
         }
 
@@ -1157,16 +847,11 @@ export const viewerHtml = `<!DOCTYPE html>
             e.preventDefault();
             const name = DOM.newKeyName.value.trim();
             if (!name) return;
-            
             try {
-                const data = await apiFetch('/api-keys', {
-                    method: 'POST',
-                    body: JSON.stringify({ name })
-                });
-                
+                const data = await apiFetch('/api-keys', { method: 'POST', body: JSON.stringify({ name }) });
                 DOM.newKeyName.value = '';
                 DOM.newKeyValue.value = data.secret;
-                DOM.newKeyResult.style.display = 'block';
+                DOM.newKeyResult.classList.remove('hidden');
                 fetchApiKeys();
             } catch (err) {
                 showToast('Failed to generate key: ' + err.message, 'error');
@@ -1180,44 +865,27 @@ export const viewerHtml = `<!DOCTYPE html>
         });
 
         function showApp() {
-            DOM.loginModal.style.display = 'none';
-            DOM.app.style.display = 'flex';
-        }
-
-        function showEmptyState() {
-            DOM.emptyState.style.display = 'flex';
-            DOM.contentView.style.display = 'none';
-            DOM.settingsView.style.display = 'none';
-            DOM.setupView.style.display = 'none';
-            currentBookmarkId = null;
-            document.querySelectorAll('.bookmark-item').forEach(el => el.classList.remove('active'));
-            DOM.newKeyResult.style.display = 'none';
+            DOM.loginModal.classList.add('hidden-view');
+            DOM.app.classList.remove('hidden-view');
+            switchView('inbox');
         }
 
         function startPolling() {
             if (pollingInterval) return;
-            pollingInterval = setInterval(() => {
-                fetchBookmarks(true);
-            }, 5000);
+            pollingInterval = setInterval(() => fetchBookmarks(true), 5000);
         }
-
         function stopPolling() {
-            if (pollingInterval) {
-                clearInterval(pollingInterval);
-                pollingInterval = null;
-            }
+            if (pollingInterval) { clearInterval(pollingInterval); pollingInterval = null; }
         }
 
         async function fetchBookmarks(isSilentPolling = false) {
-            if (!isSilentPolling) {
-                DOM.bookmarkList.innerHTML = '<div class="loader-container"><div class="spinner"></div></div>';
+            if (!isSilentPolling && DOM.bookmarkList.innerHTML === '') {
+                DOM.bookmarkList.innerHTML = '<div class="py-12 border-2 border-dashed border-slate-200 dark:border-slate-800 rounded-xl flex items-center justify-center"><div class="spinner"></div></div>';
             }
             try {
                 const data = await apiFetch('/bookmarks');
                 const newKeys = data.keys || [];
                 
-                // Compare with current bookmarks to prevent unnecessary re-renders
-                // We'll stringify the keys array to easily detect added/removed/updated dates
                 const currentStr = JSON.stringify(bookmarks.map(b => ({name: b.name, date: b.metadata?.createdAt})));
                 const newStr = JSON.stringify(newKeys.map(b => ({name: b.name, date: b.metadata?.createdAt})));
 
@@ -1225,17 +893,14 @@ export const viewerHtml = `<!DOCTYPE html>
                     renderBookmarksList(newKeys);
                 }
             } catch (err) {
-                if (err.status === 401) {
-                    DOM.logoutBtn.click(); // Auto logout on 401
-                }
+                if (err.status === 401) DOM.logoutBtn.click();
                 if (!isSilentPolling) {
-                    DOM.bookmarkList.innerHTML = '<div style="padding: 1rem; color: var(--danger); text-align: center;">Failed to load bookmarks</div>';
+                    DOM.bookmarkList.innerHTML = '<div class="text-center text-red-500 py-8 text-sm">Failed to load bookmarks</div>';
                 }
             }
         }
 
         function renderBookmarksList(keys) {
-            // Sort keys by metadata createdAt (newest first)
             keys.sort((a, b) => {
                 const dateA = new Date(a.metadata?.createdAt || 0);
                 const dateB = new Date(b.metadata?.createdAt || 0);
@@ -1243,44 +908,61 @@ export const viewerHtml = `<!DOCTYPE html>
             });
             bookmarks = keys;
             
+            DOM.statTotal.textContent = keys.length;
+            DOM.statRecent.textContent = keys.filter(k => (Date.now() - new Date(k.metadata?.createdAt || 0).getTime()) < 86400000).length;
+            
             DOM.bookmarkList.innerHTML = '';
             
             if (keys.length === 0) {
-                DOM.bookmarkList.innerHTML = '<div style="padding: 1rem; color: var(--text-muted); text-align: center; font-size: 0.9rem;">No bookmarks saved yet.</div>';
+                DOM.bookmarkList.innerHTML = '<div class="text-center text-slate-500 py-12 text-sm border-2 border-dashed border-slate-200 dark:border-slate-800 rounded-xl">No bookmarks saved yet. Download the extension!</div>';
                 return;
             }
 
-            keys.forEach((key, index) => {
+            keys.forEach((key) => {
                 const div = document.createElement('div');
-                div.className = 'bookmark-item';
-                div.style.animationDelay = (index * 0.05) + 's';
+                div.className = 'bookmark-item group bg-white dark:bg-slate-900 p-4 rounded-xl border border-slate-200 dark:border-slate-800 hover:border-primary/50 dark:hover:border-primary/50 transition-all shadow-sm hover:shadow-md flex items-start gap-4 cursor-pointer';
                 div.dataset.id = key.name;
                 
-                const title = key.metadata?.title || 'Untitled';
-                const dateStr = key.metadata?.createdAt ? new Date(key.metadata.createdAt).toLocaleDateString() : 'Unknown date';
+                const title = key.metadata?.title || 'Untitled Bookmarked Page';
+                const urlDomain = key.metadata?.url ? new URL(key.metadata.url).hostname : 'unknown domain';
+                const dateStr = key.metadata?.createdAt ? new Date(key.metadata.createdAt).toLocaleDateString('en-US', {month: 'short', day: 'numeric', year: 'numeric'}) : 'Unknown';
+                const wordCount = key.metadata?.wordCount || 0;
+                const readingTime = Math.ceil(wordCount / 200) || 1;
 
                 div.innerHTML = \`
-                    <div class="bookmark-title">\${escapeHtml(title)}</div>
-                    <div class="bookmark-date">\${dateStr}</div>
+                    <div class="size-12 rounded-lg bg-slate-100 dark:bg-slate-800 flex-shrink-0 flex items-center justify-center overflow-hidden border border-slate-100 dark:border-slate-800/50">
+                        <span class="material-symbols-outlined text-slate-400">article</span>
+                    </div>
+                    <div class="flex-1 min-w-0">
+                        <div class="flex items-center justify-between mb-1">
+                            <h3 class="font-semibold text-base truncate group-hover:text-primary transition-colors pr-2">\${escapeHtml(title)}</h3>
+                        </div>
+                        <div class="flex items-center gap-4 text-xs text-slate-500 mt-2">
+                            <span class="flex items-center gap-1"><span class="material-symbols-outlined text-[14px]">calendar_today</span> \${dateStr}</span>
+                            <span class="flex items-center gap-1"><span class="material-symbols-outlined text-[14px]">schedule</span> \${readingTime} min</span>
+                            <span class="flex items-center gap-1 truncate"><span class="material-symbols-outlined text-[14px]">link</span> \${escapeHtml(urlDomain)}</span>
+                        </div>
+                    </div>
                 \`;
 
-                div.addEventListener('click', () => loadBookmark(key.name, div));
+                if (currentBookmarkId === key.name) {
+                    div.classList.add('active');
+                }
+
+                div.addEventListener('click', () => {
+                    document.querySelectorAll('.bookmark-item').forEach(el => el.classList.remove('active'));
+                    div.classList.add('active');
+                    loadBookmark(key.name);
+                });
                 DOM.bookmarkList.appendChild(div);
             });
         }
 
-        async function loadBookmark(id, element) {
-            // Update active state in sidebar
-            document.querySelectorAll('.bookmark-item').forEach(el => el.classList.remove('active'));
-            if(element) element.classList.add('active');
-
+        async function loadBookmark(id) {
             currentBookmarkId = id;
-            DOM.emptyState.style.display = 'none';
-            DOM.settingsView.style.display = 'none';
-            DOM.setupView.style.display = 'none';
-            DOM.contentView.style.display = 'flex';
+            switchView('content');
             
-            DOM.markdownContainer.innerHTML = '<div class="loader-container"><div class="spinner"></div></div>';
+            DOM.markdownContainer.innerHTML = '<div class="py-12 flex justify-center"><div class="spinner"></div></div>';
             DOM.viewTitle.textContent = 'Loading...';
             DOM.viewUrl.textContent = '';
             DOM.viewDate.textContent = '';
@@ -1291,24 +973,21 @@ export const viewerHtml = `<!DOCTYPE html>
                 DOM.viewTitle.textContent = data.metadata?.title || 'Untitled';
                 
                 if (data.metadata?.url) {
-                    DOM.viewUrl.textContent = data.metadata.url;
                     DOM.viewUrl.href = data.metadata.url;
-                    DOM.viewUrl.style.display = 'inline-block';
+                    DOM.viewUrl.innerHTML = \`<span class="material-symbols-outlined text-sm">link</span> \${new URL(data.metadata.url).hostname}\`;
+                    DOM.viewUrl.style.display = 'flex';
                 } else {
                     DOM.viewUrl.style.display = 'none';
                 }
 
                 if (data.metadata?.createdAt) {
-                    const wordCount = data.metadata.wordCount || 0;
-                    const readingTime = Math.ceil(wordCount / 200) || 1;
-                    DOM.viewDate.textContent = 'Saved on ' + new Date(data.metadata.createdAt).toLocaleString() + ' • ' + readingTime + ' min read';
+                    const readingTime = Math.ceil((data.metadata.wordCount || 0) / 200) || 1;
+                    DOM.viewDate.textContent = new Date(data.metadata.createdAt).toLocaleString() + ' • ' + readingTime + ' min read';
                 }
 
-                // Render Markdown safely
                 let html = marked.parse(data.markdownData || '');
                 html = DOMPurify.sanitize(html);
 
-                // Apply highlights
                 try {
                     const highlights = JSON.parse(localStorage.getItem('keeproot_highlights_' + id) || '[]');
                     highlights.forEach(h => {
@@ -1322,7 +1001,7 @@ export const viewerHtml = `<!DOCTYPE html>
                 DOM.markdownContainer.innerHTML = html;
 
             } catch (err) {
-                DOM.markdownContainer.innerHTML = '<div style="color: var(--danger)">Error loading bookmark contents.</div>';
+                DOM.markdownContainer.innerHTML = '<div class="text-red-500 py-8">Error loading bookmark contents.</div>';
             }
         }
 
