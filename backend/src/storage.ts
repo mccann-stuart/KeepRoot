@@ -530,7 +530,7 @@ async function syncTags(env: StorageEnv, userId: string, bookmarkId: string, tag
 		return;
 	}
 
-	const batchStatements: D1PreparedStatement[] = [
+	const batchStatements = [
 		env.KEEPROOT_DB.prepare('DELETE FROM bookmark_tags WHERE bookmark_id = ?').bind(bookmarkId),
 	];
 
