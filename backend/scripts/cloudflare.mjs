@@ -66,10 +66,6 @@ function runNodeScript(relativeScriptPath, args = []) {
 	}
 }
 
-function ensureDashboardBuilt() {
-	runNodeScript('./scripts/dashboard.mjs', ['build']);
-}
-
 function ensureRemoteResources() {
 	const config = loadConfig();
 	for (const database of config.d1_databases ?? []) {
@@ -96,14 +92,12 @@ switch (command) {
 		runWrangler(['types']);
 		break;
 	case 'deploy':
-		ensureDashboardBuilt();
 		ensureRemoteResources();
 		runWrangler(['d1', 'migrations', 'apply', 'KEEPROOT_DB', '--remote']);
 		runWrangler(['types']);
 		runWrangler(['deploy']);
 		break;
 	case 'dev':
-		ensureDashboardBuilt();
 		runWrangler(['types']);
 		runWrangler(['d1', 'migrations', 'apply', 'KEEPROOT_DB', '--local']);
 		runWrangler(['dev']);
