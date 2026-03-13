@@ -219,6 +219,9 @@ export const viewerHtml = `<!DOCTYPE html>
                         <span class="material-symbols-outlined absolute left-3 top-1/2 -translate-y-1/2 text-slate-400 text-lg">search</span>
                         <input type="text" id="search-input" class="pl-10 pr-4 py-2 bg-slate-100 dark:bg-slate-800/50 border border-transparent dark:border-slate-700/50 rounded-lg text-sm w-64 focus:ring-2 focus:ring-primary/50 transition-all outline-none" placeholder="Search your bookmarks..."/>
                     </div>
+                    <button id="toggle-stats-btn" class="p-2 text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 transition-colors hidden xl:flex items-center justify-center rounded-lg hover:bg-slate-100 dark:hover:bg-slate-800" title="Toggle Reading Stats">
+                        <span class="material-symbols-outlined">analytics</span>
+                    </button>
                 </div>
             </header>
 
@@ -285,7 +288,7 @@ export const viewerHtml = `<!DOCTYPE html>
                         
                         <div class="bg-white dark:bg-slate-900 p-6 rounded-2xl border border-slate-200 dark:border-slate-800 shadow-sm mb-8">
                             <div class="flex items-center gap-3 mb-2">
-                                <div class="size-8 rounded bg-primary/10 flex items-center justify-center text-primary"><span class="material-symbols-outlined text-[20px]">add_key</span></div>
+                                <div class="size-8 rounded bg-primary/10 flex items-center justify-center text-primary"><span class="material-symbols-outlined text-[20px]">key</span></div>
                                 <h3 class="text-lg font-semibold">Generate New Key</h3>
                             </div>
                             <p class="text-sm text-slate-500 mb-6">Create a key to use with the Chrome Extension. The key will only be shown once.</p>
@@ -389,8 +392,8 @@ export const viewerHtml = `<!DOCTYPE html>
             </div>
         </main>
 
-        <!-- Right Panel (Stats) hidden on small -->
-        <aside class="w-72 border-l border-slate-200 dark:border-slate-800 bg-white dark:bg-background-dark p-6 hidden xl:flex flex-col gap-8 shrink-0">
+        <!-- Right Panel (Stats) hidden on small & collapsed by default -->
+        <aside id="stats-panel" class="w-72 border-l border-slate-200 dark:border-slate-800 bg-white dark:bg-background-dark p-6 hidden-view xl:flex flex-col gap-8 shrink-0">
             <section>
                 <h4 class="font-bold text-sm mb-4 flex items-center gap-2">
                     <span class="material-symbols-outlined text-primary text-lg">analytics</span>
@@ -465,6 +468,8 @@ export const viewerHtml = `<!DOCTYPE html>
             settingsView: document.getElementById('settings-view'),
             setupView: document.getElementById('setup-view'),
             inboxView: document.getElementById('inbox-view'),
+            statsPanel: document.getElementById('stats-panel'),
+            toggleStatsBtn: document.getElementById('toggle-stats-btn'),
             
             viewTitle: document.getElementById('view-title'),
             viewUrl: document.getElementById('view-url'),
@@ -676,6 +681,12 @@ export const viewerHtml = `<!DOCTYPE html>
         DOM.navAll.addEventListener('click', () => switchView('inbox'));
         DOM.setupBtn.addEventListener('click', () => switchView('setup'));
         DOM.openSettingsBtn.addEventListener('click', () => switchView('settings'));
+
+        if (DOM.toggleStatsBtn) {
+            DOM.toggleStatsBtn.addEventListener('click', () => {
+                DOM.statsPanel.classList.toggle('hidden-view');
+            });
+        }
 
         // Search
         DOM.searchInput.addEventListener('input', (e) => {
