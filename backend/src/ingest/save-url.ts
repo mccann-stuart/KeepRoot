@@ -60,7 +60,12 @@ async function extractHtmlContent(url: string, html: string): Promise<ExtractedC
 		codeBlockStyle: 'fenced',
 		headingStyle: 'atx',
 	});
-	const markdownData = turndown.turndown(article.content).trim() || buildExcerptMarkdown(article.textContent ?? '');
+	const articleRoot = new DOMParser()
+		.parseFromString(`<article>${article.content}</article>`, 'text/html')
+		.querySelector('article');
+	const markdownData = articleRoot
+		? turndown.turndown(articleRoot).trim() || buildExcerptMarkdown(article.textContent ?? '')
+		: buildExcerptMarkdown(article.textContent ?? '');
 	const textContent = normalizeWhitespace(article.textContent ?? markdownData);
 
 	return {
