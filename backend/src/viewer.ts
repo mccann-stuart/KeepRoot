@@ -123,6 +123,17 @@ export const viewerHtml = `<!DOCTYPE html>
             background-color: rgba(37, 140, 244, 0.05);
         }
 
+        .bookmark-title {
+            display: -webkit-box;
+            -webkit-box-orient: vertical;
+            -webkit-line-clamp: 2;
+            overflow: hidden;
+            line-height: 1.4;
+            max-width: 100%;
+            overflow-wrap: anywhere;
+            word-break: break-word;
+        }
+
         .stats-toggle-active {
             color: #258cf4 !important;
             background-color: rgba(37, 140, 244, 0.12) !important;
@@ -730,11 +741,26 @@ export const viewerHtml = `<!DOCTYPE html>
             switchView('inbox');
             const items = document.querySelectorAll('.bookmark-item');
             items.forEach(item => {
-                const titleEl = item.querySelector('h3');
-                const text = titleEl ? titleEl.textContent.toLowerCase() : '';
+                const text = item.dataset.title || '';
                 item.style.display = text.includes(query) ? 'flex' : 'none';
             });
         });
+
+        function truncateBookmarkTitle(title, maxLength = 120) {
+            const normalizedTitle = String(title || '').trim();
+
+            if (normalizedTitle.length <= maxLength) {
+                return normalizedTitle;
+            }
+
+            const truncatedTitle = normalizedTitle.slice(0, maxLength);
+            const lastSpaceIndex = truncatedTitle.lastIndexOf(' ');
+            const safeTitle = lastSpaceIndex > Math.floor(maxLength * 0.6)
+                ? truncatedTitle.slice(0, lastSpaceIndex)
+                : truncatedTitle;
+
+            return safeTitle.trimEnd() + '...';
+        }
 
         // Settings logic
         document.getElementById('notification-toggle').addEventListener('change', (e) => {
@@ -971,20 +997,22 @@ export const viewerHtml = `<!DOCTYPE html>
                 div.dataset.id = key.name;
                 
                 const title = key.metadata?.title || 'Untitled Bookmarked Page';
+                const visibleTitle = truncateBookmarkTitle(title);
                 const urlDomain = key.metadata?.url ? new URL(key.metadata.url).hostname : 'unknown domain';
                 const dateStr = key.metadata?.createdAt ? new Date(key.metadata.createdAt).toLocaleDateString('en-US', {month: 'short', day: 'numeric', year: 'numeric'}) : 'Unknown';
                 const wordCount = key.metadata?.wordCount || 0;
                 const readingTime = Math.ceil(wordCount / 200) || 1;
+                div.dataset.title = title.toLowerCase();
 
                 div.innerHTML = \`
                     <div class="size-12 rounded-lg bg-slate-100 dark:bg-slate-800 flex-shrink-0 flex items-center justify-center overflow-hidden border border-slate-100 dark:border-slate-800/50">
                         <span class="material-symbols-outlined text-slate-400">article</span>
                     </div>
                     <div class="flex-1 min-w-0">
-                        <div class="flex items-center justify-between mb-1">
-                            <h3 class="font-semibold text-base truncate group-hover:text-primary transition-colors pr-2">\${escapeHtml(title)}</h3>
+                        <div class="mb-1 min-w-0">
+                            <h3 class="bookmark-title font-semibold text-base group-hover:text-primary transition-colors pr-2">\${escapeHtml(visibleTitle)}</h3>
                         </div>
-                        <div class="flex items-center gap-4 text-xs text-slate-500 mt-2">
+                        <div class="flex flex-wrap items-center gap-x-4 gap-y-2 text-xs text-slate-500 mt-2 min-w-0">
                             <span class="flex items-center gap-1"><span class="material-symbols-outlined text-[14px]">calendar_today</span> \${dateStr}</span>
                             <span class="flex items-center gap-1"><span class="material-symbols-outlined text-[14px]">schedule</span> \${readingTime} min</span>
                             <span class="flex items-center gap-1 truncate"><span class="material-symbols-outlined text-[14px]">link</span> \${escapeHtml(urlDomain)}</span>
