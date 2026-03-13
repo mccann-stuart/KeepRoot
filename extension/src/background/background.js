@@ -95,23 +95,5 @@ async function handleSavePage(tabId) {
     throw new Error(`Server returned ${response.status}: ${txt}`);
   }
 
-  // Soft-refresh the KeepRoot dashboard if it's open
-  try {
-    const tabs = await chrome.tabs.query({ url: normalizedWorkerUrl + "/*" });
-    for (const tab of tabs) {
-      await chrome.scripting.executeScript({
-        target: { tabId: tab.id },
-        world: 'MAIN',
-        func: () => {
-          if (typeof window.fetchBookmarks === 'function') {
-            window.fetchBookmarks();
-          }
-        }
-      });
-    }
-  } catch (err) {
-    console.error('[KeepRoot] Failed to refresh webview tabs:', err);
-  }
-
   return { success: true };
 }

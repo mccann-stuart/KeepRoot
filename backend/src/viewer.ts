@@ -556,6 +556,7 @@ export const viewerHtml = `<!DOCTYPE html>
         if (secret) {
             showApp();
             fetchBookmarks();
+            startPolling();
         }
 
         // WebAuthn Passkey Forms
@@ -638,12 +639,14 @@ export const viewerHtml = `<!DOCTYPE html>
             localStorage.setItem('keeproot_secret', secret);
             showApp();
             fetchBookmarks();
+            startPolling();
             showToast('Logged in successfully', 'success');
         }
 
         DOM.logoutBtn.addEventListener('click', () => {
             localStorage.removeItem('keeproot_secret');
             secret = null;
+            stopPolling();
             DOM.app.style.display = 'none';
             DOM.loginModal.style.display = 'flex';
             DOM.bookmarkList.innerHTML = '';
@@ -765,16 +768,45 @@ export const viewerHtml = `<!DOCTYPE html>
             DOM.newKeyResult.style.display = 'none';
         }
 
-        async function fetchBookmarks() {
-            DOM.bookmarkList.innerHTML = '<div class="loader-container"><div class="spinner"></div></div>';
+        let pollingInterval = null;
+
+        function startPolling() {
+            if (pollingInterval) return;
+            pollingInterval = setInterval(() => {
+                fetchBookmarks(true);
+            }, 5000);
+        }
+
+        function stopPolling() {
+            if (pollingInterval) {
+                clearInterval(pollingInterval);
+                pollingInterval = null;
+            }
+        }
+
+        async function fetchBookmarks(isSilentPolling = false) {
+            if (!isSilentPolling) {
+                DOM.bookmarkList.innerHTML = '<div class="loader-container"><div class="spinner"></div></div>';
+            }
             try {
                 const data = await apiFetch('/bookmarks');
-                renderBookmarksList(data.keys || []);
+                const newKeys = data.keys || [];
+                
+                // Compare with current bookmarks to prevent unnecessary re-renders
+                // We'll stringify the keys array to easily detect added/removed/updated dates
+                const currentStr = JSON.stringify(bookmarks.map(b => ({name: b.name, date: b.metadata?.createdAt})));
+                const newStr = JSON.stringify(newKeys.map(b => ({name: b.name, date: b.metadata?.createdAt})));
+
+                if (currentStr !== newStr) {
+                    renderBookmarksList(newKeys);
+                }
             } catch (err) {
                 if (err.status === 401) {
                     DOM.logoutBtn.click(); // Auto logout on 401
                 }
-                DOM.bookmarkList.innerHTML = '<div style="padding: 1rem; color: var(--danger); text-align: center;">Failed to load bookmarks</div>';
+                if (!isSilentPolling) {
+                    DOM.bookmarkList.innerHTML = '<div style="padding: 1rem; color: var(--danger); text-align: center;">Failed to load bookmarks</div>';
+                }
             }
         }
 
