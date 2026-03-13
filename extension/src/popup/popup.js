@@ -40,8 +40,9 @@ document.addEventListener('DOMContentLoaded', () => {
           return;
         }
 
-        showStatus(`Failed: ${response.error}`, true);
-        if (response.error.includes('configured')) {
+        const responseError = response.error || 'Unknown error';
+        showStatus(`Failed: ${responseError}`, true);
+        if (responseError.includes('configured')) {
           setTimeout(() => {
             openOptionsPage().catch(() => {});
           }, 3000);
