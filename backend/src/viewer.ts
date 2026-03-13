@@ -480,6 +480,61 @@ export const viewerHtml = `<!DOCTYPE html>
         @keyframes slideIn { from { opacity: 0; transform: translateX(-10px); } to { opacity: 1; transform: translateX(0); } }
         @keyframes spin { 0% { transform: rotate(0deg); } 100% { transform: rotate(360deg); } }
 
+        /* Settings UI */
+        .settings-heading {
+            font-size: 1.25rem;
+            font-weight: 600;
+            margin-bottom: 1rem;
+            color: var(--text-main);
+        }
+
+        .theme-option, .font-option {
+            cursor: pointer;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+        }
+
+        .theme-preview {
+            width: 120px;
+            height: 80px;
+            border-radius: 0.5rem;
+            border: 2px solid var(--border);
+            transition: all 0.2s;
+            position: relative;
+            overflow: hidden;
+        }
+        .theme-preview.light-preview { background: #f8fafc; }
+        .theme-preview.dark-preview { background: #0f172a; }
+        .theme-preview.auto-preview { background: linear-gradient(to right, #f8fafc 50%, #0f172a 50%); }
+
+        .theme-option.active .theme-preview, .font-option.active .font-preview {
+            border-color: var(--accent);
+            box-shadow: 0 0 0 1px var(--accent);
+        }
+
+        .font-preview {
+            width: 100px;
+            height: 100px;
+            border-radius: 0.5rem;
+            border: 2px solid var(--border);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 2rem;
+            background: var(--panel-bg);
+            transition: all 0.2s;
+            color: var(--text-main);
+        }
+
+        /* Switch */
+        .switch { position: relative; display: inline-block; width: 44px; height: 24px; }
+        .switch input { opacity: 0; width: 0; height: 0; }
+        .slider { position: absolute; cursor: pointer; top: 0; left: 0; right: 0; bottom: 0; background-color: rgba(150,150,150,0.5); transition: .2s; border-radius: 24px; }
+        .slider:before { position: absolute; content: ""; height: 18px; width: 18px; left: 3px; bottom: 3px; background-color: white; transition: .2s; border-radius: 50%; }
+        input:checked + .slider { background-color: var(--accent); }
+        input:checked + .slider:before { transform: translateX(20px); }
+
         /* Mobile Responsive */
         @media (max-width: 768px) {
             #app { flex-direction: column; }
@@ -527,9 +582,12 @@ export const viewerHtml = `<!DOCTYPE html>
             </div>
             <div style="padding: 1rem; border-top: 1px solid var(--border); display: flex; flex-direction: column; gap: 0.5rem;">
                 <div style="display: flex; gap: 0.5rem;">
-                    <button id="theme-btn" style="flex: 1; background: var(--item-hover); border: 1px solid var(--border); color: var(--text-main);"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="margin-bottom:-3px; margin-right:4px"><path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"></path></svg> Theme</button>
+                    <button id="open-settings-btn" style="flex: 1; background: var(--item-hover); border: 1px solid var(--border); color: var(--text-main);">
+                        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="margin-bottom:-3px; margin-right:4px"><circle cx="12" cy="12" r="3"></circle><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z"></path></svg> 
+                        Settings
+                    </button>
                 </div>
-                <button id="settings-btn">API Keys & Settings</button>
+                <button id="setup-btn">Setup</button>
                 <button id="logout-btn">Log Out</button>
             </div>
         </div>
@@ -542,8 +600,8 @@ export const viewerHtml = `<!DOCTYPE html>
                 <p>Choose a saved page from the sidebar to read it.</p>
             </div>
             
-            <div id="settings-view" style="display: none; height: 100%; flex-direction: column; overflow-y: auto; padding: 2rem; max-width: 800px; margin: 0 auto; width: 100%;">
-                <h2 style="font-size: 2rem; border-bottom: 1px solid var(--border); padding-bottom: 0.5rem; margin-bottom: 2rem;">API Keys</h2>
+            <div id="setup-view" style="display: none; height: 100%; flex-direction: column; overflow-y: auto; padding: 2rem; max-width: 800px; margin: 0 auto; width: 100%;">
+                <h2 style="font-size: 2rem; border-bottom: 1px solid var(--border); padding-bottom: 0.5rem; margin-bottom: 2rem;">Setup & API Keys</h2>
                 
                 <div style="background: var(--sidebar-bg); border: 1px solid var(--border); border-radius: 0.5rem; padding: 1.5rem; margin-bottom: 2rem;">
                     <h3>Generate New API Key</h3>
@@ -564,6 +622,79 @@ export const viewerHtml = `<!DOCTYPE html>
                 <h3>Active Keys</h3>
                 <div id="api-keys-list" style="display: flex; flex-direction: column; gap: 0.5rem; margin-top: 1rem;">
                     <!-- Keys injected here -->
+                </div>
+            </div>
+
+            <div id="settings-view" style="display: none; height: 100%; flex-direction: column; overflow-y: auto; padding: 2rem; max-width: 800px; margin: 0 auto; width: 100%;">
+                <h2 style="font-size: 2rem; margin-bottom: 2rem;">Settings</h2>
+                
+                <div class="settings-section">
+                    <h3 class="settings-heading">Notifications</h3>
+                    <div style="display: flex; justify-content: space-between; align-items: flex-start; padding: 1rem 0; border-bottom: 1px solid var(--border);">
+                        <div>
+                            <div style="font-weight: 500; margin-bottom: 0.25rem;">Response completions</div>
+                            <div style="font-size: 0.9rem; color: var(--text-muted); line-height: 1.4;">Get notified when Claude has finished a response. Most useful for long-running tasks like tool calls and Research.</div>
+                        </div>
+                        <label class="switch">
+                            <input type="checkbox" id="notification-toggle" checked>
+                            <span class="slider"></span>
+                        </label>
+                    </div>
+                </div>
+
+                <div class="settings-section" style="margin-top: 2.5rem;">
+                    <h3 class="settings-heading">Appearance</h3>
+                    
+                    <div style="margin-top: 1rem;">
+                        <div style="margin-bottom: 0.75rem; color: var(--text-main);">Color mode</div>
+                        <div style="display: flex; gap: 1rem;">
+                            <div class="theme-option" data-theme-val="light">
+                                <div class="theme-preview light-preview">
+                                    <div style="position: absolute; top: 8px; left: 8px; right: 8px; height: 8px; background: #e2e8f0; border-radius: 4px;"></div>
+                                    <div style="position: absolute; top: 24px; left: 8px; width: 60%; height: 2px; background: #cbd5e1;"></div>
+                                    <div style="position: absolute; bottom: 8px; right: 8px; width: 8px; height: 8px; background: #ea580c; border-radius: 50%;"></div>
+                                </div>
+                                <div style="text-align: center; margin-top: 0.5rem; font-size: 0.9rem; color: var(--text-muted);">Light</div>
+                            </div>
+                            <div class="theme-option" data-theme-val="auto">
+                                <div class="theme-preview auto-preview">
+                                    <div style="position: absolute; top: 8px; left: 8px; right: 8px; height: 8px; background: rgba(128,128,128,0.2); border-radius: 4px;"></div>
+                                    <div style="position: absolute; bottom: 8px; right: 8px; width: 8px; height: 8px; background: #ea580c; border-radius: 50%;"></div>
+                                </div>
+                                <div style="text-align: center; margin-top: 0.5rem; font-size: 0.9rem; color: var(--text-muted);">Auto</div>
+                            </div>
+                            <div class="theme-option" data-theme-val="dark">
+                                <div class="theme-preview dark-preview">
+                                    <div style="position: absolute; top: 8px; left: 8px; right: 8px; height: 8px; background: #334155; border-radius: 4px;"></div>
+                                    <div style="position: absolute; top: 24px; left: 8px; width: 60%; height: 2px; background: #475569;"></div>
+                                    <div style="position: absolute; bottom: 8px; right: 8px; width: 8px; height: 8px; background: #ea580c; border-radius: 50%;"></div>
+                                </div>
+                                <div style="text-align: center; margin-top: 0.5rem; font-size: 0.9rem; color: var(--text-muted);">Dark</div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <div style="margin-top: 2rem;">
+                        <div style="margin-bottom: 0.75rem; color: var(--text-main);">Chat font</div>
+                        <div style="display: flex; gap: 1rem; flex-wrap: wrap;">
+                            <div class="font-option" data-font-val="default">
+                                <div class="font-preview" style="font-family: inherit;"><span>Aa</span></div>
+                                <div style="text-align: center; margin-top: 0.5rem; font-size: 0.9rem; color: var(--text-muted);">Default</div>
+                            </div>
+                            <div class="font-option" data-font-val="sans">
+                                <div class="font-preview" style="font-family: sans-serif;"><span>Aa</span></div>
+                                <div style="text-align: center; margin-top: 0.5rem; font-size: 0.9rem; color: var(--text-muted);">Sans</div>
+                            </div>
+                            <div class="font-option" data-font-val="system">
+                                <div class="font-preview" style="font-family: system-ui, -apple-system, BlinkMacSystemFont;"><span>Aa</span></div>
+                                <div style="text-align: center; margin-top: 0.5rem; font-size: 0.9rem; color: var(--text-muted);">System</div>
+                            </div>
+                            <div class="font-option" data-font-val="dyslexic">
+                                <div class="font-preview" style="font-family: 'OpenDyslexic', 'Comic Sans MS', sans-serif;"><span>Aa</span></div>
+                                <div style="text-align: center; margin-top: 0.5rem; font-size: 0.9rem; color: var(--text-muted);">Dyslexic friendly</div>
+                            </div>
+                        </div>
+                    </div>
                 </div>
             </div>
 
@@ -628,18 +759,19 @@ export const viewerHtml = `<!DOCTYPE html>
             bookmarkList: document.getElementById('bookmark-list'),
             searchInput: document.getElementById('search-input'),
             logoutBtn: document.getElementById('logout-btn'),
-            settingsBtn: document.getElementById('settings-btn'),
+            setupBtn: document.getElementById('setup-btn'),
+            openSettingsBtn: document.getElementById('open-settings-btn'),
             
             emptyState: document.getElementById('empty-state'),
             contentView: document.getElementById('content-view'),
             settingsView: document.getElementById('settings-view'),
+            setupView: document.getElementById('setup-view'),
             
             viewTitle: document.getElementById('view-title'),
             viewUrl: document.getElementById('view-url'),
             viewDate: document.getElementById('view-date'),
             markdownContainer: document.getElementById('markdown-container'),
             deleteBtn: document.getElementById('delete-btn'),
-            themeBtn: document.getElementById('theme-btn'),
             fontDecreaseBtn: document.getElementById('font-decrease-btn'),
             fontIncreaseBtn: document.getElementById('font-increase-btn'),
             
@@ -663,10 +795,50 @@ export const viewerHtml = `<!DOCTYPE html>
         };
 
         let secret = localStorage.getItem('keeproot_secret');
-        let currentTheme = localStorage.getItem('keeproot_theme') || 'dark';
+        let currentTheme = localStorage.getItem('keeproot_theme') || 'auto';
+        let currentFont = localStorage.getItem('keeproot_font') || 'default';
         let currentFontSize = parseFloat(localStorage.getItem('keeproot_fontSize')) || 16;
+        let notificationsEnabled = localStorage.getItem('keeproot_notifications') !== 'false';
         
-        if (currentTheme === 'light') document.body.setAttribute('data-theme', 'light');
+        function applyTheme(theme) {
+            currentTheme = theme;
+            if (theme === 'auto') {
+                const isDark = window.matchMedia('(prefers-color-scheme: dark)').matches;
+                document.body.setAttribute('data-theme', isDark ? 'dark' : 'light');
+            } else {
+                document.body.setAttribute('data-theme', theme);
+            }
+            localStorage.setItem('keeproot_theme', theme);
+            
+            document.querySelectorAll('.theme-option').forEach(el => {
+                el.classList.toggle('active', el.dataset.themeVal === theme);
+            });
+        }
+
+        function applyFont(font) {
+            currentFont = font;
+            const fonts = {
+                'default': 'inherit',
+                'sans': 'sans-serif',
+                'system': 'system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif',
+                'dyslexic': "'OpenDyslexic', 'Comic Sans MS', sans-serif"
+            };
+            DOM.markdownContainer.style.fontFamily = fonts[font] || fonts['default'];
+            localStorage.setItem('keeproot_font', font);
+            
+            document.querySelectorAll('.font-option').forEach(el => {
+                el.classList.toggle('active', el.dataset.fontVal === font);
+            });
+        }
+
+        window.matchMedia('(prefers-color-scheme: dark)').addEventListener('change', e => {
+            if (currentTheme === 'auto') {
+                document.body.setAttribute('data-theme', e.matches ? 'dark' : 'light');
+            }
+        });
+
+        applyTheme(currentTheme);
+        applyFont(currentFont);
         DOM.markdownContainer.style.fontSize = currentFontSize + 'px';
 
         let bookmarks = [];
@@ -788,11 +960,40 @@ export const viewerHtml = `<!DOCTYPE html>
             });
         });
 
-        // Theme Toggle
-        DOM.themeBtn.addEventListener('click', () => {
-            currentTheme = currentTheme === 'dark' ? 'light' : 'dark';
-            document.body.setAttribute('data-theme', currentTheme);
-            localStorage.setItem('keeproot_theme', currentTheme);
+        // Setup View Actions
+        DOM.setupBtn.addEventListener('click', () => {
+            DOM.emptyState.style.display = 'none';
+            DOM.contentView.style.display = 'none';
+            DOM.settingsView.style.display = 'none';
+            DOM.setupView.style.display = 'flex';
+            document.querySelectorAll('.bookmark-item').forEach(el => el.classList.remove('active'));
+            fetchApiKeys();
+        });
+
+        // Settings View Actions
+        DOM.openSettingsBtn.addEventListener('click', () => {
+            DOM.emptyState.style.display = 'none';
+            DOM.contentView.style.display = 'none';
+            DOM.setupView.style.display = 'none';
+            DOM.settingsView.style.display = 'flex';
+            document.querySelectorAll('.bookmark-item').forEach(el => el.classList.remove('active'));
+            
+            // Init toggles
+            document.getElementById('notification-toggle').checked = notificationsEnabled;
+        });
+
+        // Settings Toggles
+        document.getElementById('notification-toggle').addEventListener('change', (e) => {
+            notificationsEnabled = e.target.checked;
+            localStorage.setItem('keeproot_notifications', notificationsEnabled);
+        });
+
+        document.querySelectorAll('.theme-option').forEach(el => {
+            el.addEventListener('click', () => applyTheme(el.dataset.themeVal));
+        });
+
+        document.querySelectorAll('.font-option').forEach(el => {
+            el.addEventListener('click', () => applyFont(el.dataset.fontVal));
         });
 
         // Font Size adjust
@@ -987,6 +1188,7 @@ export const viewerHtml = `<!DOCTYPE html>
             DOM.emptyState.style.display = 'flex';
             DOM.contentView.style.display = 'none';
             DOM.settingsView.style.display = 'none';
+            DOM.setupView.style.display = 'none';
             currentBookmarkId = null;
             document.querySelectorAll('.bookmark-item').forEach(el => el.classList.remove('active'));
             DOM.newKeyResult.style.display = 'none';
@@ -1075,6 +1277,7 @@ export const viewerHtml = `<!DOCTYPE html>
             currentBookmarkId = id;
             DOM.emptyState.style.display = 'none';
             DOM.settingsView.style.display = 'none';
+            DOM.setupView.style.display = 'none';
             DOM.contentView.style.display = 'flex';
             
             DOM.markdownContainer.innerHTML = '<div class="loader-container"><div class="spinner"></div></div>';
