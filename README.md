@@ -25,7 +25,7 @@ KeepRoot has two main components:
 ## Features
 
 - One-click page save from the extension popup
-- Readability + Markdown extraction in the extension
+- Readability + Markdown extraction in the extension, with PDF text extraction by URL
 - Web dashboard served directly from the Worker root URL
 - Bookmark CRUD API with canonical URL normalization and deduplication
 - User-owned storage in Cloudflare D1 + R2

@@ -61,6 +61,16 @@ export function queryTabs(queryInfo) {
   return fromCallback((callback) => api.tabs.query(queryInfo, callback));
 }
 
+export function getTab(tabId) {
+  const api = ensureExtensionApi();
+
+  if (hasPromiseBasedApi) {
+    return api.tabs.get(tabId);
+  }
+
+  return fromCallback((callback) => api.tabs.get(tabId, callback));
+}
+
 export function sendRuntimeMessage(message) {
   const api = ensureExtensionApi();
 

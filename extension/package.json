@@ -7,7 +7,7 @@
     "build": "node build.js",
     "build:safari": "node build-safari.js",
     "watch": "node build.js --watch",
-    "test": "echo \"Error: no test specified\" && exit 1"
+    "test": "node --test ./test/*.test.mjs"
   },
   "keywords": [],
   "author": "",
@@ -15,6 +15,7 @@
   "type": "commonjs",
   "dependencies": {
     "@mozilla/readability": "^0.6.0",
+    "pdfjs-dist": "^4.10.38",
     "turndown": "^7.2.2"
   },
   "devDependencies": {

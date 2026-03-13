@@ -1,9 +1,11 @@
 import {
   addRuntimeMessageListener,
   executeScript,
+  getTab,
   getStorage,
   setStorage,
 } from '../shared/webextension-api.js';
+import { PdfExtractionError, extractPdfBookmark, isLikelyPdfUrl, resolvePdfSourceUrl } from './pdf-parser.mjs';
 
 addRuntimeMessageListener((request, sender, sendResponse) => {
   if (request.action === 'SAVE_PAGE' && request.tabId) {
@@ -43,40 +45,12 @@ async function handleSavePage(tabId) {
     await setStorage({ workerUrl: normalizedWorkerUrl });
   }
 
-  let executionResults;
-  try {
-    await executeScript({
-      target: { tabId },
-      files: ['dist/content.js'],
-    });
-
-    executionResults = await executeScript({
-      target: { tabId },
-      func: () => {
-        if (typeof globalThis.extractContent !== 'function') {
-          return { error: 'Content extractor failed to initialize.' };
-        }
-
-        return globalThis.extractContent();
-      },
-    });
-  } catch (error) {
-    if (/Cannot access|Missing host permission|The extensions gallery cannot be scripted/i.test(error.message)) {
-      throw new Error('This page cannot be saved because the browser blocks extensions on it.');
-    }
-
-    throw error;
-  }
-
-  const extraction = executionResults[0].result;
-  
-  if (extraction.error) {
-    throw new Error('Extraction failed: ' + extraction.error);
-  }
+  const tab = await getTab(tabId);
+  const extraction = await extractBookmarkFromTab(tabId, tab);
 
   // 3. Prepare payload for Cloudflare
   const payload = {
-    title: extraction.title,
+    title: extraction.title || tab?.title,
     url: extraction.url,
     markdownData: extraction.markdownData,
     date: new Date().toISOString()
@@ -107,4 +81,80 @@ async function handleSavePage(tabId) {
   }
 
   return { success: true };
+}
+
+async function extractBookmarkFromTab(tabId, tab) {
+  const tabUrl = resolvePdfSourceUrl(tab?.url || '');
+  const likelyPdf = isLikelyPdfUrl(tab?.url || '');
+  const canAttemptPdfExtraction = /^https?:/i.test(tabUrl);
+
+  if (likelyPdf) {
+    return extractPdfBookmark({
+      fallbackTitle: tab?.title,
+      url: tabUrl,
+    });
+  }
+
+  try {
+    return await extractHtmlBookmark(tabId);
+  } catch (htmlError) {
+    if (!canAttemptPdfExtraction) {
+      throw htmlError;
+    }
+
+    try {
+      return await extractPdfBookmark({
+        fallbackTitle: tab?.title,
+        url: tabUrl,
+      });
+    } catch (pdfError) {
+      if (
+        pdfError instanceof PdfExtractionError &&
+        !likelyPdf &&
+        (pdfError.code === 'not_pdf' || pdfError.code === 'pdf_fetch_failed')
+      ) {
+        throw htmlError;
+      }
+
+      throw pdfError;
+    }
+  }
+}
+
+async function extractHtmlBookmark(tabId) {
+  let executionResults;
+  try {
+    await executeScript({
+      target: { tabId },
+      files: ['dist/content.js'],
+    });
+
+    executionResults = await executeScript({
+      target: { tabId },
+      func: () => {
+        if (typeof globalThis.extractContent !== 'function') {
+          return { error: 'Content extractor failed to initialize.' };
+        }
+
+        return globalThis.extractContent();
+      },
+    });
+  } catch (error) {
+    if (/Cannot access|Missing host permission|The extensions gallery cannot be scripted/i.test(error.message)) {
+      throw new Error('This page cannot be saved because the browser blocks extensions on it.');
+    }
+
+    throw error;
+  }
+
+  const extraction = executionResults[0]?.result;
+  if (!extraction) {
+    throw new Error('Content extraction returned no result.');
+  }
+
+  if (extraction.error) {
+    throw new Error('Extraction failed: ' + extraction.error);
+  }
+
+  return extraction;
 }
