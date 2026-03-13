@@ -7,20 +7,29 @@ import { swJs } from './sw';
 import {
 	authenticateBearerToken,
 	createApiKey,
+	createList,
 	createSession,
+	createSmartList,
 	createUserWithCredential,
 	deleteApiKey,
 	deleteAuthChallenge,
 	deleteBookmark,
+	deleteList,
+	deleteSmartList,
 	getBookmark,
 	getUserByUsername,
 	getUserCredentials,
 	getValidAuthChallenge,
 	listApiKeys,
 	listBookmarks,
+	listUserLists,
+	listUserSmartLists,
+	patchBookmark,
 	saveBookmark,
 	storeAuthChallenge,
 	updateCredentialCounter,
+	updateList,
+	updateSmartList,
 	type BookmarkPayload,
 	type StorageEnv,
 } from './storage';
@@ -370,6 +379,21 @@ export default {
 				return jsonResponse({ keys });
 			}
 
+			if (request.method === 'PATCH' && pathname.startsWith('/bookmarks/')) {
+				const bookmarkId = pathname.slice('/bookmarks/'.length);
+				if (!bookmarkId) {
+					return errorResponse('Missing ID', 400);
+				}
+
+				const body = await parseJson<any>(request);
+				const updated = await patchBookmark(env, authUser.userId, bookmarkId, body);
+				if (!updated && body.tags === undefined) {
+					return errorResponse('Not found or no changes', 404);
+				}
+
+				return jsonResponse({ message: 'Updated successfully' });
+			}
+
 			if (request.method === 'GET' && pathname.startsWith('/bookmarks/')) {
 				const bookmarkId = pathname.slice('/bookmarks/'.length);
 				if (!bookmarkId) {
@@ -395,6 +419,62 @@ export default {
 					return errorResponse('Not found', 404);
 				}
 
+				return jsonResponse({ message: 'Deleted successfully' });
+			}
+
+			// Lists API
+			if (request.method === 'GET' && pathname === '/lists') {
+				const lists = await listUserLists(env, authUser.userId);
+				return jsonResponse({ lists });
+			}
+
+			if (request.method === 'POST' && pathname === '/lists') {
+				const body = await parseJson<any>(request);
+				if (!body.name) return errorResponse('Name required', 400);
+				const list = await createList(env, authUser.userId, body);
+				return jsonResponse(list, 201);
+			}
+
+			if (request.method === 'PATCH' && pathname.startsWith('/lists/')) {
+				const listId = pathname.slice('/lists/'.length);
+				const body = await parseJson<any>(request);
+				const updated = await updateList(env, authUser.userId, listId, body);
+				if (!updated) return errorResponse('Not found', 404);
+				return jsonResponse({ message: 'Updated successfully' });
+			}
+
+			if (request.method === 'DELETE' && pathname.startsWith('/lists/')) {
+				const listId = pathname.slice('/lists/'.length);
+				const deleted = await deleteList(env, authUser.userId, listId);
+				if (!deleted) return errorResponse('Not found', 404);
+				return jsonResponse({ message: 'Deleted successfully' });
+			}
+
+			// Smart Lists API
+			if (request.method === 'GET' && pathname === '/smart-lists') {
+				const lists = await listUserSmartLists(env, authUser.userId);
+				return jsonResponse({ lists });
+			}
+
+			if (request.method === 'POST' && pathname === '/smart-lists') {
+				const body = await parseJson<any>(request);
+				if (!body.name || !body.rules) return errorResponse('Name and rules required', 400);
+				const list = await createSmartList(env, authUser.userId, body);
+				return jsonResponse(list, 201);
+			}
+
+			if (request.method === 'PATCH' && pathname.startsWith('/smart-lists/')) {
+				const listId = pathname.slice('/smart-lists/'.length);
+				const body = await parseJson<any>(request);
+				const updated = await updateSmartList(env, authUser.userId, listId, body);
+				if (!updated) return errorResponse('Not found', 404);
+				return jsonResponse({ message: 'Updated successfully' });
+			}
+
+			if (request.method === 'DELETE' && pathname.startsWith('/smart-lists/')) {
+				const listId = pathname.slice('/smart-lists/'.length);
+				const deleted = await deleteSmartList(env, authUser.userId, listId);
+				if (!deleted) return errorResponse('Not found', 404);
 				return jsonResponse({ message: 'Deleted successfully' });
 			}
 

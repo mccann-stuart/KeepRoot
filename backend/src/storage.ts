@@ -37,9 +37,13 @@ export interface BookmarkPayload {
 	canonicalUrl?: string;
 	htmlData?: string;
 	images?: BookmarkImagePayload[];
+	isRead?: boolean;
 	lang?: string;
+	listId?: string | null;
 	markdownData?: string;
+	pinned?: boolean;
 	siteName?: string;
+	sortOrder?: number;
 	status?: string;
 	tags?: string[];
 	textContent?: string;
@@ -103,9 +107,13 @@ interface BookmarkRow {
 	domain: string | null;
 	excerpt: string | null;
 	id: string;
+	is_read: number;
 	lang: string | null;
 	last_fetched_at: string | null;
+	list_id: string | null;
+	pinned: number;
 	site_name: string | null;
+	sort_order: number;
 	status: string;
 	title: string;
 	updated_at: string;
@@ -655,9 +663,13 @@ function makeBookmarkMetadata(row: BookmarkRow, tags: string[], images: Bookmark
 		domain: row.domain,
 		excerpt: row.excerpt,
 		imageCount: images.length,
+		isRead: Boolean(row.is_read),
 		lang: row.lang,
 		lastFetchedAt: row.last_fetched_at,
+		listId: row.list_id,
+		pinned: Boolean(row.pinned),
 		siteName: row.site_name,
+		sortOrder: row.sort_order,
 		status: row.status,
 		tags,
 		title: row.title,
@@ -1168,7 +1180,7 @@ export async function saveBookmark(
 			`UPDATE bookmarks
 			SET url = ?, canonical_url = ?, url_hash = ?, title = ?, site_name = ?, domain = ?, status = ?,
 				updated_at = ?, last_fetched_at = ?, content_hash = ?, content_ref = ?, content_type = ?,
-				content_length = ?, excerpt = ?, word_count = ?, lang = ?
+				content_length = ?, excerpt = ?, word_count = ?, lang = ?, list_id = ?, pinned = ?, sort_order = ?, is_read = ?
 			WHERE id = ? AND user_id = ?`,
 		)
 			.bind(
@@ -1188,6 +1200,10 @@ export async function saveBookmark(
 				excerpt,
 				wordCount,
 				payload.lang ?? null,
+				payload.listId ?? null,
+				payload.pinned ? 1 : 0,
+				payload.sortOrder ?? 0,
+				payload.isRead ? 1 : 0,
 				bookmarkId,
 				user.userId,
 			)
@@ -1195,8 +1211,8 @@ export async function saveBookmark(
 	} else {
 		await env.KEEPROOT_DB.prepare(
 			`INSERT INTO bookmarks
-			(id, user_id, url, canonical_url, url_hash, title, site_name, domain, status, created_at, updated_at, last_fetched_at, content_hash, content_ref, content_type, content_length, excerpt, word_count, lang)
-			VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+			(id, user_id, url, canonical_url, url_hash, title, site_name, domain, status, created_at, updated_at, last_fetched_at, content_hash, content_ref, content_type, content_length, excerpt, word_count, lang, list_id, pinned, sort_order, is_read)
+			VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
 		)
 			.bind(
 				bookmarkId,
@@ -1218,6 +1234,10 @@ export async function saveBookmark(
 				excerpt,
 				wordCount,
 				payload.lang ?? null,
+				payload.listId ?? null,
+				payload.pinned ? 1 : 0,
+				payload.sortOrder ?? 0,
+				payload.isRead ? 1 : 0,
 			)
 			.run();
 	}
@@ -1259,9 +1279,13 @@ export async function saveBookmark(
 			createdAt,
 			domain,
 			excerpt,
+			isRead: payload.isRead ? true : false,
 			lang: payload.lang ?? null,
 			lastFetchedAt: now,
+			listId: payload.listId ?? null,
+			pinned: payload.pinned ? true : false,
 			siteName,
+			sortOrder: payload.sortOrder ?? 0,
 			status,
 			title,
 			updatedAt: now,
@@ -1272,26 +1296,40 @@ export async function saveBookmark(
 }
 
 export async function listBookmarks(env: StorageEnv, userId: string): Promise<BookmarkListItem[]> {
-	const bookmarks = await env.KEEPROOT_DB.prepare(
+	const rawBookmarks = await env.KEEPROOT_DB.prepare(
 		`SELECT id, url, canonical_url, title, site_name, domain, status, created_at, updated_at, last_fetched_at,
-			content_hash, content_ref, content_type, content_length, excerpt, word_count, lang
+			content_hash, content_ref, content_type, content_length, excerpt, word_count, lang, list_id, pinned, sort_order, is_read
 		FROM bookmarks
 		WHERE user_id = ?
-		ORDER BY created_at DESC`,
+		ORDER BY pinned DESC, sort_order ASC, created_at DESC`,
 	)
 		.bind(userId)
 		.all<BookmarkRow>();
 
-	return bookmarks.results.map((row) => ({
+	const tagRows = await env.KEEPROOT_DB.prepare(
+		`SELECT bookmark_tags.bookmark_id, tags.name
+		 FROM tags
+		 INNER JOIN bookmark_tags ON bookmark_tags.tag_id = tags.id
+		 WHERE tags.user_id = ?`
+	).bind(userId).all<{ bookmark_id: string; name: string }>();
+
+	const tagsByBookmark = new Map<string, string[]>();
+	for (const row of tagRows.results) {
+		const tags = tagsByBookmark.get(row.bookmark_id) || [];
+		tags.push(row.name);
+		tagsByBookmark.set(row.bookmark_id, tags);
+	}
+
+	return rawBookmarks.results.map((row) => ({
 		name: row.id,
-		metadata: makeBookmarkMetadata(row, [], []),
+		metadata: makeBookmarkMetadata(row, tagsByBookmark.get(row.id) || [], []),
 	}));
 }
 
 export async function getBookmark(env: StorageEnv, userId: string, bookmarkId: string): Promise<BookmarkRecord | null> {
 	const bookmarkRow = await env.KEEPROOT_DB.prepare(
 		`SELECT id, url, canonical_url, title, site_name, domain, status, created_at, updated_at, last_fetched_at,
-			content_hash, content_ref, content_type, content_length, excerpt, word_count, lang
+			content_hash, content_ref, content_type, content_length, excerpt, word_count, lang, list_id, pinned, sort_order, is_read
 		FROM bookmarks
 		WHERE id = ? AND user_id = ?
 		LIMIT 1`,
@@ -1357,4 +1395,151 @@ export async function deleteBookmark(env: StorageEnv, userId: string, bookmarkId
 		.run();
 
 	return Boolean(result.meta.changes);
+}
+
+export interface ListPayload {
+	name: string;
+	sortOrder?: number;
+}
+
+export interface SmartListPayload {
+	icon?: string;
+	name: string;
+	rules: string;
+	sortOrder?: number;
+}
+
+export interface BookmarkPatchPayload {
+	isRead?: boolean;
+	listId?: string | null;
+	pinned?: boolean;
+	sortOrder?: number;
+	tags?: string[];
+}
+
+export async function createList(env: StorageEnv, userId: string, payload: ListPayload): Promise<{ id: string; name: string }> {
+	const id = crypto.randomUUID();
+	const createdAt = new Date().toISOString();
+	await env.KEEPROOT_DB.prepare(
+		'INSERT INTO lists (id, user_id, name, created_at, sort_order) VALUES (?, ?, ?, ?, ?)'
+	).bind(id, userId, payload.name, createdAt, payload.sortOrder ?? 0).run();
+	return { id, name: payload.name };
+}
+
+export async function listUserLists(env: StorageEnv, userId: string): Promise<Array<{ id: string; name: string; sortOrder: number }>> {
+	const rows = await env.KEEPROOT_DB.prepare(
+		'SELECT id, name, sort_order FROM lists WHERE user_id = ? ORDER BY sort_order ASC, created_at ASC'
+	).bind(userId).all<{ id: string; name: string; sort_order: number }>();
+	return rows.results.map(r => ({ id: r.id, name: r.name, sortOrder: r.sort_order }));
+}
+
+export async function updateList(env: StorageEnv, userId: string, listId: string, payload: Partial<ListPayload>): Promise<boolean> {
+	const updates: string[] = [];
+	const bindings: any[] = [];
+	if (payload.name !== undefined) {
+		updates.push('name = ?');
+		bindings.push(payload.name);
+	}
+	if (payload.sortOrder !== undefined) {
+		updates.push('sort_order = ?');
+		bindings.push(payload.sortOrder);
+	}
+	if (updates.length === 0) return true;
+
+	bindings.push(listId, userId);
+	const res = await env.KEEPROOT_DB.prepare(
+		`UPDATE lists SET ${updates.join(', ')} WHERE id = ? AND user_id = ?`
+	).bind(...bindings).run();
+	return Boolean(res.meta.changes);
+}
+
+export async function deleteList(env: StorageEnv, userId: string, listId: string): Promise<boolean> {
+	const res = await env.KEEPROOT_DB.prepare('DELETE FROM lists WHERE id = ? AND user_id = ?').bind(listId, userId).run();
+	return Boolean(res.meta.changes);
+}
+
+export async function createSmartList(env: StorageEnv, userId: string, payload: SmartListPayload): Promise<{ id: string; name: string }> {
+	const id = crypto.randomUUID();
+	const createdAt = new Date().toISOString();
+	await env.KEEPROOT_DB.prepare(
+		'INSERT INTO smart_lists (id, user_id, name, icon, rules, created_at, sort_order) VALUES (?, ?, ?, ?, ?, ?, ?)'
+	).bind(id, userId, payload.name, payload.icon ?? null, payload.rules, createdAt, payload.sortOrder ?? 0).run();
+	return { id, name: payload.name };
+}
+
+export async function listUserSmartLists(env: StorageEnv, userId: string): Promise<Array<{ icon: string | null; id: string; name: string; rules: string; sortOrder: number }>> {
+	const rows = await env.KEEPROOT_DB.prepare(
+		'SELECT id, name, icon, rules, sort_order FROM smart_lists WHERE user_id = ? ORDER BY sort_order ASC, created_at ASC'
+	).bind(userId).all<{ icon: string | null; id: string; name: string; rules: string; sort_order: number }>();
+	return rows.results.map(r => ({ icon: r.icon, id: r.id, name: r.name, rules: r.rules, sortOrder: r.sort_order }));
+}
+
+export async function updateSmartList(env: StorageEnv, userId: string, listId: string, payload: Partial<SmartListPayload>): Promise<boolean> {
+	const updates: string[] = [];
+	const bindings: any[] = [];
+	if (payload.name !== undefined) {
+		updates.push('name = ?');
+		bindings.push(payload.name);
+	}
+	if (payload.icon !== undefined) {
+		updates.push('icon = ?');
+		bindings.push(payload.icon);
+	}
+	if (payload.rules !== undefined) {
+		updates.push('rules = ?');
+		bindings.push(payload.rules);
+	}
+	if (payload.sortOrder !== undefined) {
+		updates.push('sort_order = ?');
+		bindings.push(payload.sortOrder);
+	}
+	if (updates.length === 0) return true;
+
+	bindings.push(listId, userId);
+	const res = await env.KEEPROOT_DB.prepare(
+		`UPDATE smart_lists SET ${updates.join(', ')} WHERE id = ? AND user_id = ?`
+	).bind(...bindings).run();
+	return Boolean(res.meta.changes);
+}
+
+export async function deleteSmartList(env: StorageEnv, userId: string, listId: string): Promise<boolean> {
+	const res = await env.KEEPROOT_DB.prepare('DELETE FROM smart_lists WHERE id = ? AND user_id = ?').bind(listId, userId).run();
+	return Boolean(res.meta.changes);
+}
+
+export async function patchBookmark(env: StorageEnv, userId: string, bookmarkId: string, payload: BookmarkPatchPayload): Promise<boolean> {
+	const updates: string[] = [];
+	const bindings: any[] = [];
+	
+	if (payload.isRead !== undefined) {
+		updates.push('is_read = ?');
+		bindings.push(payload.isRead ? 1 : 0);
+	}
+	if (payload.listId !== undefined) {
+		updates.push('list_id = ?');
+		bindings.push(payload.listId);
+	}
+	if (payload.pinned !== undefined) {
+		updates.push('pinned = ?');
+		bindings.push(payload.pinned ? 1 : 0);
+	}
+	if (payload.sortOrder !== undefined) {
+		updates.push('sort_order = ?');
+		bindings.push(payload.sortOrder);
+	}
+
+	if (updates.length > 0) {
+		bindings.push(bookmarkId, userId);
+		const res = await env.KEEPROOT_DB.prepare(
+			`UPDATE bookmarks SET ${updates.join(', ')} WHERE id = ? AND user_id = ?`
+		).bind(...bindings).run();
+		if (res.meta.changes === 0 && payload.tags === undefined) return false;
+	}
+
+	if (payload.tags !== undefined) {
+		const now = new Date().toISOString();
+		await syncTags(env, userId, bookmarkId, payload.tags, now);
+	}
+
+	return true;
 }

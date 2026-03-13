@@ -207,6 +207,33 @@ export const viewerHtml = `<!DOCTYPE html>
                     <span class="material-symbols-outlined text-[22px]">list_alt</span>
                     <span class="text-sm font-medium">All Bookmarks</span>
                 </a>
+
+                <div class="pt-6 mb-2">
+                    <div class="flex items-center justify-between px-3 mb-1">
+                        <div class="text-xs font-semibold text-slate-400 uppercase tracking-wider">Lists</div>
+                        <button id="add-list-btn" class="text-slate-400 hover:text-primary transition-colors"><span class="material-symbols-outlined text-[16px]">add</span></button>
+                    </div>
+                    <div id="sidebar-lists" class="space-y-0.5">
+                        <!-- Lists injected here -->
+                    </div>
+                </div>
+
+                <div class="pt-6 mb-2">
+                    <div class="flex items-center justify-between px-3 mb-1">
+                        <div class="text-xs font-semibold text-slate-400 uppercase tracking-wider">Smart Lists</div>
+                        <button id="add-smart-list-btn" class="text-slate-400 hover:text-primary transition-colors"><span class="material-symbols-outlined text-[16px]">add</span></button>
+                    </div>
+                    <div id="sidebar-smart-lists" class="space-y-0.5">
+                        <!-- Smart Lists injected here -->
+                    </div>
+                </div>
+
+                <div class="pt-6 mb-2">
+                    <div class="text-xs font-semibold text-slate-400 uppercase tracking-wider px-3 mb-2">Tags</div>
+                    <div id="sidebar-tags" class="space-y-0.5 ml-2 border-l border-slate-200 dark:border-slate-800">
+                        <!-- Nested tags injected here -->
+                    </div>
+                </div>
                 
                 <div class="pt-8 mb-2">
                     <div class="text-xs font-semibold text-slate-400 uppercase tracking-wider px-3 mb-2">Manage</div>
@@ -265,12 +292,23 @@ export const viewerHtml = `<!DOCTYPE html>
                 <div id="inbox-view" class="p-8 h-full">
                     <div class="max-w-5xl mx-auto space-y-6">
                         <!-- Filters/Tags Bar (Static visually for now) -->
-                        <div class="flex items-center gap-2 overflow-x-auto pb-2 scrollbar-hide">
-                            <button class="px-4 py-1.5 bg-primary text-white rounded-full text-xs font-medium whitespace-nowrap">All</button>
+                        <div class="flex items-center justify-between pb-2 mb-2 border-b border-slate-200 dark:border-slate-800" id="list-header-actions" style="display: none;">
+                            <div class="flex items-center gap-2">
+                                <span class="text-sm font-medium text-slate-500" id="list-item-count">0 items</span>
+                            </div>
+                            <div class="flex items-center gap-2">
+                                <button id="edit-list-btn" class="px-3 py-1.5 bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-300 rounded text-xs font-medium hover:bg-slate-200 dark:hover:bg-slate-700 transition-colors">Edit List</button>
+                                <button id="delete-list-btn" class="px-3 py-1.5 bg-red-50 dark:bg-red-900/20 text-red-600 dark:text-red-400 rounded text-xs font-medium hover:bg-red-100 dark:hover:bg-red-900/40 transition-colors">Delete</button>
+                            </div>
                         </div>
 
+                        <!-- Pinned Bookmarks Injection -->
+                        <div id="pinned-bookmark-list" class="grid gap-3 mb-6 empty:hidden">
+                            <!-- Pinned Bookmarks injected by JS -->
+                        </div>
+                        
                         <!-- Bookmark List Injection -->
-                        <div id="bookmark-list" class="grid gap-3">
+                        <div id="bookmark-list" class="grid gap-3 pb-24">
                             <!-- Bookmarks injected by JS -->
                         </div>
                     </div>
@@ -292,11 +330,16 @@ export const viewerHtml = `<!DOCTYPE html>
                                     <button id="font-decrease-btn" class="p-2 text-slate-500 hover:text-slate-900 dark:hover:text-white rounded hover:bg-white dark:hover:bg-slate-700 transition-colors" title="Decrease Font Size"><span class="material-symbols-outlined text-sm">text_decrease</span></button>
                                     <button id="font-increase-btn" class="p-2 text-slate-500 hover:text-slate-900 dark:hover:text-white rounded hover:bg-white dark:hover:bg-slate-700 transition-colors" title="Increase Font Size"><span class="material-symbols-outlined text-sm">text_increase</span></button>
                                 </div>
-                                <button id="delete-btn" class="p-2.5 text-red-500 bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800/50 hover:bg-red-500 hover:text-white transition-colors rounded-lg flex items-center gap-2 text-sm font-medium">
+                                 <button id="delete-btn" class="p-2.5 text-red-500 bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800/50 hover:bg-red-500 hover:text-white transition-colors rounded-lg flex items-center gap-2 text-sm font-medium">
                                     <span class="material-symbols-outlined text-[18px]">delete</span>
                                     Delete
                                 </button>
                             </div>
+                        </div>
+                        <div class="max-w-5xl mx-auto mt-4 pt-4 border-t border-slate-100 dark:border-slate-800 flex items-center gap-2">
+                             <div class="text-xs font-semibold text-slate-400 uppercase tracking-wider mr-2">Tags:</div>
+                             <div id="view-tags" class="flex items-center gap-2 flex-wrap flex-1"></div>
+                             <button id="btn-edit-tags" class="px-3 py-1 bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 dark:hover:bg-slate-700 rounded text-xs font-medium transition-colors">Edit</button>
                         </div>
                     </div>
                     
@@ -481,6 +524,7 @@ export const viewerHtml = `<!DOCTYPE html>
             app: document.getElementById('app'),
             brandTitle: document.getElementById('brand-title'),
             bookmarkList: document.getElementById('bookmark-list'),
+            pinnedBookmarkList: document.getElementById('pinned-bookmark-list'),
             searchInput: document.getElementById('search-input'),
             logoutBtn: document.getElementById('logout-btn'),
             setupBtn: document.getElementById('setup-btn'),
@@ -501,6 +545,8 @@ export const viewerHtml = `<!DOCTYPE html>
             viewTitle: document.getElementById('view-title'),
             viewUrl: document.getElementById('view-url'),
             viewDate: document.getElementById('view-date'),
+            viewTags: document.getElementById('view-tags'),
+            btnEditTags: document.getElementById('btn-edit-tags'),
             markdownContainer: document.getElementById('markdown-container'),
             deleteBtn: document.getElementById('delete-btn'),
             fontDecreaseBtn: document.getElementById('font-decrease-btn'),
@@ -523,6 +569,35 @@ export const viewerHtml = `<!DOCTYPE html>
             btnCancelNote: document.getElementById('btn-cancel-note'),
             btnSaveNote: document.getElementById('btn-save-note'),
             btnDeleteHighlight: document.getElementById('btn-delete-highlight'),
+
+            sidebarLists: document.getElementById('sidebar-lists'),
+            sidebarSmartLists: document.getElementById('sidebar-smart-lists'),
+            sidebarTags: document.getElementById('sidebar-tags'),
+            addListBtn: document.getElementById('add-list-btn'),
+            addSmartListBtn: document.getElementById('add-smart-list-btn'),
+            
+            listHeaderActions: document.getElementById('list-header-actions'),
+            listItemCount: document.getElementById('list-item-count'),
+            editListBtn: document.getElementById('edit-list-btn'),
+            deleteListBtn: document.getElementById('delete-list-btn'),
+            
+            listModal: document.getElementById('list-modal'),
+            listModalTitle: document.getElementById('list-modal-title'),
+            listNameInput: document.getElementById('list-name-input'),
+            btnCancelList: document.getElementById('btn-cancel-list'),
+            btnSaveList: document.getElementById('btn-save-list'),
+            
+            smartListModal: document.getElementById('smart-list-modal'),
+            smartListModalTitle: document.getElementById('smart-list-modal-title'),
+            smartListNameInput: document.getElementById('smart-list-name-input'),
+            smartListRulesInput: document.getElementById('smart-list-rules-input'),
+            btnCancelSmartList: document.getElementById('btn-cancel-smart-list'),
+            btnSaveSmartList: document.getElementById('btn-save-smart-list'),
+
+            tagsModal: document.getElementById('tags-modal'),
+            tagsInput: document.getElementById('tags-input'),
+            btnCancelTags: document.getElementById('btn-cancel-tags'),
+            btnSaveTags: document.getElementById('btn-save-tags'),
 
             statTotal: document.getElementById('stat-total'),
             statRecent: document.getElementById('stat-recent')
@@ -575,12 +650,20 @@ export const viewerHtml = `<!DOCTYPE html>
         DOM.markdownContainer.style.fontSize = currentFontSize + 'px';
 
         let bookmarks = [];
+        let lists = [];
+        let smartLists = [];
+        let tagsSet = new Set();
+        
         let currentBookmarkId = null;
         let pollingInterval = null;
+        
+        // Filter state
+        let currentFilterType = 'inbox'; // inbox, all, list, smartlist, tag
+        let currentFilterId = null; // ID of list/smartlist or string of tag
 
         if (secret) {
             showApp();
-            fetchBookmarks();
+            fetchData();
             startPolling();
         } else {
             DOM.loginModal.classList.remove('hidden-view');
@@ -651,7 +734,7 @@ export const viewerHtml = `<!DOCTYPE html>
             secret = token;
             localStorage.setItem('keeproot_secret', secret);
             showApp();
-            fetchBookmarks();
+            fetchData();
             startPolling();
             showToast('Logged in successfully', 'success');
         }
@@ -663,11 +746,12 @@ export const viewerHtml = `<!DOCTYPE html>
             DOM.app.classList.add('hidden-view');
             DOM.loginModal.classList.remove('hidden-view');
             DOM.bookmarkList.innerHTML = '';
+            DOM.pinnedBookmarkList.innerHTML = '';
             switchView('empty');
         });
 
         // View Routing
-        function switchView(viewName) {
+        function switchView(viewName, filterType = null, filterId = null) {
             DOM.emptyState.classList.add('hidden-view');
             DOM.contentView.classList.add('hidden-view');
             DOM.settingsView.classList.add('hidden-view');
@@ -676,11 +760,41 @@ export const viewerHtml = `<!DOCTYPE html>
 
             // Reset active navs
             [DOM.navInbox, DOM.navAll, DOM.setupBtn, DOM.openSettingsBtn].forEach(el => el.classList.remove('active-nav'));
+            document.querySelectorAll('#sidebar-lists .group, #sidebar-smart-lists .group, #sidebar-tags .group').forEach(el => el.classList.remove('active-nav'));
 
             if (viewName === 'inbox') {
                 DOM.inboxView.classList.remove('hidden-view');
-                DOM.currentViewTitle.textContent = "Inbox";
-                DOM.navInbox.classList.add('active-nav');
+                if (filterType === 'inbox') {
+                    DOM.currentViewTitle.textContent = "Inbox";
+                    DOM.navInbox.classList.add('active-nav');
+                    DOM.listHeaderActions.style.display = 'none';
+                } else if (filterType === 'all') {
+                    DOM.currentViewTitle.textContent = "All Bookmarks";
+                    DOM.navAll.classList.add('active-nav');
+                    DOM.listHeaderActions.style.display = 'none';
+                } else if (filterType === 'list') {
+                    const l = lists.find(x => x.id === filterId);
+                    DOM.currentViewTitle.textContent = l ? l.name : "List";
+                    DOM.listHeaderActions.style.display = 'flex';
+                    const listEl = document.querySelector(\`#sidebar-lists [data-id="\${filterId}"]\`);
+                    if (listEl) listEl.classList.add('active-nav');
+                } else if (filterType === 'smartlist') {
+                    const l = smartLists.find(x => x.id === filterId);
+                    DOM.currentViewTitle.textContent = l ? l.name : "Smart List";
+                    DOM.listHeaderActions.style.display = 'flex';
+                    const listEl = document.querySelector(\`#sidebar-smart-lists [data-id="\${filterId}"]\`);
+                    if (listEl) listEl.classList.add('active-nav');
+                } else if (filterType === 'tag') {
+                    DOM.currentViewTitle.textContent = "# " + filterId;
+                    DOM.listHeaderActions.style.display = 'none';
+                    const tagEl = document.querySelector(\`#sidebar-tags [data-tag="\${filterId}"]\`);
+                    if (tagEl) tagEl.classList.add('active-nav');
+                }
+
+                currentFilterType = filterType || 'inbox';
+                currentFilterId = filterId;
+                applyFilters();
+
             } else if (viewName === 'setup') {
                 DOM.setupView.classList.remove('hidden-view');
                 DOM.currentViewTitle.textContent = "API Keys Setup";
@@ -704,8 +818,8 @@ export const viewerHtml = `<!DOCTYPE html>
         }
 
         DOM.brandTitle.addEventListener('click', () => switchView('empty'));
-        DOM.navInbox.addEventListener('click', () => switchView('inbox'));
-        DOM.navAll.addEventListener('click', () => switchView('inbox'));
+        DOM.navInbox.addEventListener('click', () => switchView('inbox', 'inbox'));
+        DOM.navAll.addEventListener('click', () => switchView('inbox', 'all'));
         DOM.setupBtn.addEventListener('click', () => switchView('setup'));
         DOM.openSettingsBtn.addEventListener('click', () => switchView('settings'));
 
@@ -872,11 +986,160 @@ export const viewerHtml = `<!DOCTYPE html>
             try {
                 await apiFetch('/bookmarks/' + currentBookmarkId, { method: 'DELETE' });
                 showToast('Bookmark deleted', 'success');
-                switchView('inbox');
-                fetchBookmarks();
+                switchView('inbox', currentFilterType, currentFilterId);
+                fetchData(true);
             } catch (err) {
                 showToast('Failed to delete: ' + err.message, 'error');
             }
+        });
+
+        // List Management
+        let editingListId = null;
+        let editingListType = null; // 'list' or 'smartlist'
+
+        DOM.addListBtn.addEventListener('click', () => {
+            editingListId = null;
+            editingListType = 'list';
+            DOM.listModalTitle.textContent = 'Create List';
+            DOM.listNameInput.value = '';
+            DOM.listModal.classList.remove('hidden-view');
+        });
+
+        DOM.btnCancelList.addEventListener('click', () => {
+            DOM.listModal.classList.add('hidden-view');
+        });
+
+        DOM.btnSaveList.addEventListener('click', async () => {
+            const name = DOM.listNameInput.value.trim();
+            if (!name) return;
+            
+            try {
+                if (editingListId) {
+                    await apiFetch(\`/lists/\${editingListId}\`, {
+                        method: 'PATCH',
+                        body: JSON.stringify({ name })
+                    });
+                    showToast('List updated', 'success');
+                } else {
+                    await apiFetch('/lists', {
+                        method: 'POST',
+                        body: JSON.stringify({ name })
+                    });
+                    showToast('List created', 'success');
+                }
+                DOM.listModal.classList.add('hidden-view');
+                fetchData(true);
+            } catch (err) {
+                showToast(err.message, 'error');
+            }
+        });
+
+        // Smart List Management
+        DOM.addSmartListBtn.addEventListener('click', () => {
+            editingListId = null;
+            editingListType = 'smartlist';
+            DOM.smartListModalTitle.textContent = 'Create Smart List';
+            DOM.smartListNameInput.value = '';
+            DOM.smartListRulesInput.value = '';
+            DOM.smartListModal.classList.remove('hidden-view');
+        });
+
+        DOM.btnCancelSmartList.addEventListener('click', () => {
+            DOM.smartListModal.classList.add('hidden-view');
+        });
+
+        DOM.btnSaveSmartList.addEventListener('click', async () => {
+            const name = DOM.smartListNameInput.value.trim();
+            const rules = DOM.smartListRulesInput.value.trim();
+            if (!name || !rules) return;
+            
+            try {
+                if (editingListId) {
+                    await apiFetch(\`/smart-lists/\${editingListId}\`, {
+                        method: 'PATCH',
+                        body: JSON.stringify({ name, rules })
+                    });
+                    showToast('Smart list updated', 'success');
+                } else {
+                    await apiFetch('/smart-lists', {
+                        method: 'POST',
+                        body: JSON.stringify({ name, rules })
+                    });
+                    showToast('Smart list created', 'success');
+                }
+                DOM.smartListModal.classList.add('hidden-view');
+                fetchData(true);
+            } catch (err) {
+                showToast(err.message, 'error');
+            }
+        });
+
+        DOM.editListBtn.addEventListener('click', () => {
+            if (!currentFilterId) return;
+            if (currentFilterType === 'list') {
+                const l = lists.find(x => x.id === currentFilterId);
+                if (!l) return;
+                editingListId = l.id;
+                editingListType = 'list';
+                DOM.listModalTitle.textContent = 'Edit List';
+                DOM.listNameInput.value = l.name;
+                DOM.listModal.classList.remove('hidden-view');
+            } else if (currentFilterType === 'smartlist') {
+                const sl = smartLists.find(x => x.id === currentFilterId);
+                if (!sl) return;
+                editingListId = sl.id;
+                editingListType = 'smartlist';
+                DOM.smartListModalTitle.textContent = 'Edit Smart List';
+                DOM.smartListNameInput.value = sl.name;
+                DOM.smartListRulesInput.value = sl.rules;
+                DOM.smartListModal.classList.remove('hidden-view');
+            }
+        });
+
+        DOM.deleteListBtn.addEventListener('click', async () => {
+            if (!currentFilterId) return;
+            if (!confirm('Are you sure you want to delete this list? Bookmarks inside it will NOT be deleted, but they will be un-listed.')) return;
+            
+            const endpoint = currentFilterType === 'list' ? \`/lists/\${currentFilterId}\` : \`/smart-lists/\${currentFilterId}\`;
+            try {
+                await apiFetch(endpoint, { method: 'DELETE' });
+                showToast('List deleted', 'success');
+                switchView('inbox', 'all');
+                fetchData(true);
+            } catch (err) {
+                showToast(err.message, 'error');
+            }
+        });
+
+        DOM.btnCancelTags.addEventListener('click', () => {
+            DOM.tagsModal.classList.add('hidden-view');
+        });
+
+        DOM.btnSaveTags.addEventListener('click', async () => {
+            if (!currentBookmarkId) return;
+            const input = DOM.tagsInput.value;
+            const tagsArray = input.split(',').map(t => t.trim()).filter(Boolean);
+            
+            try {
+                await apiFetch(\`/bookmarks/\${currentBookmarkId}\`, {
+                    method: 'PATCH',
+                    body: JSON.stringify({ tags: tagsArray })
+                });
+                showToast('Tags updated', 'success');
+                DOM.tagsModal.classList.add('hidden-view');
+                fetchData(true);
+                loadBookmark(currentBookmarkId); // Refresh view
+            } catch (err) {
+                showToast(err.message, 'error');
+            }
+        });
+
+        DOM.btnEditTags.addEventListener('click', () => {
+            if (!currentBookmarkId) return;
+            const b = bookmarks.find(x => x.name === currentBookmarkId);
+            const tags = Object.values(b?.metadata?.tags || {}).flat();
+            DOM.tagsInput.value = tags.join(', ');
+            DOM.tagsModal.classList.remove('hidden-view');
         });
 
         async function fetchApiKeys() {
@@ -945,91 +1208,270 @@ export const viewerHtml = `<!DOCTYPE html>
 
         function startPolling() {
             if (pollingInterval) return;
-            pollingInterval = setInterval(() => fetchBookmarks(true), 5000);
+            pollingInterval = setInterval(() => fetchData(true), 5000);
         }
         function stopPolling() {
             if (pollingInterval) { clearInterval(pollingInterval); pollingInterval = null; }
         }
 
-        async function fetchBookmarks(isSilentPolling = false) {
+        async function fetchData(isSilentPolling = false) {
             if (!isSilentPolling && DOM.bookmarkList.innerHTML === '') {
                 DOM.bookmarkList.innerHTML = '<div class="py-12 border-2 border-dashed border-slate-200 dark:border-slate-800 rounded-xl flex items-center justify-center"><div class="spinner"></div></div>';
             }
             try {
-                const data = await apiFetch('/bookmarks');
-                const newKeys = data.keys || [];
-                
-                const currentStr = JSON.stringify(bookmarks.map(b => ({name: b.name, date: b.metadata?.createdAt})));
-                const newStr = JSON.stringify(newKeys.map(b => ({name: b.name, date: b.metadata?.createdAt})));
+                const [bRes, lRes, slRes] = await Promise.all([
+                    apiFetch('/bookmarks'),
+                    apiFetch('/lists'),
+                    apiFetch('/smart-lists')
+                ]);
 
-                if (currentStr !== newStr) {
-                    renderBookmarksList(newKeys);
+                lists = lRes.lists || [];
+                smartLists = slRes.lists || [];
+                
+                const newKeys = bRes.keys || [];
+                
+                const currentStr = JSON.stringify(bookmarks.map(b => ({name: b.name, date: b.metadata?.createdAt, pinned: b.metadata?.pinned, listId: b.metadata?.listId, tags: Object.values(b.metadata?.tags || {}).flat() })));
+                const newStr = JSON.stringify(newKeys.map(b => ({name: b.name, date: b.metadata?.createdAt, pinned: b.metadata?.pinned, listId: b.metadata?.listId, tags: Object.values(b.metadata?.tags || {}).flat() })));
+
+                if (!isSilentPolling || currentStr !== newStr) {
+                    bookmarks = newKeys.sort((a, b) => {
+                        const dateA = new Date(a.metadata?.createdAt || 0);
+                        const dateB = new Date(b.metadata?.createdAt || 0);
+                        return dateB - dateA;
+                    });
+                    
+                    tagsSet.clear();
+                    bookmarks.forEach(b => {
+                        const tags = Object.values(b.metadata?.tags || {}).flat();
+                        tags.forEach(t => tagsSet.add(t));
+                    });
+                    
+                    renderSidebar();
+                    applyFilters();
+                    
+                    DOM.statTotal.textContent = bookmarks.length;
+                    DOM.statRecent.textContent = bookmarks.filter(k => (Date.now() - new Date(k.metadata?.createdAt || 0).getTime()) < 86400000).length;
                 }
             } catch (err) {
                 if (err.status === 401) DOM.logoutBtn.click();
                 if (!isSilentPolling) {
-                    DOM.bookmarkList.innerHTML = '<div class="text-center text-red-500 py-8 text-sm">Failed to load bookmarks</div>';
+                    DOM.bookmarkList.innerHTML = '<div class="text-center text-red-500 py-8 text-sm">Failed to load data</div>';
                 }
             }
         }
 
-        function renderBookmarksList(keys) {
-            keys.sort((a, b) => {
-                const dateA = new Date(a.metadata?.createdAt || 0);
-                const dateB = new Date(b.metadata?.createdAt || 0);
-                return dateB - dateA;
+        function renderSidebar() {
+            DOM.sidebarLists.innerHTML = lists.map(l => \`
+                <a class="sidebar-list-item flex items-center gap-2 px-3 py-1.5 rounded-lg text-slate-600 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors cursor-pointer group \${currentFilterId === l.id ? 'active-nav' : ''}" data-id="\${l.id}">
+                    <span class="material-symbols-outlined text-[18px]">format_list_bulleted</span>
+                    <span class="text-sm font-medium truncate">\${escapeHtml(l.name)}</span>
+                </a>
+            \`).join('') || '<div class="px-3 py-1 text-xs text-slate-400 italic">No lists</div>';
+
+            DOM.sidebarSmartLists.innerHTML = smartLists.map(l => \`
+                <a class="flex items-center gap-2 px-3 py-1.5 rounded-lg text-slate-600 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors cursor-pointer group \${currentFilterId === l.id ? 'active-nav' : ''}" data-id="\${l.id}">
+                    <span class="material-symbols-outlined text-[18px] text-primary/70">\${l.icon || 'bolt'}</span>
+                    <span class="text-sm font-medium truncate">\${escapeHtml(l.name)}</span>
+                </a>
+            \`).join('') || '<div class="px-3 py-1 text-xs text-slate-400 italic">No smart lists</div>';
+
+            const sortedTags = Array.from(tagsSet).sort();
+            DOM.sidebarTags.innerHTML = sortedTags.map(t => {
+                const parts = t.split('/');
+                const depth = parts.length - 1;
+                const name = parts[parts.length - 1];
+                return \`
+                    <a class="flex items-center gap-2 px-3 py-1 rounded-lg text-slate-600 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors cursor-pointer group \${currentFilterId === t ? 'active-nav' : ''}" data-tag="\${t}" style="padding-left: \${Math.max(12, depth * 12 + 12)}px">
+                        <span class="text-xs font-medium truncate"># \${escapeHtml(name)}</span>
+                    </a>
+                \`;
+            }).join('') || '<div class="px-3 py-1 text-xs text-slate-400 italic">No tags</div>';
+
+            document.querySelectorAll('#sidebar-lists .sidebar-list-item').forEach(el => {
+                el.addEventListener('click', () => switchView('inbox', 'list', el.dataset.id));
+                
+                // Dropzone events
+                el.addEventListener('dragover', (e) => {
+                    e.preventDefault();
+                    if (e.dataTransfer.types.includes('application/x-bookmark-id')) {
+                        el.classList.add('bg-primary/20', 'border', 'border-primary/50');
+                    }
+                });
+                el.addEventListener('dragleave', () => {
+                    el.classList.remove('bg-primary/20', 'border', 'border-primary/50');
+                });
+                el.addEventListener('drop', async (e) => {
+                    e.preventDefault();
+                    el.classList.remove('bg-primary/20', 'border', 'border-primary/50');
+                    const bookmarkId = e.dataTransfer.getData('application/x-bookmark-id');
+                    if (!bookmarkId) return;
+
+                    try {
+                        await apiFetch(\`/bookmarks/\${bookmarkId}\`, {
+                            method: 'PATCH',
+                            body: JSON.stringify({ listId: el.dataset.id })
+                        });
+                        showToast('Bookmark moved to list', 'success');
+                        fetchData(true);
+                    } catch (err) {
+                        showToast('Failed to move bookmark', 'error');
+                    }
+                });
             });
-            bookmarks = keys;
+
+            document.querySelectorAll('#sidebar-smart-lists a').forEach(el => el.addEventListener('click', () => switchView('inbox', 'smartlist', el.dataset.id)));
+            document.querySelectorAll('#sidebar-tags a').forEach(el => el.addEventListener('click', () => switchView('inbox', 'tag', el.dataset.tag)));
+        }
+
+        function applyFilters() {
+            let filtered = bookmarks;
+            if (currentFilterType === 'inbox') {
+                filtered = bookmarks.filter(b => !b.metadata?.listId && !b.metadata?.isRead);
+            } else if (currentFilterType === 'list') {
+                filtered = bookmarks.filter(b => b.metadata?.listId === currentFilterId);
+            } else if (currentFilterType === 'tag') {
+                filtered = bookmarks.filter(b => {
+                    const tags = Object.values(b.metadata?.tags || {}).flat();
+                    return tags.some(t => t === currentFilterId || t.startsWith(currentFilterId + '/'));
+                });
+            } else if (currentFilterType === 'smartlist') {
+                const sl = smartLists.find(x => x.id === currentFilterId);
+                if (sl) {
+                    const rules = sl.rules.split(',').map(r => r.trim().toLowerCase()).filter(Boolean);
+                    filtered = bookmarks.filter(b => {
+                        const tags = Object.values(b.metadata?.tags || {}).flat().map(t => t.toLowerCase());
+                        return rules.some(r => tags.includes(r));
+                    });
+                } else filtered = [];
+            }
+
+            const query = DOM.searchInput.value.toLowerCase().trim();
+            if (query) {
+                filtered = filtered.filter(b => {
+                    const title = (b.metadata?.title || '').toLowerCase();
+                    const url = (b.metadata?.url || '').toLowerCase();
+                    return title.includes(query) || url.includes(query);
+                });
+            }
+
+            DOM.listItemCount.textContent = \`\${filtered.length} items\`;
+            renderBookmarksList(filtered);
+        }
+
+        function createBookmarkElement(key) {
+            const div = document.createElement('div');
+            // Make bookmark draggable
+            div.draggable = true;
+            div.className = 'bookmark-item group bg-white dark:bg-slate-900 p-4 rounded-xl border border-slate-200 dark:border-slate-800 hover:border-primary/50 dark:hover:border-primary/50 transition-all shadow-sm hover:shadow-md flex items-start gap-4 cursor-pointer relative';
+            div.dataset.id = key.name;
+            if (currentBookmarkId === key.name) div.classList.add('active');
             
-            DOM.statTotal.textContent = keys.length;
-            DOM.statRecent.textContent = keys.filter(k => (Date.now() - new Date(k.metadata?.createdAt || 0).getTime()) < 86400000).length;
+            // Drag Events
+            div.addEventListener('dragstart', (e) => {
+                e.dataTransfer.setData('application/x-bookmark-id', key.name);
+                setTimeout(() => div.classList.add('opacity-50'), 0);
+            });
+            div.addEventListener('dragend', () => div.classList.remove('opacity-50'));
+
+            const title = key.metadata?.title || 'Untitled Bookmarked Page';
+            const visibleTitle = truncateBookmarkTitle(title);
+            const urlDomain = key.metadata?.url ? new URL(key.metadata.url).hostname : 'unknown domain';
+            const dateStr = key.metadata?.createdAt ? new Date(key.metadata.createdAt).toLocaleDateString('en-US', {month: 'short', day: 'numeric', year: 'numeric'}) : 'Unknown';
+            const wordCount = key.metadata?.wordCount || 0;
+            const readingTime = Math.ceil(wordCount / 200) || 1;
+            div.dataset.title = title.toLowerCase();
+
+            const isPinned = key.metadata?.pinned;
+            const isRead = key.metadata?.isRead;
+            const tags = Object.values(key.metadata?.tags || {}).flat();
             
+            let tagsHtml = '';
+            if (tags.length > 0) {
+                tagsHtml = '<div class="flex gap-1.5 mt-2 flex-wrap min-w-0 pr-12">' + tags.map(t => \`<span class="px-2 py-0.5 bg-slate-100 dark:bg-slate-800 text-slate-500 rounded text-[10px] font-medium">\${escapeHtml(t)}</span>\`).join('') + '</div>';
+            }
+
+            div.innerHTML = \`
+                <div class="read-toggle size-12 rounded-lg \${isRead ? 'bg-emerald-50 text-emerald-500 dark:bg-emerald-900/20 hover:bg-emerald-100' : 'bg-slate-100 text-slate-400 dark:bg-slate-800 hover:bg-primary/10 hover:text-primary'} flex-shrink-0 flex items-center justify-center overflow-hidden border border-slate-100 dark:border-slate-800/50 transition-colors" title="\${isRead ? 'Mark unread' : 'Mark as read'}">
+                    <span class="material-symbols-outlined">\${isRead ? 'done_all' : 'article'}</span>
+                </div>
+                <div class="flex-1 min-w-0 pr-8">
+                    <div class="mb-1 min-w-0">
+                        <h3 class="bookmark-title font-semibold text-base group-hover:text-primary transition-colors pr-2 \${isRead ? 'text-slate-500 line-through' : ''}">\${escapeHtml(visibleTitle)}</h3>
+                    </div>
+                    <div class="flex flex-wrap items-center gap-x-4 gap-y-2 text-xs text-slate-500 mt-1 min-w-0">
+                        <span class="flex items-center gap-1"><span class="material-symbols-outlined text-[14px]">calendar_today</span> \${dateStr}</span>
+                        <span class="flex items-center gap-1"><span class="material-symbols-outlined text-[14px]">schedule</span> \${readingTime} min</span>
+                        <span class="flex items-center gap-1 truncate"><span class="material-symbols-outlined text-[14px]">link</span> \${escapeHtml(urlDomain)}</span>
+                    </div>
+                    \${tagsHtml}
+                </div>
+                <button class="pin-toggle absolute top-4 right-4 text-slate-300 hover:text-amber-500 \${isPinned ? 'text-amber-500 opacity-100' : 'opacity-0 group-hover:opacity-100'} transition-all" data-id="\${key.name}">
+                    <span class="material-symbols-outlined text-[20px]">\${isPinned ? 'push_pin' : 'push_pin'}</span>
+                </button>
+            \`;
+
+            div.addEventListener('click', (e) => {
+                if (e.target.closest('.pin-toggle') || e.target.closest('.read-toggle')) return;
+                document.querySelectorAll('.bookmark-item').forEach(el => el.classList.remove('active'));
+                div.classList.add('active');
+                loadBookmark(key.name);
+            });
+
+            const readBtn = div.querySelector('.read-toggle');
+            readBtn.addEventListener('click', async (e) => {
+                e.preventDefault();
+                e.stopPropagation();
+                try {
+                    await apiFetch('/bookmarks/' + key.name, {
+                        method: 'PATCH',
+                        body: JSON.stringify({ isRead: !isRead })
+                    });
+                    fetchData(true);
+                } catch (err) {
+                    showToast('Failed to toggle read status', 'error');
+                }
+            });
+
+            const pinBtn = div.querySelector('.pin-toggle');
+            pinBtn.addEventListener('click', async (e) => {
+                e.preventDefault();
+                e.stopPropagation();
+                try {
+                    await apiFetch('/bookmarks/' + key.name, {
+                        method: 'PATCH',
+                        body: JSON.stringify({ pinned: !isPinned })
+                    });
+                    fetchData(true);
+                } catch (err) {
+                    showToast('Failed to pin bookmark', 'error');
+                }
+            });
+
+            return div;
+        }
+
+        function renderBookmarksList(keys) {
             DOM.bookmarkList.innerHTML = '';
+            DOM.pinnedBookmarkList.innerHTML = '';
             
             if (keys.length === 0) {
-                DOM.bookmarkList.innerHTML = '<div class="text-center text-slate-500 py-12 text-sm border-2 border-dashed border-slate-200 dark:border-slate-800 rounded-xl">No bookmarks saved yet. Download the extension!</div>';
+                DOM.bookmarkList.innerHTML = '<div class="text-center text-slate-500 py-12 text-sm border-2 border-dashed border-slate-200 dark:border-slate-800 rounded-xl">No bookmarks found.</div>';
                 return;
             }
 
+            const unpinnedKeys = [];
+            
             keys.forEach((key) => {
-                const div = document.createElement('div');
-                div.className = 'bookmark-item group bg-white dark:bg-slate-900 p-4 rounded-xl border border-slate-200 dark:border-slate-800 hover:border-primary/50 dark:hover:border-primary/50 transition-all shadow-sm hover:shadow-md flex items-start gap-4 cursor-pointer';
-                div.dataset.id = key.name;
-                
-                const title = key.metadata?.title || 'Untitled Bookmarked Page';
-                const visibleTitle = truncateBookmarkTitle(title);
-                const urlDomain = key.metadata?.url ? new URL(key.metadata.url).hostname : 'unknown domain';
-                const dateStr = key.metadata?.createdAt ? new Date(key.metadata.createdAt).toLocaleDateString('en-US', {month: 'short', day: 'numeric', year: 'numeric'}) : 'Unknown';
-                const wordCount = key.metadata?.wordCount || 0;
-                const readingTime = Math.ceil(wordCount / 200) || 1;
-                div.dataset.title = title.toLowerCase();
-
-                div.innerHTML = \`
-                    <div class="size-12 rounded-lg bg-slate-100 dark:bg-slate-800 flex-shrink-0 flex items-center justify-center overflow-hidden border border-slate-100 dark:border-slate-800/50">
-                        <span class="material-symbols-outlined text-slate-400">article</span>
-                    </div>
-                    <div class="flex-1 min-w-0">
-                        <div class="mb-1 min-w-0">
-                            <h3 class="bookmark-title font-semibold text-base group-hover:text-primary transition-colors pr-2">\${escapeHtml(visibleTitle)}</h3>
-                        </div>
-                        <div class="flex flex-wrap items-center gap-x-4 gap-y-2 text-xs text-slate-500 mt-2 min-w-0">
-                            <span class="flex items-center gap-1"><span class="material-symbols-outlined text-[14px]">calendar_today</span> \${dateStr}</span>
-                            <span class="flex items-center gap-1"><span class="material-symbols-outlined text-[14px]">schedule</span> \${readingTime} min</span>
-                            <span class="flex items-center gap-1 truncate"><span class="material-symbols-outlined text-[14px]">link</span> \${escapeHtml(urlDomain)}</span>
-                        </div>
-                    </div>
-                \`;
-
-                if (currentBookmarkId === key.name) {
-                    div.classList.add('active');
+                const el = createBookmarkElement(key);
+                if (key.metadata?.pinned) {
+                    DOM.pinnedBookmarkList.appendChild(el);
+                } else {
+                    unpinnedKeys.push(key);
                 }
+            });
 
-                div.addEventListener('click', () => {
-                    document.querySelectorAll('.bookmark-item').forEach(el => el.classList.remove('active'));
-                    div.classList.add('active');
-                    loadBookmark(key.name);
-                });
-                DOM.bookmarkList.appendChild(div);
+            unpinnedKeys.forEach(key => {
+                DOM.bookmarkList.appendChild(createBookmarkElement(key));
             });
         }
 
@@ -1058,6 +1500,13 @@ export const viewerHtml = `<!DOCTYPE html>
                 if (data.metadata?.createdAt) {
                     const readingTime = Math.ceil((data.metadata.wordCount || 0) / 200) || 1;
                     DOM.viewDate.textContent = new Date(data.metadata.createdAt).toLocaleString() + ' • ' + readingTime + ' min read';
+                }
+                
+                const tags = Object.values(data.metadata?.tags || {}).flat();
+                if (tags.length === 0) {
+                    DOM.viewTags.innerHTML = '<span class="text-xs text-slate-400 italic">None</span>';
+                } else {
+                    DOM.viewTags.innerHTML = tags.map(t => \`<span class="px-2 py-1 bg-primary/10 text-primary rounded-md text-xs font-semibold">\${escapeHtml(t)}</span>\`).join('');
                 }
 
                 let html = marked.parse(data.markdownData || '');
