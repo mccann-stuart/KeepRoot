@@ -133,7 +133,7 @@ export const viewerHtml = `<!DOCTYPE html>
             border: 1px solid var(--border);
             background: var(--input-bg);
             color: var(--text-main);
-            font-family: 'Inter', sans-serif;
+            font-family: inherit;
             margin-bottom: 1rem;
             outline: none;
             transition: border-color 0.2s;
@@ -152,7 +152,7 @@ export const viewerHtml = `<!DOCTYPE html>
             font-weight: 500;
             cursor: pointer;
             transition: all 0.2s;
-            font-family: 'Inter', sans-serif;
+            font-family: inherit;
             width: 100%;
         }
 
@@ -632,8 +632,8 @@ export const viewerHtml = `<!DOCTYPE html>
                     <h3 class="settings-heading">Notifications</h3>
                     <div style="display: flex; justify-content: space-between; align-items: flex-start; padding: 1rem 0; border-bottom: 1px solid var(--border);">
                         <div>
-                            <div style="font-weight: 500; margin-bottom: 0.25rem;">Response completions</div>
-                            <div style="font-size: 0.9rem; color: var(--text-muted); line-height: 1.4;">Get notified when Claude has finished a response. Most useful for long-running tasks like tool calls and Research.</div>
+                            <div style="font-weight: 500; margin-bottom: 0.25rem;">Task completions</div>
+                            <div style="font-size: 0.9rem; color: var(--text-muted); line-height: 1.4;">Get notified when KeepRoot has finished a task</div>
                         </div>
                         <label class="switch">
                             <input type="checkbox" id="notification-toggle" checked>
@@ -675,7 +675,7 @@ export const viewerHtml = `<!DOCTYPE html>
                     </div>
 
                     <div style="margin-top: 2rem;">
-                        <div style="margin-bottom: 0.75rem; color: var(--text-main);">Chat font</div>
+                        <div style="margin-bottom: 0.75rem; color: var(--text-main);">Font</div>
                         <div style="display: flex; gap: 1rem; flex-wrap: wrap;">
                             <div class="font-option" data-font-val="default">
                                 <div class="font-preview" style="font-family: inherit;"><span>Aa</span></div>
@@ -818,12 +818,12 @@ export const viewerHtml = `<!DOCTYPE html>
         function applyFont(font) {
             currentFont = font;
             const fonts = {
-                'default': 'inherit',
+                'default': "'Inter', sans-serif",
                 'sans': 'sans-serif',
                 'system': 'system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif',
                 'dyslexic': "'OpenDyslexic', 'Comic Sans MS', sans-serif"
             };
-            DOM.markdownContainer.style.fontFamily = fonts[font] || fonts['default'];
+            document.body.style.fontFamily = fonts[font] || fonts['default'];
             localStorage.setItem('keeproot_font', font);
             
             document.querySelectorAll('.font-option').forEach(el => {
