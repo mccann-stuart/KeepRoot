@@ -13,15 +13,58 @@ export const viewerHtml = `<!DOCTYPE html>
     <style>
         :root {
             --bg-color: #0f172a;
+            --bg-gradient-start: #0f172a;
+            --bg-gradient-end: #1e293b;
             --sidebar-bg: rgba(30, 41, 59, 0.7);
             --panel-bg: rgba(15, 23, 42, 0.7);
+            --modal-bg: rgba(30, 41, 59, 0.9);
             --text-main: #f8fafc;
             --text-muted: #94a3b8;
+            --text-content: #cbd5e1;
             --accent: #3b82f6;
             --accent-hover: #2563eb;
             --danger: #ef4444;
             --danger-hover: #dc2626;
+            --success: #10b981;
             --border: rgba(255, 255, 255, 0.1);
+            --item-hover: rgba(255, 255, 255, 0.08);
+            --item-active: rgba(59, 130, 246, 0.15);
+            --item-active-border: rgba(59, 130, 246, 0.3);
+            --code-bg: rgba(0, 0, 0, 0.3);
+            --pre-bg: rgba(0, 0, 0, 0.4);
+            --input-bg: rgba(15, 23, 42, 0.5);
+            --empty-icon: 0.5;
+            --spinner-border: rgba(255,255,255,0.1);
+            --scrollbar-thumb: rgba(255,255,255,0.1);
+            --scrollbar-thumb-main: rgba(255,255,255,0.15);
+        }
+
+        [data-theme="light"] {
+            --bg-color: #f8fafc;
+            --bg-gradient-start: #f1f5f9;
+            --bg-gradient-end: #e2e8f0;
+            --sidebar-bg: rgba(255, 255, 255, 0.7);
+            --panel-bg: rgba(248, 250, 252, 0.7);
+            --modal-bg: rgba(255, 255, 255, 0.95);
+            --text-main: #0f172a;
+            --text-muted: #64748b;
+            --text-content: #334155;
+            --accent: #2563eb;
+            --accent-hover: #1d4ed8;
+            --danger: #ef4444;
+            --danger-hover: #dc2626;
+            --success: #059669;
+            --border: rgba(0, 0, 0, 0.1);
+            --item-hover: rgba(0, 0, 0, 0.05);
+            --item-active: rgba(37, 99, 235, 0.1);
+            --item-active-border: rgba(37, 99, 235, 0.3);
+            --code-bg: rgba(0, 0, 0, 0.05);
+            --pre-bg: #f1f5f9;
+            --input-bg: #ffffff;
+            --empty-icon: 0.2;
+            --spinner-border: rgba(0,0,0,0.1);
+            --scrollbar-thumb: rgba(0,0,0,0.1);
+            --scrollbar-thumb-main: rgba(0,0,0,0.15);
         }
 
         * {
@@ -32,7 +75,7 @@ export const viewerHtml = `<!DOCTYPE html>
 
         body {
             font-family: 'Inter', sans-serif;
-            background: linear-gradient(135deg, #0f172a 0%, #1e293b 100%);
+            background: linear-gradient(135deg, var(--bg-gradient-start) 0%, var(--bg-gradient-end) 100%);
             color: var(--text-main);
             height: 100vh;
             display: flex;
@@ -52,7 +95,7 @@ export const viewerHtml = `<!DOCTYPE html>
         #login-modal {
             position: fixed;
             top: 0; left: 0; right: 0; bottom: 0;
-            background: rgba(15, 23, 42, 0.85);
+            background: var(--panel-bg);
             backdrop-filter: blur(8px);
             display: flex;
             align-items: center;
@@ -61,7 +104,7 @@ export const viewerHtml = `<!DOCTYPE html>
         }
 
         .modal-content {
-            background: rgba(30, 41, 59, 0.9);
+            background: var(--modal-bg);
             padding: 2.5rem;
             border-radius: 1rem;
             border: 1px solid var(--border);
@@ -88,7 +131,7 @@ export const viewerHtml = `<!DOCTYPE html>
             padding: 0.75rem 1rem;
             border-radius: 0.5rem;
             border: 1px solid var(--border);
-            background: rgba(15, 23, 42, 0.5);
+            background: var(--input-bg);
             color: var(--text-main);
             font-family: 'Inter', sans-serif;
             margin-bottom: 1rem;
@@ -185,14 +228,14 @@ export const viewerHtml = `<!DOCTYPE html>
             width: 6px;
         }
         #bookmark-list::-webkit-scrollbar-thumb {
-            background: rgba(255,255,255,0.1);
+            background: var(--scrollbar-thumb);
             border-radius: 3px;
         }
 
         .bookmark-item {
             padding: 1rem;
             border-radius: 0.5rem;
-            background: rgba(255, 255, 255, 0.03);
+            background: var(--code-bg);
             border: 1px solid transparent;
             cursor: pointer;
             transition: all 0.2s;
@@ -201,14 +244,14 @@ export const viewerHtml = `<!DOCTYPE html>
         }
 
         .bookmark-item:hover {
-            background: rgba(255, 255, 255, 0.08);
+            background: var(--item-hover);
             border-color: var(--border);
             transform: translateX(2px);
         }
 
         .bookmark-item.active {
-            background: rgba(59, 130, 246, 0.15);
-            border-color: rgba(59, 130, 246, 0.3);
+            background: var(--item-active);
+            border-color: var(--item-active-border);
             border-left: 3px solid var(--accent);
         }
 
@@ -237,12 +280,12 @@ export const viewerHtml = `<!DOCTYPE html>
         }
 
         #settings-btn {
-            background: rgba(255,255,255,0.05);
+            background: var(--item-hover);
             border: 1px solid var(--border);
             margin-bottom: 0.5rem;
         }
         #settings-btn:hover {
-            background: rgba(255,255,255,0.1);
+            background: var(--scrollbar-thumb-main);
         }
 
         /* Main Content Panel */
@@ -291,6 +334,25 @@ export const viewerHtml = `<!DOCTYPE html>
             gap: 1rem;
         }
 
+        .font-actions {
+            display: flex; 
+            gap: 0.25rem; 
+            background: var(--item-hover); 
+            border-radius: 0.5rem; 
+            padding: 0.25rem;
+        }
+
+        .font-actions button {
+            background: transparent; 
+            color: var(--text-main); 
+            padding: 0.5rem 0.75rem; 
+            width: auto;
+            border-radius: 0.25rem;
+        }
+        .font-actions button:hover {
+            background: var(--item-active);
+        }
+
         .btn-danger {
             background: transparent;
             color: var(--danger);
@@ -311,28 +373,29 @@ export const viewerHtml = `<!DOCTYPE html>
             max-width: 800px;
             margin: 0 auto;
             width: 100%;
+            transition: font-size 0.2s ease-out;
         }
 
         .markdown-body::-webkit-scrollbar {
             width: 8px;
         }
         .markdown-body::-webkit-scrollbar-thumb {
-            background: rgba(255,255,255,0.15);
+            background: var(--scrollbar-thumb-main);
             border-radius: 4px;
         }
 
         /* Basic Markdown Styling */
-        .markdown-body h1, .markdown-body h2, .markdown-body h3 { margin-top: 1.5rem; margin-bottom: 1rem; font-weight: 600; }
+        .markdown-body h1, .markdown-body h2, .markdown-body h3 { margin-top: 1.5rem; margin-bottom: 1rem; font-weight: 600; color: var(--text-main); }
         .markdown-body h1 { font-size: 2rem; border-bottom: 1px solid var(--border); padding-bottom: 0.5rem; }
         .markdown-body h2 { font-size: 1.5rem; }
-        .markdown-body p { margin-bottom: 1rem; color: #cbd5e1; }
+        .markdown-body p { margin-bottom: 1rem; color: var(--text-content); }
         .markdown-body a { color: var(--accent); text-decoration: none; }
         .markdown-body a:hover { text-decoration: underline; }
-        .markdown-body ul, .markdown-body ol { margin-bottom: 1rem; padding-left: 2rem; color: #cbd5e1; }
+        .markdown-body ul, .markdown-body ol { margin-bottom: 1rem; padding-left: 2rem; color: var(--text-content); }
         .markdown-body li { margin-bottom: 0.25rem; }
         .markdown-body blockquote { border-left: 4px solid var(--border); padding-left: 1rem; color: var(--text-muted); font-style: italic; margin-bottom: 1rem; }
-        .markdown-body code { background: rgba(0,0,0,0.3); padding: 0.2rem 0.4rem; border-radius: 0.25rem; font-family: monospace; font-size: 0.9em; color: #e2e8f0; }
-        .markdown-body pre { background: rgba(0,0,0,0.4); padding: 1rem; border-radius: 0.5rem; overflow-x: auto; margin-bottom: 1rem; border: 1px solid var(--border); }
+        .markdown-body code { background: var(--code-bg); padding: 0.2rem 0.4rem; border-radius: 0.25rem; font-family: monospace; font-size: 0.9em; color: var(--text-content); }
+        .markdown-body pre { background: var(--pre-bg); padding: 1rem; border-radius: 0.5rem; overflow-x: auto; margin-bottom: 1rem; border: 1px solid var(--border); }
         .markdown-body pre code { background: none; padding: 0; color: inherit; }
         .markdown-body img { max-width: 100%; border-radius: 0.5rem; margin: 1rem 0; }
         .markdown-body hr { border: 0; border-top: 1px solid var(--border); margin: 2rem 0; }
@@ -352,12 +415,12 @@ export const viewerHtml = `<!DOCTYPE html>
             width: 64px;
             height: 64px;
             margin-bottom: 1rem;
-            opacity: 0.5;
+            opacity: var(--empty-icon);
         }
 
         /* Loading Spinner */
         .spinner {
-            border: 3px solid rgba(255,255,255,0.1);
+            border: 3px solid var(--spinner-border);
             width: 24px;
             height: 24px;
             border-radius: 50%;
@@ -378,7 +441,7 @@ export const viewerHtml = `<!DOCTYPE html>
             position: fixed;
             bottom: 2rem;
             right: 2rem;
-            background: rgba(15, 23, 42, 0.9);
+            background: var(--modal-bg);
             backdrop-filter: blur(8px);
             border: 1px solid var(--border);
             padding: 1rem 1.5rem;
@@ -396,7 +459,22 @@ export const viewerHtml = `<!DOCTYPE html>
         }
 
         .toast.error { border-left: 4px solid var(--danger); }
-        .toast.success { border-left: 4px solid #10b981; }
+        .toast.success { border-left: 4px solid var(--success); }
+
+        .highlight {
+            background-color: rgba(250, 204, 21, 0.3);
+            border-bottom: 2px solid rgba(250, 204, 21, 0.8);
+            cursor: pointer;
+            transition: background-color 0.2s;
+            color: inherit;
+        }
+        .highlight:hover { background-color: rgba(250, 204, 21, 0.5); }
+        .highlight.has-note {
+            background-color: rgba(59, 130, 246, 0.3);
+            border-bottom: 2px solid rgba(59, 130, 246, 0.8);
+        }
+        .highlight.has-note:hover { background-color: rgba(59, 130, 246, 0.5); }
+        [data-theme="light"] .highlight { background-color: rgba(250, 204, 21, 0.4); }
 
         @keyframes fadeIn { from { opacity: 0; transform: scale(0.95); } to { opacity: 1; transform: scale(1); } }
         @keyframes slideIn { from { opacity: 0; transform: translateX(-10px); } to { opacity: 1; transform: translateX(0); } }
@@ -447,7 +525,10 @@ export const viewerHtml = `<!DOCTYPE html>
             <div id="bookmark-list">
                 <!-- Bookmarks will be injected here -->
             </div>
-            <div style="padding: 1rem; border-top: 1px solid var(--border); display: flex; flex-direction: column;">
+            <div style="padding: 1rem; border-top: 1px solid var(--border); display: flex; flex-direction: column; gap: 0.5rem;">
+                <div style="display: flex; gap: 0.5rem;">
+                    <button id="theme-btn" style="flex: 1; background: var(--item-hover); border: 1px solid var(--border); color: var(--text-main);"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="margin-bottom:-3px; margin-right:4px"><path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"></path></svg> Theme</button>
+                </div>
                 <button id="settings-btn">API Keys & Settings</button>
                 <button id="logout-btn">Log Out</button>
             </div>
@@ -494,6 +575,10 @@ export const viewerHtml = `<!DOCTYPE html>
                         <div class="bookmark-date" id="view-date" style="margin-top:0.5rem"></div>
                     </div>
                     <div class="content-actions">
+                        <div class="font-actions">
+                            <button id="font-decrease-btn" title="Decrease Font Size">A-</button>
+                            <button id="font-increase-btn" title="Increase Font Size">A+</button>
+                        </div>
                         <button id="delete-btn" class="btn-danger">
                             <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="margin-bottom:-3px; margin-right:4px"><polyline points="3 6 5 6 21 6"></polyline><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"></path><line x1="10" y1="11" x2="10" y2="17"></line><line x1="14" y1="11" x2="14" y2="17"></line></svg>
                             Delete
@@ -509,6 +594,24 @@ export const viewerHtml = `<!DOCTYPE html>
 
     <!-- Toast Notification -->
     <div id="toast" class="toast">Message here</div>
+
+    <!-- Highlight Tooltips -->
+    <div id="highlight-tooltip" style="position: absolute; display: none; background: var(--modal-bg); border: 1px solid var(--border); border-radius: 0.5rem; padding: 0.25rem; box-shadow: 0 4px 6px rgba(0,0,0,0.3); z-index: 100; gap: 0.25rem;">
+        <button id="btn-add-highlight" style="padding: 0.25rem 0.5rem; font-size: 0.8rem; width: auto; background: var(--accent);">Highlight</button>
+    </div>
+
+    <!-- Note Modal -->
+    <div id="note-modal" style="position: fixed; top: 0; left: 0; right: 0; bottom: 0; background: rgba(0,0,0,0.5); display: none; align-items: center; justify-content: center; z-index: 200;">
+        <div style="background: var(--modal-bg); padding: 1.5rem; border-radius: 0.5rem; width: 90%; max-width: 400px; border: 1px solid var(--border);">
+            <h3 style="margin-bottom: 1rem;">Add Note</h3>
+            <textarea id="note-input" style="width: 100%; height: 100px; background: var(--input-bg); color: var(--text-main); border: 1px solid var(--border); border-radius: 0.25rem; padding: 0.5rem; margin-bottom: 1rem; font-family: inherit;"></textarea>
+            <div style="display: flex; gap: 0.5rem; justify-content: flex-end;">
+                <button id="btn-cancel-note" style="background: transparent; border: 1px solid var(--border); width: auto; color: var(--text-main);">Cancel</button>
+                <button id="btn-save-note" style="width: auto;">Save</button>
+                <button id="btn-delete-highlight" style="width: auto; background: var(--danger); display: none;">Delete</button>
+            </div>
+        </div>
+    </div>
 
     <script>
         const { startRegistration, startAuthentication } = window.SimpleWebAuthnBrowser;
@@ -536,6 +639,9 @@ export const viewerHtml = `<!DOCTYPE html>
             viewDate: document.getElementById('view-date'),
             markdownContainer: document.getElementById('markdown-container'),
             deleteBtn: document.getElementById('delete-btn'),
+            themeBtn: document.getElementById('theme-btn'),
+            fontDecreaseBtn: document.getElementById('font-decrease-btn'),
+            fontIncreaseBtn: document.getElementById('font-increase-btn'),
             
             generateKeyForm: document.getElementById('generate-key-form'),
             newKeyName: document.getElementById('new-key-name'),
@@ -545,10 +651,24 @@ export const viewerHtml = `<!DOCTYPE html>
             apiKeysList: document.getElementById('api-keys-list'),
             
             toast: document.getElementById('toast'),
-            loginView: document.getElementById('login-view')
+            loginView: document.getElementById('login-view'),
+            
+            highlightTooltip: document.getElementById('highlight-tooltip'),
+            btnAddHighlight: document.getElementById('btn-add-highlight'),
+            noteModal: document.getElementById('note-modal'),
+            noteInput: document.getElementById('note-input'),
+            btnCancelNote: document.getElementById('btn-cancel-note'),
+            btnSaveNote: document.getElementById('btn-save-note'),
+            btnDeleteHighlight: document.getElementById('btn-delete-highlight')
         };
 
         let secret = localStorage.getItem('keeproot_secret');
+        let currentTheme = localStorage.getItem('keeproot_theme') || 'dark';
+        let currentFontSize = parseFloat(localStorage.getItem('keeproot_fontSize')) || 16;
+        
+        if (currentTheme === 'light') document.body.setAttribute('data-theme', 'light');
+        DOM.markdownContainer.style.fontSize = currentFontSize + 'px';
+
         let bookmarks = [];
         let currentBookmarkId = null;
         let pollingInterval = null;
@@ -667,6 +787,109 @@ export const viewerHtml = `<!DOCTYPE html>
                 item.style.display = text.includes(query) ? 'block' : 'none';
             });
         });
+
+        // Theme Toggle
+        DOM.themeBtn.addEventListener('click', () => {
+            currentTheme = currentTheme === 'dark' ? 'light' : 'dark';
+            document.body.setAttribute('data-theme', currentTheme);
+            localStorage.setItem('keeproot_theme', currentTheme);
+        });
+
+        // Font Size adjust
+        DOM.fontDecreaseBtn.addEventListener('click', () => {
+            currentFontSize = Math.max(12, currentFontSize - 2);
+            DOM.markdownContainer.style.fontSize = currentFontSize + 'px';
+            localStorage.setItem('keeproot_fontSize', currentFontSize);
+        });
+        DOM.fontIncreaseBtn.addEventListener('click', () => {
+            currentFontSize = Math.min(32, currentFontSize + 2);
+            DOM.markdownContainer.style.fontSize = currentFontSize + 'px';
+            localStorage.setItem('keeproot_fontSize', currentFontSize);
+        });
+
+        // Highlight Logic
+        let currentHighlightSelection = '';
+        let currentHighlightId = null;
+
+        DOM.markdownContainer.addEventListener('mouseup', (e) => {
+            const selection = window.getSelection();
+            const text = selection.toString().trim();
+            if (text.length > 0 && DOM.markdownContainer.contains(selection.anchorNode)) {
+                currentHighlightSelection = text;
+                DOM.highlightTooltip.style.display = 'flex';
+                DOM.highlightTooltip.style.left = e.pageX + 'px';
+                DOM.highlightTooltip.style.top = (e.pageY - 40) + 'px';
+            } else {
+                DOM.highlightTooltip.style.display = 'none';
+            }
+        });
+
+        document.addEventListener('mousedown', (e) => {
+            if (!DOM.highlightTooltip.contains(e.target) && e.target.id !== 'btn-add-highlight') {
+                DOM.highlightTooltip.style.display = 'none';
+            }
+        });
+
+        DOM.btnAddHighlight.addEventListener('click', () => {
+            DOM.highlightTooltip.style.display = 'none';
+            if (!currentHighlightSelection || !currentBookmarkId) return;
+
+            const highlights = JSON.parse(localStorage.getItem('keeproot_highlights_' + currentBookmarkId) || '[]');
+            const id = 'hl-' + Date.now();
+            highlights.push({ id, text: currentHighlightSelection, note: '' });
+            localStorage.setItem('keeproot_highlights_' + currentBookmarkId, JSON.stringify(highlights));
+
+            const currEl = document.querySelector('.bookmark-item.active');
+            loadBookmark(currentBookmarkId, currEl);
+            window.getSelection().removeAllRanges();
+        });
+
+        DOM.markdownContainer.addEventListener('click', (e) => {
+            if (e.target.classList.contains('highlight')) {
+                currentHighlightId = e.target.dataset.id;
+                const highlights = JSON.parse(localStorage.getItem('keeproot_highlights_' + currentBookmarkId) || '[]');
+                const hl = highlights.find(h => h.id === currentHighlightId);
+                
+                DOM.noteInput.value = hl ? hl.note : '';
+                DOM.noteModal.style.display = 'flex';
+                DOM.btnDeleteHighlight.style.display = 'block';
+            }
+        });
+
+        DOM.btnCancelNote.addEventListener('click', () => {
+            DOM.noteModal.style.display = 'none';
+        });
+
+        DOM.btnSaveNote.addEventListener('click', () => {
+            if (!currentHighlightId || !currentBookmarkId) return;
+            const highlights = JSON.parse(localStorage.getItem('keeproot_highlights_' + currentBookmarkId) || '[]');
+            const hl = highlights.find(h => h.id === currentHighlightId);
+            if (hl) {
+                hl.note = DOM.noteInput.value.trim();
+                localStorage.setItem('keeproot_highlights_' + currentBookmarkId, JSON.stringify(highlights));
+                DOM.noteModal.style.display = 'none';
+                
+                const currEl = document.querySelector('.bookmark-item.active');
+                loadBookmark(currentBookmarkId, currEl);
+            }
+        });
+
+        DOM.btnDeleteHighlight.addEventListener('click', () => {
+            if (!currentHighlightId || !currentBookmarkId) return;
+            let highlights = JSON.parse(localStorage.getItem('keeproot_highlights_' + currentBookmarkId) || '[]');
+            highlights = highlights.filter(h => h.id !== currentHighlightId);
+            localStorage.setItem('keeproot_highlights_' + currentBookmarkId, JSON.stringify(highlights));
+            DOM.noteModal.style.display = 'none';
+            
+            const currEl = document.querySelector('.bookmark-item.active');
+            loadBookmark(currentBookmarkId, currEl);
+        });
+
+        function encodeHTMLEntities(text) {
+            const div = document.createElement('div');
+            div.innerText = text;
+            return div.innerHTML;
+        }
 
         // Delete Bookmark
         DOM.deleteBtn.addEventListener('click', async () => {
@@ -873,13 +1096,27 @@ export const viewerHtml = `<!DOCTYPE html>
                 }
 
                 if (data.metadata?.createdAt) {
-                    DOM.viewDate.textContent = 'Saved on ' + new Date(data.metadata.createdAt).toLocaleString();
+                    const wordCount = data.metadata.wordCount || 0;
+                    const readingTime = Math.ceil(wordCount / 200) || 1;
+                    DOM.viewDate.textContent = 'Saved on ' + new Date(data.metadata.createdAt).toLocaleString() + ' • ' + readingTime + ' min read';
                 }
 
                 // Render Markdown safely
-                const html = marked.parse(data.markdownData || '');
-                // Use DOMPurify to prevent XSS attacks from stored markdown
-                DOM.markdownContainer.innerHTML = DOMPurify.sanitize(html);
+                let html = marked.parse(data.markdownData || '');
+                html = DOMPurify.sanitize(html);
+
+                // Apply highlights
+                try {
+                    const highlights = JSON.parse(localStorage.getItem('keeproot_highlights_' + id) || '[]');
+                    highlights.forEach(h => {
+                        const escapedText = encodeHTMLEntities(h.text).replace(/[-\/\\^$*+?.()|[\]{}]/g, '\\$&');
+                        const regex = new RegExp('(?![^<]*>)' + escapedText, 'g');
+                        const noteClass = h.note ? ' has-note' : '';
+                        html = html.replace(regex, \`<mark class="highlight\${noteClass}" data-id="\${h.id}" title="\${escapeHtml(h.note)}">\${encodeHTMLEntities(h.text)}</mark>\`);
+                    });
+                } catch(e) {}
+
+                DOM.markdownContainer.innerHTML = html;
 
             } catch (err) {
                 DOM.markdownContainer.innerHTML = '<div style="color: var(--danger)">Error loading bookmark contents.</div>';
@@ -920,6 +1157,15 @@ export const viewerHtml = `<!DOCTYPE html>
             toastTimeout = setTimeout(() => {
                 DOM.toast.className = 'toast ' + type;
             }, 5000);
+        }
+
+        // Register Service Worker for offline capability
+        if ('serviceWorker' in navigator) {
+            window.addEventListener('load', () => {
+                navigator.serviceWorker.register('/sw.js').catch(err => {
+                    console.error('ServiceWorker registration failed: ', err);
+                });
+            });
         }
     </script>
 </body>

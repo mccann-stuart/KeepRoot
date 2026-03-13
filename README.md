@@ -197,3 +197,27 @@ Require `Authorization: Bearer <session-or-api-key>`.
 ## License
 
 [MIT](LICENSE)
+
+
+Top 10 features for a bookmark manager focused on reading lists
+	1.	Frictionless capture (multi-surface)
+	•	Browser extension, mobile share sheet, email-to-inbox, quick-add URL, and “save later” buttons.
+	2.	Reader-friendly viewing
+	•	Clean reader mode, text size/themes, offline reading, highlight/notes, and estimated reading time.
+	3.	Powerful organisation
+	•	Lists/folders, tags, nested tags, smart lists (rules-based), pinning, and drag-and-drop ordering.
+	4.	Fast, accurate search
+	•	Full-text search (page content), filters (tag, domain, date, status), saved searches, and “search within list”.
+	5.	Metadata enrichment
+	•	Automatic title/author/site/icon, preview image, content type detection (article/video/PDF), and duplicates detection.
+	6.	Read-state workflow
+	•	Inbox triage, statuses (Unread/Reading/Read/Archived), reminders, snooze, and progress tracking.
+	7.	Sharing & collaboration
+	•	Shareable lists (public/private), invite collaborators, role-based permissions (view/comment/edit), and list comments.
+	8.	Content integrity & portability
+	•	Link checking, snapshots/archiving, export/import (CSV/JSON/HTML/Netscape bookmarks), and open API.
+	9.	Cross-device sync & reliability
+	•	Real-time sync, offline-first behaviour, conflict resolution, and robust backups/version history.
+	10.	Security & privacy controls
+
+	•	End-to-end or at-rest encryption options, private-by-default sharing, SSO (for teams), audit logs, and data retention controls.

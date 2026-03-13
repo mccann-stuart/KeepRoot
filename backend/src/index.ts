@@ -3,6 +3,7 @@
  */
 
 import { viewerHtml } from './viewer';
+import { swJs } from './sw';
 import {
 	authenticateBearerToken,
 	createApiKey,
@@ -98,6 +99,10 @@ export default {
 
 		if (request.method === 'GET' && pathname === '/') {
 			return textResponse(viewerHtml, 'text/html;charset=UTF-8');
+		}
+
+		if (request.method === 'GET' && pathname === '/sw.js') {
+			return textResponse(swJs, 'application/javascript;charset=UTF-8');
 		}
 
 		if (request.method === 'POST' && pathname === '/auth/generate-registration') {
