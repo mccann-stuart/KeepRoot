@@ -1283,20 +1283,30 @@ export const viewerHtml = `<!DOCTYPE html>
 
                 if (bResult.status === 'rejected') throw bResult.reason;
                 const bRes = bResult.value;
-                lists = lResult.status === 'fulfilled' ? (lResult.value.lists || []) : [];
-                smartLists = slResult.status === 'fulfilled' ? (slResult.value.lists || []) : [];
+                const nextLists = lResult.status === 'fulfilled' ? (lResult.value.lists || []) : [];
+                const nextSmartLists = slResult.status === 'fulfilled' ? (slResult.value.lists || []) : [];
                 
                 const newKeys = bRes.keys || [];
                 
-                const currentStr = JSON.stringify(bookmarks.map(b => ({name: b.name, date: b.metadata?.createdAt, pinned: b.metadata?.pinned, listId: b.metadata?.listId, tags: Object.values(b.metadata?.tags || {}).flat() })));
-                const newStr = JSON.stringify(newKeys.map(b => ({name: b.name, date: b.metadata?.createdAt, pinned: b.metadata?.pinned, listId: b.metadata?.listId, tags: Object.values(b.metadata?.tags || {}).flat() })));
+                const currentSnapshot = JSON.stringify({
+                    bookmarks: bookmarks.map(b => ({name: b.name, date: b.metadata?.createdAt, pinned: b.metadata?.pinned, listId: b.metadata?.listId, tags: Object.values(b.metadata?.tags || {}).flat() })),
+                    lists: lists.map(l => ({ id: l.id, name: l.name, sortOrder: l.sortOrder })),
+                    smartLists: smartLists.map(l => ({ id: l.id, name: l.name, rules: l.rules, sortOrder: l.sortOrder, icon: l.icon }))
+                });
+                const nextSnapshot = JSON.stringify({
+                    bookmarks: newKeys.map(b => ({name: b.name, date: b.metadata?.createdAt, pinned: b.metadata?.pinned, listId: b.metadata?.listId, tags: Object.values(b.metadata?.tags || {}).flat() })),
+                    lists: nextLists.map(l => ({ id: l.id, name: l.name, sortOrder: l.sortOrder })),
+                    smartLists: nextSmartLists.map(l => ({ id: l.id, name: l.name, rules: l.rules, sortOrder: l.sortOrder, icon: l.icon }))
+                });
 
-                if (!isSilentPolling || currentStr !== newStr) {
+                if (!isSilentPolling || currentSnapshot !== nextSnapshot) {
                     bookmarks = newKeys.sort((a, b) => {
                         const dateA = new Date(a.metadata?.createdAt || 0);
                         const dateB = new Date(b.metadata?.createdAt || 0);
                         return dateB - dateA;
                     });
+                    lists = nextLists;
+                    smartLists = nextSmartLists;
                     
                     tagsSet.clear();
                     bookmarks.forEach(b => {

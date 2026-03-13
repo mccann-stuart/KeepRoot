@@ -16,6 +16,7 @@ import {
 	deleteBookmark,
 	deleteList,
 	deleteSmartList,
+	ensureOrganizationSchema,
 	getBookmark,
 	getUserByUsername,
 	getUserCredentials,
@@ -342,6 +343,8 @@ export default {
 		}
 
 		try {
+			await ensureOrganizationSchema(env);
+
 			if (request.method === 'GET' && pathname === '/api-keys') {
 				const keys = await listApiKeys(env, authUser.userId);
 				return jsonResponse({ keys });

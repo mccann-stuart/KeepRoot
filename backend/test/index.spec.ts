@@ -128,7 +128,7 @@ describe('KeepRoot Worker', () => {
 
 		expect(response.status).toBe(200);
 		expect(response.headers.get('Access-Control-Allow-Origin')).toBe('*');
-		expect(response.headers.get('Access-Control-Allow-Methods')).toBe('GET, POST, DELETE, OPTIONS');
+		expect(response.headers.get('Access-Control-Allow-Methods')).toBe('GET, POST, PATCH, DELETE, OPTIONS');
 		expect(response.headers.get('Access-Control-Allow-Headers')).toBe('Content-Type, Authorization');
 
 		const text = await response.text();
@@ -499,6 +499,52 @@ describe('KeepRoot Worker', () => {
 		const delRes = await worker.fetch(delReq, env, ctx);
 		expect(delRes.status).toBe(200);
 		expect(await delRes.json()).toEqual({ message: 'Deleted successfully' });
+
+		await waitOnExecutionContext(ctx);
+	});
+
+	it('bootstraps organization schema and supports list CRUD', async () => {
+		const ctx = createExecutionContext();
+
+		const createReq = new Request('http://example.com/lists', {
+			method: 'POST',
+			headers: {
+				Authorization: `Bearer ${API_KEY}`,
+				'Content-Type': 'application/json',
+			},
+			body: JSON.stringify({ name: 'Reading Queue' }),
+		});
+		const createRes = await worker.fetch(createReq, env, ctx);
+		expect(createRes.status).toBe(201);
+		const createData = (await createRes.json()) as any;
+		expect(createData.name).toBe('Reading Queue');
+		expect(createData.id).toBeDefined();
+
+		const listReq = new Request('http://example.com/lists', {
+			headers: { Authorization: `Bearer ${API_KEY}` },
+		});
+		const listRes = await worker.fetch(listReq, env, ctx);
+		expect(listRes.status).toBe(200);
+		const listData = (await listRes.json()) as any;
+		expect(listData.lists.some((list: any) => list.id === createData.id && list.name === 'Reading Queue')).toBe(true);
+
+		const updateReq = new Request(`http://example.com/lists/${createData.id}`, {
+			method: 'PATCH',
+			headers: {
+				Authorization: `Bearer ${API_KEY}`,
+				'Content-Type': 'application/json',
+			},
+			body: JSON.stringify({ name: 'Updated Queue' }),
+		});
+		const updateRes = await worker.fetch(updateReq, env, ctx);
+		expect(updateRes.status).toBe(200);
+
+		const deleteReq = new Request(`http://example.com/lists/${createData.id}`, {
+			method: 'DELETE',
+			headers: { Authorization: `Bearer ${API_KEY}` },
+		});
+		const deleteRes = await worker.fetch(deleteReq, env, ctx);
+		expect(deleteRes.status).toBe(200);
 
 		await waitOnExecutionContext(ctx);
 	});
