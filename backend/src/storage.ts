@@ -27,6 +27,7 @@ export interface BookmarkImagePayload {
 	contentType?: string;
 	dataBase64?: string;
 	height?: number;
+	sourceCandidates?: string[];
 	sourceUrl?: string;
 	variant?: string;
 	width?: number;
@@ -208,21 +209,55 @@ function trimWrappingDelimiters(value: string): string {
 	return normalized;
 }
 
+interface ParsedMarkdownImageTarget {
+	sourceUrl: string;
+	suffix: string;
+	wrappedInAngleBrackets: boolean;
+}
+
+function parseMarkdownImageTarget(rawTarget: string): ParsedMarkdownImageTarget | null {
+	const trimmedTarget = rawTarget.trim();
+	if (!trimmedTarget) {
+		return null;
+	}
+
+	if (trimmedTarget.startsWith('<')) {
+		const closingBracketIndex = trimmedTarget.indexOf('>');
+		if (closingBracketIndex > 0) {
+			const sourceUrl = trimWrappingDelimiters(trimmedTarget.slice(0, closingBracketIndex + 1));
+			if (!sourceUrl) {
+				return null;
+			}
+			return {
+				sourceUrl,
+				suffix: trimmedTarget.slice(closingBracketIndex + 1),
+				wrappedInAngleBrackets: true,
+			};
+		}
+	}
+
+	const match = /^(?<source>\S+)(?<suffix>\s+["'][\s\S]*["'])?$/.exec(trimmedTarget);
+	const sourceUrl = trimWrappingDelimiters(match?.groups?.source ?? trimmedTarget);
+	if (!sourceUrl) {
+		return null;
+	}
+
+	return {
+		sourceUrl,
+		suffix: match?.groups?.suffix ?? '',
+		wrappedInAngleBrackets: false,
+	};
+}
+
 function extractMarkdownImageUrls(markdown: string): string[] {
 	const imageUrls: string[] = [];
-	const markdownImagePattern = /!\[[^\]]*]\(([^)]+)\)/g;
+	const markdownImagePattern = /!\[[^\]]*]\(([^)\n]+)\)/g;
 	let match: RegExpExecArray | null = markdownImagePattern.exec(markdown);
 
 	while (match) {
-		const rawTarget = match[1] ?? '';
-		let target = trimWrappingDelimiters(rawTarget);
-		const titleSeparatorIndex = target.search(/\s+["']/);
-		if (titleSeparatorIndex > 0) {
-			target = target.slice(0, titleSeparatorIndex).trim();
-		}
-
-		if (target) {
-			imageUrls.push(target);
+		const parsedTarget = parseMarkdownImageTarget(match[1] ?? '');
+		if (parsedTarget?.sourceUrl) {
+			imageUrls.push(parsedTarget.sourceUrl);
 		}
 
 		match = markdownImagePattern.exec(markdown);
@@ -253,6 +288,132 @@ function resolveAbsoluteImageUrl(imageUrl: string, pageUrl: string): string | nu
 	} catch {
 		return null;
 	}
+}
+
+function buildRootRelativeImageUrl(absoluteUrl: string, pageUrl: string): string | null {
+	try {
+		const absolute = new URL(absoluteUrl);
+		const page = new URL(pageUrl);
+		if (absolute.origin !== page.origin) {
+			return null;
+		}
+		return `${absolute.pathname}${absolute.search}${absolute.hash}`;
+	} catch {
+		return null;
+	}
+}
+
+function buildPageRelativeImageUrl(absoluteUrl: string, pageUrl: string): string | null {
+	try {
+		const absolute = new URL(absoluteUrl);
+		const page = new URL(pageUrl);
+		if (absolute.origin !== page.origin) {
+			return null;
+		}
+
+		const fromSegments = page.pathname.split('/').filter(Boolean);
+		if (!page.pathname.endsWith('/')) {
+			fromSegments.pop();
+		}
+
+		const toSegments = absolute.pathname.split('/').filter(Boolean);
+		let commonPrefixLength = 0;
+		while (
+			commonPrefixLength < fromSegments.length &&
+			commonPrefixLength < toSegments.length &&
+			fromSegments[commonPrefixLength] === toSegments[commonPrefixLength]
+		) {
+			commonPrefixLength += 1;
+		}
+
+		const upwardSegments = new Array(fromSegments.length - commonPrefixLength).fill('..');
+		const downwardSegments = toSegments.slice(commonPrefixLength);
+		let relativePath = [...upwardSegments, ...downwardSegments].join('/');
+		if (!relativePath) {
+			relativePath = '.';
+		}
+		if (absolute.pathname.endsWith('/') && !relativePath.endsWith('/')) {
+			relativePath += '/';
+		}
+		return `${relativePath}${absolute.search}${absolute.hash}`;
+	} catch {
+		return null;
+	}
+}
+
+function buildProtocolRelativeImageUrl(absoluteUrl: string): string | null {
+	try {
+		const absolute = new URL(absoluteUrl);
+		if (absolute.protocol !== 'http:' && absolute.protocol !== 'https:') {
+			return null;
+		}
+		return `//${absolute.host}${absolute.pathname}${absolute.search}${absolute.hash}`;
+	} catch {
+		return null;
+	}
+}
+
+function buildImageSourceCandidates(sourceUrl: string, pageUrl: string, absoluteUrl?: string | null): string[] {
+	const candidates = new Set<string>();
+	const trimmedSourceUrl = trimWrappingDelimiters(sourceUrl);
+	if (trimmedSourceUrl) {
+		candidates.add(trimmedSourceUrl);
+	}
+
+	const resolvedAbsoluteUrl = absoluteUrl ?? resolveAbsoluteImageUrl(trimmedSourceUrl, pageUrl);
+	if (!resolvedAbsoluteUrl) {
+		return [...candidates];
+	}
+
+	candidates.add(resolvedAbsoluteUrl);
+
+	const protocolRelativeUrl = buildProtocolRelativeImageUrl(resolvedAbsoluteUrl);
+	if (protocolRelativeUrl) {
+		candidates.add(protocolRelativeUrl);
+	}
+
+	const rootRelativeUrl = buildRootRelativeImageUrl(resolvedAbsoluteUrl, pageUrl);
+	if (rootRelativeUrl) {
+		candidates.add(rootRelativeUrl);
+	}
+
+	const pageRelativeUrl = buildPageRelativeImageUrl(resolvedAbsoluteUrl, pageUrl);
+	if (pageRelativeUrl) {
+		candidates.add(pageRelativeUrl);
+		if (!pageRelativeUrl.startsWith('.') && !pageRelativeUrl.startsWith('/')) {
+			candidates.add(`./${pageRelativeUrl}`);
+		}
+	}
+
+	return [...candidates];
+}
+
+function rewriteMarkdownImageUrls(markdown: string, rewriteMap: Map<string, string>): string {
+	return markdown.replace(/!\[([^\]]*)\]\(([^)\n]+)\)/g, (fullMatch, altText: string, rawTarget: string) => {
+		const parsedTarget = parseMarkdownImageTarget(rawTarget);
+		if (!parsedTarget) {
+			return fullMatch;
+		}
+
+		const rewrittenUrl = rewriteMap.get(parsedTarget.sourceUrl);
+		if (!rewrittenUrl) {
+			return fullMatch;
+		}
+
+		const targetUrl = parsedTarget.wrappedInAngleBrackets ? `<${rewrittenUrl}>` : rewrittenUrl;
+		return `![${altText}](${targetUrl}${parsedTarget.suffix})`;
+	});
+}
+
+function rewriteHtmlImageUrls(html: string, rewriteMap: Map<string, string>): string {
+	return html.replace(/(<img\b[^>]*\bsrc=(["']))([^"']+)(\2[^>]*>)/gi, (fullMatch, prefix: string, _quote: string, sourceUrl: string, suffix: string) => {
+		const rewrittenUrl = rewriteMap.get(trimWrappingDelimiters(sourceUrl));
+		if (!rewrittenUrl) {
+			return fullMatch;
+		}
+
+		return `${prefix}${rewrittenUrl}${suffix}`;
+	});
 }
 
 function base64FromBytes(bytes: Uint8Array): string {
@@ -324,11 +485,15 @@ async function hydrateImagePayloads(payload: BookmarkPayload, pageUrl: string): 
 		...extractHtmlImageUrls(payload.htmlData ?? ''),
 	];
 
-	const existingSourceUrls = new Set(
-		hydratedImages
-			.map((image) => image.sourceUrl)
-			.filter((sourceUrl): sourceUrl is string => Boolean(sourceUrl)),
-	);
+	const existingSourceUrls = new Set<string>();
+	for (const image of hydratedImages) {
+		if (!image.sourceUrl) {
+			continue;
+		}
+		for (const candidate of buildImageSourceCandidates(image.sourceUrl, pageUrl)) {
+			existingSourceUrls.add(candidate);
+		}
+	}
 	const uniqueDiscoveredUrls = [...new Set(discoveredImageUrls)];
 
 	for (const imageUrl of uniqueDiscoveredUrls.slice(0, MAX_AUTO_FETCH_IMAGES)) {
@@ -342,8 +507,14 @@ async function hydrateImagePayloads(payload: BookmarkPayload, pageUrl: string): 
 			if (!fetchedImage?.dataBase64) {
 				continue;
 			}
-			hydratedImages.push(fetchedImage);
-			existingSourceUrls.add(absoluteImageUrl);
+			const sourceCandidates = buildImageSourceCandidates(imageUrl, pageUrl, absoluteImageUrl);
+			hydratedImages.push({
+				...fetchedImage,
+				sourceCandidates,
+			});
+			for (const candidate of sourceCandidates) {
+				existingSourceUrls.add(candidate);
+			}
 		} catch {
 			// Best-effort image ingestion; bookmark save should still succeed.
 		}
@@ -943,11 +1114,18 @@ export async function saveBookmark(
 				width: image.width ?? null,
 			});
 
-			if (image.sourceUrl) {
-				const sourceUrl = image.sourceUrl;
-				rewrittenMarkdownData = rewrittenMarkdownData.split(sourceUrl).join(`/${imageKey}`);
+			const sourceCandidates = image.sourceCandidates?.length
+				? image.sourceCandidates
+				: image.sourceUrl
+					? buildImageSourceCandidates(image.sourceUrl, normalizedUrl)
+					: [];
+
+			if (sourceCandidates.length) {
+				const rewrittenImagePath = `/${imageKey}`;
+				const rewriteMap = new Map(sourceCandidates.map((candidate) => [candidate, rewrittenImagePath]));
+				rewrittenMarkdownData = rewriteMarkdownImageUrls(rewrittenMarkdownData, rewriteMap);
 				if (rewrittenHtmlData) {
-					rewrittenHtmlData = rewrittenHtmlData.split(sourceUrl).join(`/${imageKey}`);
+					rewrittenHtmlData = rewriteHtmlImageUrls(rewrittenHtmlData, rewriteMap);
 				}
 			}
 		}

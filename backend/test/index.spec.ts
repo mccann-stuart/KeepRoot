@@ -1,5 +1,5 @@
 import { env, createExecutionContext, waitOnExecutionContext } from 'cloudflare:test';
-import { beforeEach, describe, expect, it } from 'vitest';
+import { beforeEach, describe, expect, it, vi } from 'vitest';
 import worker from '../src/index';
 import { hashToken } from '../src/storage';
 import initialSchemaSql from '../migrations/0001_initial.sql?raw';
@@ -7,6 +7,25 @@ import initialSchemaSql from '../migrations/0001_initial.sql?raw';
 const API_KEY = 'test-api-key-12345';
 const TEST_USER_ID = 'test-user-id';
 const TEST_USERNAME = 'testuser';
+const TINY_PNG_BASE64 = 'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8Xw8AAoMBgQJ8i1QAAAAASUVORK5CYII=';
+
+function mockImageFetch(responses: Record<string, { bodyBase64?: string; contentType?: string }>) {
+	const originalFetch = globalThis.fetch;
+	return vi.spyOn(globalThis, 'fetch').mockImplementation(async (input, init) => {
+		const url = typeof input === 'string' ? input : input instanceof URL ? input.toString() : input.url;
+		const match = responses[url];
+		if (match) {
+			const bytes = Uint8Array.from(atob(match.bodyBase64 ?? TINY_PNG_BASE64), (char) => char.charCodeAt(0));
+			return new Response(bytes, {
+				headers: {
+					'Content-Type': match.contentType ?? 'image/png',
+				},
+			});
+		}
+
+		return originalFetch(input, init);
+	});
+}
 
 async function execStatements(sql: string): Promise<void> {
 	const statements = sql
@@ -71,6 +90,7 @@ async function seedApiKey(): Promise<void> {
 
 describe('KeepRoot Worker', () => {
 	beforeEach(async () => {
+		vi.restoreAllMocks();
 		await resetDatabase();
 		await clearBucket();
 		await seedApiKey();
@@ -189,7 +209,7 @@ describe('KeepRoot Worker', () => {
 
 	it('stores images to R2 when markdown contains image URLs', async () => {
 		const ctx = createExecutionContext();
-		const dataUrl = 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8Xw8AAoMBgQJ8i1QAAAAASUVORK5CYII=';
+		const dataUrl = `data:image/png;base64,${TINY_PNG_BASE64}`;
 		const createReq = new Request('http://example.com/bookmarks', {
 			method: 'POST',
 			headers: {
@@ -215,9 +235,113 @@ describe('KeepRoot Worker', () => {
 		const getData = (await getRes.json()) as any;
 		expect(Array.isArray(getData.metadata.images)).toBe(true);
 		expect(getData.metadata.images.length).toBeGreaterThan(0);
+		expect(getData.markdownData).toMatch(/^# Image Bookmark\s+!\[inline\]\(\/images\/[a-f0-9]{64}\)$/);
 
 		const imageObjects = await env.KEEPROOT_CONTENT.list({ prefix: 'images/' });
 		expect(imageObjects.objects.length).toBeGreaterThan(0);
+
+		await waitOnExecutionContext(ctx);
+	});
+
+	it('rewrites absolute markdown image URLs to local image storage', async () => {
+		const ctx = createExecutionContext();
+		mockImageFetch({
+			'https://cdn.example.com/article/hero.png': {},
+		});
+
+		const createReq = new Request('http://example.com/bookmarks', {
+			method: 'POST',
+			headers: {
+				Authorization: `Bearer ${API_KEY}`,
+				'Content-Type': 'application/json',
+			},
+			body: JSON.stringify({
+				url: 'https://example.com/articles/absolute-image',
+				title: 'Absolute Image Bookmark',
+				markdownData: '# Article\n\n![hero](https://cdn.example.com/article/hero.png)',
+			}),
+		});
+
+		const createRes = await worker.fetch(createReq, env, ctx);
+		expect(createRes.status).toBe(200);
+		const createData = (await createRes.json()) as any;
+
+		const getReq = new Request(`http://example.com/bookmarks/${createData.id}`, {
+			headers: { Authorization: `Bearer ${API_KEY}` },
+		});
+		const getRes = await worker.fetch(getReq, env, ctx);
+		expect(getRes.status).toBe(200);
+		const getData = (await getRes.json()) as any;
+		expect(getData.markdownData).toMatch(/^# Article\s+!\[hero\]\(\/images\/[a-f0-9]{64}\)$/);
+
+		await waitOnExecutionContext(ctx);
+	});
+
+	it('rewrites relative markdown image URLs using the page URL as the fetch base', async () => {
+		const ctx = createExecutionContext();
+		const fetchSpy = mockImageFetch({
+			'https://example.com/images/hero.png': {},
+		});
+
+		const createReq = new Request('http://example.com/bookmarks', {
+			method: 'POST',
+			headers: {
+				Authorization: `Bearer ${API_KEY}`,
+				'Content-Type': 'application/json',
+			},
+			body: JSON.stringify({
+				url: 'https://example.com/articles/post',
+				title: 'Relative Image Bookmark',
+				markdownData: '# Relative\n\n![hero](../images/hero.png)',
+			}),
+		});
+
+		const createRes = await worker.fetch(createReq, env, ctx);
+		expect(createRes.status).toBe(200);
+		const createData = (await createRes.json()) as any;
+		expect(fetchSpy).toHaveBeenCalledWith('https://example.com/images/hero.png');
+
+		const getReq = new Request(`http://example.com/bookmarks/${createData.id}`, {
+			headers: { Authorization: `Bearer ${API_KEY}` },
+		});
+		const getRes = await worker.fetch(getReq, env, ctx);
+		expect(getRes.status).toBe(200);
+		const getData = (await getRes.json()) as any;
+		expect(getData.markdownData).toMatch(/^# Relative\s+!\[hero\]\(\/images\/[a-f0-9]{64}\)$/);
+
+		await waitOnExecutionContext(ctx);
+	});
+
+	it('preserves markdown image titles when rewriting stored image URLs', async () => {
+		const ctx = createExecutionContext();
+		mockImageFetch({
+			'https://cdn.example.com/article/hero.png': {},
+		});
+
+		const createReq = new Request('http://example.com/bookmarks', {
+			method: 'POST',
+			headers: {
+				Authorization: `Bearer ${API_KEY}`,
+				'Content-Type': 'application/json',
+			},
+			body: JSON.stringify({
+				url: 'https://example.com/articles/titled-image',
+				title: 'Titled Image Bookmark',
+				markdownData: '# Titled\n\n![hero](https://cdn.example.com/article/hero.png "Lead image")',
+			}),
+		});
+
+		const createRes = await worker.fetch(createReq, env, ctx);
+		expect(createRes.status).toBe(200);
+		const createData = (await createRes.json()) as any;
+
+		const getReq = new Request(`http://example.com/bookmarks/${createData.id}`, {
+			headers: { Authorization: `Bearer ${API_KEY}` },
+		});
+		const getRes = await worker.fetch(getReq, env, ctx);
+		expect(getRes.status).toBe(200);
+		const getData = (await getRes.json()) as any;
+		expect(getData.markdownData).toMatch(/^# Titled\s+!\[hero\]\(\/images\/[a-f0-9]{64} "Lead image"\)$/);
 
 		await waitOnExecutionContext(ctx);
 	});
