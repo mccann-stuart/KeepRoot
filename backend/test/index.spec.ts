@@ -27,6 +27,24 @@ function mockImageFetch(responses: Record<string, { bodyBase64?: string; content
 	});
 }
 
+function mockTextFetch(responses: Record<string, { body: string; contentType?: string; status?: number }>) {
+	const originalFetch = globalThis.fetch;
+	return vi.spyOn(globalThis, 'fetch').mockImplementation(async (input, init) => {
+		const url = typeof input === 'string' ? input : input instanceof URL ? input.toString() : input.url;
+		const match = responses[url];
+		if (match) {
+			return new Response(match.body, {
+				headers: {
+					'Content-Type': match.contentType ?? 'text/plain; charset=utf-8',
+				},
+				status: match.status ?? 200,
+			});
+		}
+
+		return originalFetch(input, init);
+	});
+}
+
 async function execStatements(sql: string): Promise<void> {
 	const statements = sql
 		.split(/;\s*\n/g)
@@ -35,6 +53,14 @@ async function execStatements(sql: string): Promise<void> {
 
 	for (const statement of statements) {
 		await env.KEEPROOT_DB.exec(statement.replace(/\s+/g, ' ').trim());
+	}
+}
+
+async function tryExec(sql: string): Promise<void> {
+	try {
+		await env.KEEPROOT_DB.exec(sql.replace(/\s+/g, ' ').trim());
+	} catch {
+		// Some organization/MCP tables are created lazily during requests.
 	}
 }
 
@@ -52,6 +78,16 @@ async function resetDatabase(): Promise<void> {
 		DELETE FROM webauthn_credentials;
 		DELETE FROM users;
 	`);
+	await tryExec('DELETE FROM item_search_fts');
+	await tryExec('DELETE FROM tool_events');
+	await tryExec('DELETE FROM bookmark_embeddings');
+	await tryExec('DELETE FROM item_search_documents');
+	await tryExec('DELETE FROM inbox_entries');
+	await tryExec('DELETE FROM source_runs');
+	await tryExec('DELETE FROM sources');
+	await tryExec('DELETE FROM account_settings');
+	await tryExec('DELETE FROM smart_lists');
+	await tryExec('DELETE FROM lists');
 }
 
 async function clearBucket(): Promise<void> {
@@ -88,9 +124,66 @@ async function seedApiKey(): Promise<void> {
 		.run();
 }
 
+async function mcpRequest(method: string, params: Record<string, unknown> = {}): Promise<{ data: any; response: Response }> {
+	const ctx = createExecutionContext();
+	const response = await worker.fetch(new Request('http://example.com/mcp', {
+		method: 'POST',
+		headers: {
+			Accept: 'application/json, text/event-stream',
+			Authorization: `Bearer ${API_KEY}`,
+			'Content-Type': 'application/json',
+		},
+		body: JSON.stringify({
+			id: crypto.randomUUID(),
+			jsonrpc: '2.0',
+			method,
+			params,
+		}),
+	}), env, ctx);
+	const data = (await response.json()) as any;
+	await waitOnExecutionContext(ctx);
+	return { data, response };
+}
+
+function extractToolPayload(result: any): any {
+	if (result?.structuredContent && typeof result.structuredContent === 'object') {
+		return result.structuredContent;
+	}
+
+	const textBlock = Array.isArray(result?.content)
+		? result.content.find((entry: { text?: string; type?: string }) => entry?.type === 'text' && typeof entry.text === 'string')
+		: null;
+	if (!textBlock?.text) {
+		return undefined;
+	}
+
+	return JSON.parse(textBlock.text);
+}
+
+async function mcpCallTool(name: string, args: Record<string, unknown> = {}): Promise<{ payload: any; result: any }> {
+	const { data, response } = await mcpRequest('tools/call', {
+		arguments: args,
+		name,
+	});
+	expect(response.status).toBe(200);
+	expect(data.error).toBeUndefined();
+	if (data.result?.isError) {
+		const message = Array.isArray(data.result.content)
+			? data.result.content.find((entry: { text?: string; type?: string }) => entry?.type === 'text' && typeof entry.text === 'string')?.text
+			: undefined;
+		throw new Error(`MCP tool ${name} failed: ${message ?? 'Unknown tool error'}`);
+	}
+	return {
+		payload: extractToolPayload(data.result),
+		result: data.result,
+	};
+}
+
 describe('KeepRoot Worker', () => {
 	beforeEach(async () => {
 		vi.restoreAllMocks();
+		delete (env as { INGEST_QUEUE?: unknown }).INGEST_QUEUE;
+		delete (env as { MCP_EMAIL_DOMAIN?: string }).MCP_EMAIL_DOMAIN;
 		await resetDatabase();
 		await clearBucket();
 		await seedApiKey();
@@ -242,6 +335,7 @@ describe('KeepRoot Worker', () => {
 		expect(createRes.status).toBe(201);
 		const createData = (await createRes.json()) as any;
 		expect(createData.message).toBe('Saved successfully');
+		expect(createData.inboxEntryId).toBeDefined();
 		expect(createData.metadata.contentRef).toMatch(/^content\//);
 		const id = createData.id;
 		expect(id).toBeDefined();
@@ -623,6 +717,165 @@ describe('KeepRoot Worker', () => {
 		expect(deleteRes.status).toBe(200);
 
 		await waitOnExecutionContext(ctx);
+	});
+
+	it('serves the MCP tool surface for item workflows', async () => {
+		mockTextFetch({
+			'https://content.example.com/article': {
+				body: `<!doctype html>
+					<html lang="en">
+						<head><title>Alpha Article</title></head>
+						<body>
+							<main>
+								<h1>Alpha Article</h1>
+								<p>Alpha semantic content for MCP search coverage.</p>
+							</main>
+						</body>
+					</html>`,
+				contentType: 'text/html; charset=utf-8',
+			},
+		});
+
+		const toolsResponse = await mcpRequest('tools/list');
+		expect(toolsResponse.response.status).toBe(200);
+		const toolNames = toolsResponse.data.result.tools.map((tool: { name: string }) => tool.name);
+		expect(toolNames).toEqual(expect.arrayContaining([
+			'save_item',
+			'search_items',
+			'list_items',
+			'get_item',
+			'update_item',
+			'whoami',
+			'list_sources',
+			'add_source',
+			'remove_source',
+			'get_stats',
+			'list_inbox',
+			'mark_done',
+		]));
+
+		const whoAmI = await mcpCallTool('whoami');
+		expect(whoAmI.payload.account.username).toBe(TEST_USERNAME);
+		expect(whoAmI.payload.account.plan).toBe('self_hosted');
+
+		const saved = await mcpCallTool('save_item', {
+			notes: 'Captured via MCP',
+			tags: ['Alpha', 'MCP'],
+			url: 'https://content.example.com/article',
+		});
+		const itemId = saved.payload.id;
+		expect(itemId).toBeDefined();
+		expect(saved.payload.inboxEntryId).toBeDefined();
+
+		const listed = await mcpCallTool('list_items', {
+			limit: 10,
+			status: 'saved',
+		});
+		expect(listed.payload.items).toHaveLength(1);
+		expect(listed.payload.items[0].id).toBe(itemId);
+
+		const searched = await mcpCallTool('search_items', {
+			limit: 10,
+			query: 'semantic alpha',
+		});
+		expect(searched.payload.items).toHaveLength(1);
+		expect(searched.payload.items[0].id).toBe(itemId);
+
+		const fetched = await mcpCallTool('get_item', {
+			id: itemId,
+			includeContent: true,
+		});
+		expect(fetched.payload.id).toBe(itemId);
+		expect(fetched.payload.markdownData).toContain('Alpha semantic content for MCP search coverage.');
+
+		const updated = await mcpCallTool('update_item', {
+			id: itemId,
+			notes: 'Updated from MCP',
+			status: 'archived',
+			tags: ['mcp', 'updated'],
+			title: 'Alpha Article Revised',
+		});
+		expect(updated.payload.metadata.status).toBe('archived');
+		expect(updated.payload.metadata.title).toBe('Alpha Article Revised');
+		expect(updated.payload.metadata.notes).toBe('Updated from MCP');
+
+		const inbox = await mcpCallTool('list_inbox');
+		expect(inbox.payload.entries).toHaveLength(1);
+		expect(inbox.payload.entries[0].item.id).toBe(itemId);
+
+		const marked = await mcpCallTool('mark_done', {
+			id: inbox.payload.entries[0].id,
+		});
+		expect(marked.payload.state).toBe('done');
+
+		const stats = await mcpCallTool('get_stats');
+		expect(stats.payload.items.total).toBe(1);
+		expect(stats.payload.items.byStatus.archived).toBe(1);
+		expect(stats.payload.inbox.pending).toBe(0);
+		expect(stats.payload.recentToolUsage.length).toBeGreaterThan(0);
+	});
+
+	it('manages MCP sources, subscriptions, and inbox sync state', async () => {
+		(env as { MCP_EMAIL_DOMAIN?: string }).MCP_EMAIL_DOMAIN = 'mail.keeproot.test';
+		mockTextFetch({
+			'https://feeds.example.com/root.xml': {
+				body: `<?xml version="1.0" encoding="UTF-8"?>
+					<rss version="2.0">
+						<channel>
+							<title>KeepRoot Feed</title>
+							<item>
+								<title>Feed Story</title>
+								<link>https://feeds.example.com/posts/1</link>
+								<description>Fresh story from a synced source.</description>
+							</item>
+						</channel>
+					</rss>`,
+				contentType: 'application/rss+xml; charset=utf-8',
+			},
+		});
+
+		const emailSource = await mcpCallTool('add_source', {
+			identifier: 'weekly-digest',
+			kind: 'email',
+			name: 'Digest Inbox',
+			syncNow: false,
+		});
+		expect(emailSource.payload.kind).toBe('email');
+		expect(emailSource.payload.emailAlias).toContain('@mail.keeproot.test');
+
+		const rssSource = await mcpCallTool('add_source', {
+			identifier: 'https://feeds.example.com/root.xml',
+			kind: 'rss',
+			name: 'Root Feed',
+		});
+		const rssSourceId = rssSource.payload.id;
+		expect(rssSource.payload.pollUrl).toBe('https://feeds.example.com/root.xml');
+
+		const listed = await mcpCallTool('list_sources');
+		expect(listed.payload.sources).toHaveLength(2);
+
+		const inbox = await mcpCallTool('list_inbox');
+		expect(inbox.payload.entries).toHaveLength(1);
+		expect(inbox.payload.entries[0].source.id).toBe(rssSourceId);
+
+		const statsBeforeDone = await mcpCallTool('get_stats');
+		expect(statsBeforeDone.payload.sources.total).toBe(2);
+		expect(statsBeforeDone.payload.sources.byKind.email).toBe(1);
+		expect(statsBeforeDone.payload.sources.byKind.rss).toBe(1);
+		expect(statsBeforeDone.payload.inbox.pending).toBe(1);
+
+		await mcpCallTool('mark_done', {
+			id: inbox.payload.entries[0].id,
+		});
+
+		const removed = await mcpCallTool('remove_source', {
+			id: rssSourceId,
+		});
+		expect(removed.payload.removed).toBe(true);
+
+		const afterRemoval = await mcpCallTool('list_sources');
+		expect(afterRemoval.payload.sources).toHaveLength(1);
+		expect(afterRemoval.payload.sources[0].kind).toBe('email');
 	});
 
 	it('delegates static assets and returns 404 for missing public assets', async () => {
