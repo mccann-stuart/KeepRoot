@@ -10,7 +10,7 @@ const staticAssets = [
   'public',
   'src/popup/popup.html',
   'src/options/options.html',
-  'src/styles/theme.css',
+  'src/styles',
 ];
 
 const baseConfig = {

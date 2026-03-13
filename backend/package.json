@@ -3,11 +3,16 @@
 	"version": "0.0.0",
 	"private": true,
 	"scripts": {
+		"build": "node ./scripts/dashboard.mjs build",
+		"build:dashboard": "node ./scripts/dashboard.mjs build",
 		"deploy": "node ./scripts/cloudflare.mjs deploy",
 		"dev": "node ./scripts/cloudflare.mjs dev",
 		"provision": "node ./scripts/cloudflare.mjs provision",
 		"start": "node ./scripts/cloudflare.mjs dev",
-		"test": "vitest",
+		"test": "npm run build:dashboard && vitest run --config vitest.config.mts && vitest run --config vitest.dashboard.config.mts",
+		"test:dashboard": "npm run build:dashboard && vitest run --config vitest.dashboard.config.mts",
+		"test:worker": "npm run build:dashboard && vitest run --config vitest.config.mts",
+		"watch:dashboard": "node ./scripts/dashboard.mjs watch",
 		"cf-typegen": "node ./scripts/cloudflare.mjs types",
 		"db:migrate:local": "wrangler d1 migrations apply KEEPROOT_DB --local",
 		"db:migrate:remote": "wrangler d1 migrations apply KEEPROOT_DB --remote"
@@ -15,12 +20,17 @@
 	"devDependencies": {
 		"@cloudflare/vitest-pool-workers": "^0.12.4",
 		"@types/node": "^25.4.0",
+		"esbuild": "^0.27.3",
+		"jsdom": "^26.1.0",
 		"typescript": "^5.5.2",
 		"vitest": "~3.2.0",
 		"wrangler": "^4.72.0"
 	},
 	"dependencies": {
+		"@simplewebauthn/browser": "^13.3.0",
 		"@simplewebauthn/server": "^13.3.0",
+		"dompurify": "^3.3.0",
+		"marked": "^16.3.0",
 		"tslib": "^2.8.1"
 	}
 }

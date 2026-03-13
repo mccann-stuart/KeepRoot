@@ -3,6 +3,7 @@ import {
   queryTabs,
   sendRuntimeMessage,
 } from '../shared/webextension-api.js';
+import { RUNTIME_ACTIONS } from '../shared/messages.js';
 
 document.addEventListener('DOMContentLoaded', () => {
   const btn = document.getElementById('action-btn');
@@ -22,7 +23,7 @@ document.addEventListener('DOMContentLoaded', () => {
       const tabs = await queryTabs({ active: true, currentWindow: true });
       if (!tabs[0]?.id) throw new Error('No active tab found.');
 
-      const response = await sendRuntimeMessage({ action: 'SAVE_PAGE', tabId: tabs[0].id });
+      const response = await sendRuntimeMessage({ action: RUNTIME_ACTIONS.SAVE_PAGE, tabId: tabs[0].id });
 
       setTimeout(() => {
         resetLoading();

@@ -5,78 +5,25 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>KeepRoot</title>
   <link rel="stylesheet" href="../styles/theme.css">
-  <style>
-    body {
-      width: 300px;
-      padding: 1.5rem;
-      display: flex;
-      flex-direction: column;
-      align-items: stretch;
-      justify-content: center;
-    }
-    
-    header {
-      text-align: center;
-      margin-bottom: 1.5rem;
-    }
-
-    h1 {
-      font-size: 1.25rem;
-      margin-bottom: 0.25rem;
-    }
-
-    #action-btn {
-      width: 100%;
-      height: 48px;
-      font-size: 1.1rem;
-    }
-    
-    .spinner {
-      display: none;
-      width: 20px;
-      height: 20px;
-      border: 3px solid rgba(255,255,255,0.3);
-      border-radius: 50%;
-      border-top-color: #fff;
-      animation: spin 1s ease-in-out infinite;
-      margin-right: 8px;
-    }
-
-    @keyframes spin {
-      to { transform: rotate(360deg); }
-    }
-
-    #open-settings {
-      background: none;
-      border: none;
-      color: var(--text-muted);
-      cursor: pointer;
-      font-size: 0.8rem;
-      margin-top: 1rem;
-      text-align: center;
-      text-decoration: underline;
-    }
-
-    #open-settings:hover {
-      color: var(--text-main);
-    }
-  </style>
+  <link rel="stylesheet" href="../styles/popup.css">
 </head>
 <body>
-  
-  <header>
-    <h1>KeepRoot</h1>
-    <p>Save this page to your vault</p>
-  </header>
+  <main class="popup-shell">
+    <header class="popup-shell__header">
+      <p class="popup-shell__eyebrow">KeepRoot</p>
+      <h1>Save this page</h1>
+      <p>Archive the active tab to your Cloudflare-backed library.</p>
+    </header>
 
-  <button id="action-btn" class="btn btn-primary">
-    <div class="spinner" id="btn-spinner"></div>
-    <span id="btn-text">Save Page</span>
-  </button>
+    <button id="action-btn" class="btn btn-primary popup-shell__action">
+      <div class="spinner" id="btn-spinner"></div>
+      <span id="btn-text">Save Page</span>
+    </button>
 
-  <div id="status-message" class="status-msg text-center"></div>
+    <div id="status-message" class="status-msg text-center"></div>
 
-  <button id="open-settings">Open Settings</button>
+    <button id="open-settings" class="text-link" type="button">Open Settings</button>
+  </main>
 
   <script src="../../dist/popup.js"></script>
 </body>

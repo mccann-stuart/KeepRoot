@@ -1,0 +1,17 @@
+.DS_Store
+
+# Backend
+backend/node_modules/
+backend/public/assets/
+backend/public/sw.js
+backend/coverage/
+
+# Extension
+extension/node_modules/
+extension/dist/
+extension/build/
+extension/coverage/
+
+# Safari generated project state
+**/xcuserdata/
+**/*.xcuserstate

@@ -162,7 +162,7 @@ describe('KeepRoot Worker', () => {
 			}),
 		});
 		const createRes = await worker.fetch(createReq, env, ctx);
-		expect(createRes.status).toBe(200);
+		expect(createRes.status).toBe(201);
 		const createData = (await createRes.json()) as any;
 		expect(createData.message).toBe('Saved successfully');
 		expect(createData.metadata.contentRef).toMatch(/^content\//);
@@ -224,7 +224,7 @@ describe('KeepRoot Worker', () => {
 		});
 
 		const createRes = await worker.fetch(createReq, env, ctx);
-		expect(createRes.status).toBe(200);
+		expect(createRes.status).toBe(201);
 		const createData = (await createRes.json()) as any;
 
 		const getReq = new Request(`http://example.com/bookmarks/${createData.id}`, {
@@ -263,7 +263,7 @@ describe('KeepRoot Worker', () => {
 		});
 
 		const createRes = await worker.fetch(createReq, env, ctx);
-		expect(createRes.status).toBe(200);
+		expect(createRes.status).toBe(201);
 		const createData = (await createRes.json()) as any;
 
 		const getReq = new Request(`http://example.com/bookmarks/${createData.id}`, {
@@ -297,7 +297,7 @@ describe('KeepRoot Worker', () => {
 		});
 
 		const createRes = await worker.fetch(createReq, env, ctx);
-		expect(createRes.status).toBe(200);
+		expect(createRes.status).toBe(201);
 		const createData = (await createRes.json()) as any;
 		expect(fetchSpy).toHaveBeenCalledWith('https://example.com/images/hero.png');
 
@@ -332,7 +332,7 @@ describe('KeepRoot Worker', () => {
 		});
 
 		const createRes = await worker.fetch(createReq, env, ctx);
-		expect(createRes.status).toBe(200);
+		expect(createRes.status).toBe(201);
 		const createData = (await createRes.json()) as any;
 
 		const getReq = new Request(`http://example.com/bookmarks/${createData.id}`, {
@@ -414,7 +414,7 @@ describe('KeepRoot Worker', () => {
 			}),
 		});
 		const createRes = await worker.fetch(createReq, env, ctx);
-		expect(createRes.status).toBe(200);
+		expect(createRes.status).toBe(201);
 		const createData = (await createRes.json()) as any;
 		expect(createData.id).toBeDefined();
 
@@ -439,7 +439,7 @@ describe('KeepRoot Worker', () => {
 			}),
 		});
 		const duplicatePrefixRes = await worker.fetch(duplicatePrefixReq, env, ctx);
-		expect(duplicatePrefixRes.status).toBe(200);
+		expect(duplicatePrefixRes.status).toBe(201);
 		const duplicatePrefixData = (await duplicatePrefixRes.json()) as any;
 
 		const getDuplicatePrefixReq = new Request(`http://example.com/bookmarks/bookmarks/${duplicatePrefixData.id}`, {
@@ -455,7 +455,6 @@ describe('KeepRoot Worker', () => {
 		});
 		const notFoundRes = await worker.fetch(notFoundReq, env, ctx);
 		expect(notFoundRes.status).toBe(404);
-		expect(await notFoundRes.json()).toEqual({ error: 'Not found' });
 
 		await waitOnExecutionContext(ctx);
 	});
@@ -472,7 +471,7 @@ describe('KeepRoot Worker', () => {
 			body: JSON.stringify({ name: 'My Extension' }),
 		});
 		const createRes = await worker.fetch(createReq, env, ctx);
-		expect(createRes.status).toBe(200);
+		expect(createRes.status).toBe(201);
 		const createData = (await createRes.json()) as any;
 		expect(createData.secret).toBeDefined();
 		expect(createData.metadata.name).toBe('My Extension');
@@ -549,15 +548,21 @@ describe('KeepRoot Worker', () => {
 		await waitOnExecutionContext(ctx);
 	});
 
-	it('responds with 404 for unknown routes', async () => {
-		const request = new Request('http://example.com/nonexistent', {
-			headers: { 'Authorization': `Bearer ${API_KEY}` },
-		});
+	it('delegates static assets and returns 404 for missing public assets', async () => {
 		const ctx = createExecutionContext();
-		const response = await worker.fetch(request, env, ctx);
+		const homeResponse = await worker.fetch(new Request('http://example.com/'), env, ctx);
+		const serviceWorkerResponse = await worker.fetch(new Request('http://example.com/sw.js'), env, ctx);
+		const missingResponse = await worker.fetch(new Request('http://example.com/nonexistent'), env, ctx);
 		await waitOnExecutionContext(ctx);
 
-		expect(response.status).toBe(404);
-		expect(await response.json()).toEqual({ error: 'Not found' });
+		expect(homeResponse.status).toBe(200);
+		expect(homeResponse.headers.get('content-type')).toContain('text/html');
+		expect(await homeResponse.text()).toContain('KeepRoot Dashboard');
+
+		expect(serviceWorkerResponse.status).toBe(200);
+		expect(serviceWorkerResponse.headers.get('content-type')).toContain('javascript');
+		expect(await serviceWorkerResponse.text()).toContain('keeproot-v2');
+
+		expect(missingResponse.status).toBe(404);
 	});
 });

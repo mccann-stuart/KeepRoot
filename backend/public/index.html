@@ -1,0 +1,365 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+	<meta charset="utf-8">
+	<meta name="viewport" content="width=device-width, initial-scale=1">
+	<title>KeepRoot Dashboard</title>
+	<link rel="stylesheet" href="/assets/app.css">
+</head>
+<body>
+	<div id="toast" class="toast" role="status" aria-live="polite"></div>
+	<div id="highlight-tooltip" class="tooltip is-hidden">
+		<button id="btn-add-highlight" type="button" class="btn btn-primary btn-compact">Add Highlight</button>
+	</div>
+
+	<dialog id="login-modal" class="modal">
+		<section id="login-view" class="modal-card login-card">
+			<header class="login-card__header">
+				<p class="eyebrow">KeepRoot</p>
+				<h1>Personal Reading Archive</h1>
+				<p>Sign in with a passkey to manage your library.</p>
+			</header>
+			<form id="passkey-form" class="stack-form">
+				<label class="field">
+					<span>Username</span>
+					<input id="username-input" name="username" type="text" required autocomplete="username webauthn">
+				</label>
+				<div class="button-row">
+					<button id="btn-register" type="button" class="btn btn-secondary">Register</button>
+					<button id="btn-login" type="submit" class="btn btn-primary">Login</button>
+				</div>
+			</form>
+		</section>
+	</dialog>
+
+	<div id="app" class="app-shell is-hidden">
+		<aside class="sidebar">
+			<button id="brand-title" type="button" class="brand">
+				<span class="brand__mark">KR</span>
+				<span class="brand__copy">
+					<strong>KeepRoot</strong>
+					<span>Self-hosted reading archive</span>
+				</span>
+			</button>
+
+			<nav class="sidebar__nav" aria-label="Primary">
+				<section class="sidebar-group">
+					<h2>Main</h2>
+					<button id="nav-inbox" type="button" class="nav-link nav-link--active">Inbox</button>
+					<button id="nav-all" type="button" class="nav-link">All Bookmarks</button>
+				</section>
+
+				<section class="sidebar-group">
+					<div class="sidebar-group__header">
+						<h2>Lists</h2>
+						<button id="add-list-btn" type="button" class="icon-button" aria-label="Create list">+</button>
+					</div>
+					<div id="sidebar-lists" class="sidebar-collection"></div>
+				</section>
+
+				<section class="sidebar-group">
+					<div class="sidebar-group__header">
+						<h2>Smart Lists</h2>
+						<button id="add-smart-list-btn" type="button" class="icon-button" aria-label="Create smart list">+</button>
+					</div>
+					<div id="sidebar-smart-lists" class="sidebar-collection"></div>
+				</section>
+
+				<section class="sidebar-group">
+					<h2>Tags</h2>
+					<div id="sidebar-tags" class="sidebar-collection sidebar-collection--tags"></div>
+				</section>
+
+				<section class="sidebar-group">
+					<h2>Manage</h2>
+					<button id="setup-btn" type="button" class="nav-link">API Keys</button>
+				</section>
+			</nav>
+
+			<div class="sidebar__footer">
+				<button id="open-settings-btn" type="button" class="nav-link">Settings</button>
+				<button id="logout-btn" type="button" class="nav-link nav-link--danger">Log Out</button>
+			</div>
+		</aside>
+
+		<main class="main-shell">
+			<header class="main-header">
+				<div>
+					<p class="eyebrow">Dashboard</p>
+					<h1 id="current-view-title">Inbox</h1>
+				</div>
+				<label class="search-field">
+					<span class="sr-only">Search bookmarks</span>
+					<input id="search-input" type="search" placeholder="Search titles, URLs, and tags">
+				</label>
+			</header>
+
+			<section id="empty-state" class="view empty-state is-hidden">
+				<div class="empty-state__card">
+					<p class="eyebrow">Ready</p>
+					<h2>Pick a bookmark or open your inbox.</h2>
+					<p>The dashboard stays lightweight: save from the extension, organise with lists and tags, then read in a clean view.</p>
+				</div>
+			</section>
+
+			<section id="inbox-view" class="view">
+				<div class="view-toolbar">
+					<div class="stats">
+						<article class="stat-card">
+							<span>Total</span>
+							<strong id="stat-total">0</strong>
+						</article>
+						<article class="stat-card">
+							<span>Saved Today</span>
+							<strong id="stat-recent">0</strong>
+						</article>
+					</div>
+
+					<div id="list-header-actions" class="button-row is-hidden">
+						<p id="list-item-count" class="muted-copy">0 items</p>
+						<button id="edit-list-btn" type="button" class="btn btn-secondary btn-compact">Edit</button>
+						<button id="delete-list-btn" type="button" class="btn btn-danger btn-compact">Delete</button>
+					</div>
+				</div>
+
+				<section aria-labelledby="pinned-heading" class="bookmark-panel">
+					<div class="bookmark-panel__header">
+						<h2 id="pinned-heading">Pinned</h2>
+					</div>
+					<div id="pinned-bookmark-list" class="bookmark-list"></div>
+				</section>
+
+				<section aria-labelledby="bookmarks-heading" class="bookmark-panel">
+					<div class="bookmark-panel__header">
+						<h2 id="bookmarks-heading">Bookmarks</h2>
+					</div>
+					<div id="bookmark-list" class="bookmark-list"></div>
+				</section>
+			</section>
+
+			<section id="content-view" class="view is-hidden">
+				<header class="reader-header" id="reading-header-container">
+					<div class="reader-header__content">
+						<p class="eyebrow">Reader</p>
+						<h2 id="view-title">Loading…</h2>
+						<a id="view-url" class="link-chip" href="#" target="_blank" rel="noreferrer">Open source</a>
+						<p id="view-date" class="muted-copy"></p>
+						<div id="view-tags" class="tag-list"></div>
+					</div>
+					<div class="reader-header__controls">
+						<button id="toggle-stats-btn" type="button" class="btn btn-secondary btn-compact" aria-pressed="false">Stats</button>
+						<div class="button-row">
+							<button id="font-decrease-btn" type="button" class="btn btn-secondary btn-compact" aria-label="Decrease reader font size">A-</button>
+							<span id="font-size-value" class="pill">16 px</span>
+							<button id="font-increase-btn" type="button" class="btn btn-secondary btn-compact" aria-label="Increase reader font size">A+</button>
+						</div>
+						<div class="button-row">
+							<button id="btn-edit-tags" type="button" class="btn btn-secondary btn-compact">Tags</button>
+							<button id="delete-btn" type="button" class="btn btn-danger btn-compact">Delete</button>
+						</div>
+					</div>
+				</header>
+
+				<div class="reader-layout">
+					<article id="markdown-container" class="reader-surface" aria-live="polite"></article>
+
+					<aside id="stats-panel" class="reader-stats is-hidden">
+						<h3>Bookmark Stats</h3>
+						<dl>
+							<div>
+								<dt>Domain</dt>
+								<dd id="view-domain">—</dd>
+							</div>
+							<div>
+								<dt>Status</dt>
+								<dd id="view-status">—</dd>
+							</div>
+							<div>
+								<dt>Words</dt>
+								<dd id="view-word-count">0</dd>
+							</div>
+							<div>
+								<dt>Reading Time</dt>
+								<dd id="view-reading-time">0 min</dd>
+							</div>
+						</dl>
+					</aside>
+				</div>
+			</section>
+
+			<section id="setup-view" class="view is-hidden">
+				<div class="stack-layout">
+					<header class="panel-header">
+						<p class="eyebrow">Integration</p>
+						<h2>API Keys</h2>
+						<p>Create keys for browser extensions and revoke them without rotating your account session.</p>
+					</header>
+
+					<section class="panel">
+						<form id="generate-key-form" class="stack-form">
+							<label class="field">
+								<span>Key Name</span>
+								<input id="new-key-name" type="text" placeholder="Chrome on work laptop" required>
+							</label>
+							<button type="submit" class="btn btn-primary">Create API Key</button>
+						</form>
+
+						<div id="new-key-result" class="result-card is-hidden">
+							<label class="field">
+								<span>New Secret</span>
+								<input id="new-key-value" type="text" readonly>
+							</label>
+							<button id="copy-new-key-btn" type="button" class="btn btn-secondary btn-compact">Copy</button>
+						</div>
+					</section>
+
+					<section class="panel">
+						<header class="panel-header panel-header--tight">
+							<h3>Existing Keys</h3>
+						</header>
+						<div id="api-keys-list" class="stack-list"></div>
+					</section>
+				</div>
+			</section>
+
+			<section id="settings-view" class="view is-hidden">
+				<div class="stack-layout">
+					<header class="panel-header">
+						<p class="eyebrow">Preferences</p>
+						<h2>Reading and Interface</h2>
+						<p>Keep the app framework-free, but still adaptable to your reading habits.</p>
+					</header>
+
+					<section class="panel">
+						<h3>Theme</h3>
+						<div class="option-grid">
+							<button type="button" class="option-card theme-option" data-theme-val="auto">Auto</button>
+							<button type="button" class="option-card theme-option" data-theme-val="light">Light</button>
+							<button type="button" class="option-card theme-option" data-theme-val="dark">Dark</button>
+						</div>
+					</section>
+
+					<section class="panel">
+						<h3>Reader Font</h3>
+						<div class="option-grid">
+							<button type="button" class="option-card font-option" data-font-val="default">Editorial</button>
+							<button type="button" class="option-card font-option" data-font-val="sans">Neutral Sans</button>
+							<button type="button" class="option-card font-option" data-font-val="dyslexic">Accessible</button>
+						</div>
+					</section>
+
+					<section class="panel">
+						<h3>Notifications</h3>
+						<label class="toggle">
+							<input id="notification-toggle" type="checkbox">
+							<span>Enable in-app notifications</span>
+						</label>
+					</section>
+				</div>
+			</section>
+		</main>
+	</div>
+
+	<dialog id="list-modal" class="modal">
+		<form method="dialog" class="modal-card stack-form">
+			<header class="panel-header panel-header--tight">
+				<h2 id="list-modal-title">Create List</h2>
+			</header>
+			<label class="field">
+				<span>List Name</span>
+				<input id="list-name-input" type="text" required>
+			</label>
+			<div class="button-row">
+				<button id="btn-cancel-list" type="button" class="btn btn-secondary">Cancel</button>
+				<button id="btn-save-list" type="button" class="btn btn-primary">Save</button>
+			</div>
+		</form>
+	</dialog>
+
+	<dialog id="smart-list-modal" class="modal">
+		<form method="dialog" class="modal-card stack-form">
+			<header class="panel-header panel-header--tight">
+				<h2 id="smart-list-modal-title">Create Smart List</h2>
+			</header>
+			<label class="field">
+				<span>Name</span>
+				<input id="smart-list-name-input" type="text" required>
+			</label>
+			<label class="field">
+				<span>Rules</span>
+				<textarea id="smart-list-rules-input" rows="5" placeholder="project-a, reading, deep-dive"></textarea>
+			</label>
+			<div class="button-row">
+				<button id="btn-cancel-smart-list" type="button" class="btn btn-secondary">Cancel</button>
+				<button id="btn-save-smart-list" type="button" class="btn btn-primary">Save</button>
+			</div>
+		</form>
+	</dialog>
+
+	<dialog id="tags-modal" class="modal">
+		<form method="dialog" class="modal-card stack-form">
+			<header class="panel-header panel-header--tight">
+				<h2>Edit Tags</h2>
+			</header>
+			<label class="field">
+				<span>Comma-separated tags</span>
+				<input id="tags-input" type="text" placeholder="work/project-a, research, later">
+			</label>
+			<div class="button-row">
+				<button id="btn-cancel-tags" type="button" class="btn btn-secondary">Cancel</button>
+				<button id="btn-save-tags" type="button" class="btn btn-primary">Save</button>
+			</div>
+		</form>
+	</dialog>
+
+	<dialog id="note-modal" class="modal">
+		<form method="dialog" class="modal-card stack-form">
+			<header class="panel-header panel-header--tight">
+				<h2>Highlight Note</h2>
+			</header>
+			<label class="field">
+				<span>Note</span>
+				<textarea id="note-input" rows="6" placeholder="Why this passage matters"></textarea>
+			</label>
+			<div class="button-row button-row--spread">
+				<button id="btn-delete-highlight" type="button" class="btn btn-danger is-hidden">Delete Highlight</button>
+				<div class="button-row">
+					<button id="btn-cancel-note" type="button" class="btn btn-secondary">Cancel</button>
+					<button id="btn-save-note" type="button" class="btn btn-primary">Save Note</button>
+				</div>
+			</div>
+		</form>
+	</dialog>
+
+	<template id="sidebar-item-template">
+		<button type="button" class="sidebar-item">
+			<span data-role="sidebar-icon" class="sidebar-item__icon"></span>
+			<span data-role="sidebar-label" class="sidebar-item__label"></span>
+		</button>
+	</template>
+
+	<template id="bookmark-item-template">
+		<article class="bookmark-card" draggable="true">
+			<button type="button" data-action="toggle-read" class="bookmark-card__status"></button>
+			<div class="bookmark-card__body">
+				<h3 data-role="bookmark-title"></h3>
+				<p data-role="bookmark-meta" class="bookmark-card__meta"></p>
+				<div data-role="bookmark-tags" class="tag-list tag-list--compact"></div>
+			</div>
+			<button type="button" data-action="toggle-pin" class="bookmark-card__pin">Pin</button>
+		</article>
+	</template>
+
+	<template id="api-key-template">
+		<article class="stack-item stack-item--split">
+			<div>
+				<h3 data-role="api-key-name"></h3>
+				<p data-role="api-key-date" class="muted-copy"></p>
+			</div>
+			<button type="button" data-action="delete-api-key" class="btn btn-danger btn-compact">Delete</button>
+		</article>
+	</template>
+
+	<script type="module" src="/assets/app.js"></script>
+</body>
+</html>

@@ -49,6 +49,27 @@ function runWrangler(args, options = {}) {
 	process.exit(result.status ?? 1);
 }
 
+function runNodeScript(relativeScriptPath, args = []) {
+	const result = spawnSync('node', [relativeScriptPath, ...args], {
+		cwd: backendDir,
+		encoding: 'utf8',
+		env: {
+			...process.env,
+			CI: '1',
+		},
+	});
+
+	if (result.stdout) process.stdout.write(result.stdout);
+	if (result.stderr) process.stderr.write(result.stderr);
+	if (result.status !== 0) {
+		process.exit(result.status ?? 1);
+	}
+}
+
+function ensureDashboardBuilt() {
+	runNodeScript('./scripts/dashboard.mjs', ['build']);
+}
+
 function ensureRemoteResources() {
 	const config = loadConfig();
 	for (const database of config.d1_databases ?? []) {
@@ -75,12 +96,14 @@ switch (command) {
 		runWrangler(['types']);
 		break;
 	case 'deploy':
+		ensureDashboardBuilt();
 		ensureRemoteResources();
 		runWrangler(['d1', 'migrations', 'apply', 'KEEPROOT_DB', '--remote']);
 		runWrangler(['types']);
 		runWrangler(['deploy']);
 		break;
 	case 'dev':
+		ensureDashboardBuilt();
 		runWrangler(['types']);
 		runWrangler(['d1', 'migrations', 'apply', 'KEEPROOT_DB', '--local']);
 		runWrangler(['dev']);

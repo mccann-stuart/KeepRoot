@@ -7,7 +7,7 @@
     "build": "node build.js",
     "build:safari": "node build-safari.js",
     "watch": "node build.js --watch",
-    "test": "node --test ./test/*.test.mjs"
+    "test": "vitest run"
   },
   "keywords": [],
   "author": "",
@@ -19,6 +19,7 @@
     "turndown": "^7.2.2"
   },
   "devDependencies": {
-    "esbuild": "^0.27.3"
+    "esbuild": "^0.27.3",
+    "vitest": "~3.2.0"
   }
 }
