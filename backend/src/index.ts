@@ -3,7 +3,7 @@ import { ingestEmailMessage } from './ingest/email';
 import { processIngestJob, type IngestJob } from './ingest/jobs';
 import { syncAllActiveSources } from './ingest/source-sync';
 import { buildKeepRootMcpServer } from './mcp/server';
-import { authenticateBearerToken, ensureOrganizationSchema, type StorageEnv } from './storage';
+import { authenticateBearerToken, ensureOrganizationSchema, listActivePollableSources, type StorageEnv } from './storage';
 import { createRouteContext, errorResponse, isProtectedApiPath, type ProtectedRouteContext } from './http';
 import { handleAuthRoute } from './routes/auth';
 import { handleApiKeyRoute } from './routes/api-keys';
@@ -44,6 +44,7 @@ export default {
 							username: authUser.username,
 						},
 					},
+					enableJsonResponse: true,
 					route: '/mcp',
 					sessionIdGenerator: undefined,
 				});
@@ -94,6 +95,21 @@ export default {
 
 	async scheduled(_controller: ScheduledController, env: Env): Promise<void> {
 		await ensureOrganizationSchema(env);
+		if (env.INGEST_QUEUE) {
+			const sources = await listActivePollableSources(env);
+			await Promise.all(
+				sources.map((source) => env.INGEST_QUEUE!.send({
+					kind: 'sync_source',
+					payload: {
+						id: source.id,
+						kind: source.kind,
+						pollUrl: source.pollUrl,
+						userId: source.userId,
+					},
+				})),
+			);
+			return;
+		}
 		await syncAllActiveSources(env);
 	},
 

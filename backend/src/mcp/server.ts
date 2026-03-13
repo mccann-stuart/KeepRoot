@@ -11,6 +11,7 @@ import type { AuthenticatedUser, SourceKind, StorageEnv } from '../storage/share
 import type { IngestJob } from '../ingest/jobs';
 
 type ToolHandler<TArgs> = (args: TArgs) => Promise<Record<string, unknown>>;
+type ToolSchema<TArgs extends Record<string, unknown>> = z.ZodType<TArgs>;
 
 function formatToolResult(payload: Record<string, unknown>) {
 	return {
@@ -69,11 +70,11 @@ export function buildKeepRootMcpServer(env: StorageEnv, user: AuthenticatedUser)
 		version: '1.0.0',
 	});
 
-	function registerTool<TArgs extends z.ZodRawShape>(
+	function registerTool<TArgs extends Record<string, unknown>>(
 		name: string,
 		description: string,
-		inputSchema: TArgs,
-		handler: ToolHandler<z.infer<z.ZodObject<TArgs>>>,
+		inputSchema: ToolSchema<TArgs>,
+		handler: ToolHandler<TArgs>,
 	): void {
 		server.registerTool(name, {
 			description,
@@ -81,7 +82,7 @@ export function buildKeepRootMcpServer(env: StorageEnv, user: AuthenticatedUser)
 		}, async (args) => {
 			const startedAt = Date.now();
 			try {
-				const result = await handler(args as z.infer<z.ZodObject<TArgs>>);
+				const result = await handler(args);
 				await recordToolEvent(env, {
 					durationMs: Date.now() - startedAt,
 					status: 'success',
@@ -105,14 +106,14 @@ export function buildKeepRootMcpServer(env: StorageEnv, user: AuthenticatedUser)
 	registerTool(
 		'save_item',
 		'Save a new item from a URL.',
-		{
+		z.object({
 			notes: z.string().optional(),
 			status: z.string().optional(),
 			tags: z.array(z.string()).optional(),
 			title: z.string().optional(),
 			url: z.string().url(),
 			waitForProcessing: z.boolean().default(true).optional(),
-		},
+		}),
 		async (args) => {
 			if (args.waitForProcessing === false && env.INGEST_QUEUE) {
 				const job: IngestJob = {
@@ -147,7 +148,7 @@ export function buildKeepRootMcpServer(env: StorageEnv, user: AuthenticatedUser)
 	registerTool(
 		'search_items',
 		'Search items by keyword and semantic similarity.',
-		{
+		z.object({
 			domain: z.string().optional(),
 			isRead: z.boolean().optional(),
 			limit: z.number().int().min(1).max(50).default(10).optional(),
@@ -157,14 +158,14 @@ export function buildKeepRootMcpServer(env: StorageEnv, user: AuthenticatedUser)
 			sourceId: z.string().nullable().optional(),
 			status: z.union([z.string(), z.array(z.string())]).optional(),
 			tags: z.array(z.string()).optional(),
-		},
+		}),
 		async (args) => searchItems(env, user.userId, args),
 	);
 
 	registerTool(
 		'list_items',
 		'List saved items with optional filters.',
-		{
+		z.object({
 			cursor: z.string().nullable().optional(),
 			domain: z.string().optional(),
 			isRead: z.boolean().optional(),
@@ -174,18 +175,18 @@ export function buildKeepRootMcpServer(env: StorageEnv, user: AuthenticatedUser)
 			sourceId: z.string().nullable().optional(),
 			status: z.union([z.string(), z.array(z.string())]).optional(),
 			tags: z.array(z.string()).optional(),
-		},
+		}),
 		async (args) => listItems(env, user.userId, args),
 	);
 
 	registerTool(
 		'get_item',
 		'Get a single item by id with optional content.',
-		{
+		z.object({
 			id: z.string(),
 			includeContent: z.boolean().default(false).optional(),
 			includeHtml: z.boolean().default(false).optional(),
-		},
+		}),
 		async (args) => {
 			const item = await getItem(env, user.userId, args.id, {
 				includeContent: args.includeContent,
@@ -202,13 +203,13 @@ export function buildKeepRootMcpServer(env: StorageEnv, user: AuthenticatedUser)
 	registerTool(
 		'update_item',
 		'Update title, notes, tags, or status of an item.',
-		{
+		z.object({
 			id: z.string(),
 			notes: z.string().nullable().optional(),
 			status: z.string().optional(),
 			tags: z.array(z.string()).optional(),
 			title: z.string().optional(),
-		},
+		}),
 		async (args) => {
 			const item = await updateItem(env, user.userId, args.id, {
 				notes: args.notes,
@@ -227,32 +228,32 @@ export function buildKeepRootMcpServer(env: StorageEnv, user: AuthenticatedUser)
 	registerTool(
 		'whoami',
 		'Get the current account and plan details.',
-		{},
+		z.object({}),
 		async () => getWhoAmI(env, user),
 	);
 
 	registerTool(
 		'list_sources',
 		'List configured content sources and subscriptions.',
-		{
+		z.object({
 			cursor: z.string().nullable().optional(),
 			kind: z.enum(['rss', 'youtube', 'x', 'email']).optional(),
 			limit: z.number().int().min(1).max(100).default(20).optional(),
 			status: z.string().optional(),
-		},
+		}),
 		async (args) => listSources(env, user.userId, args),
 	);
 
 	registerTool(
 		'add_source',
 		'Add a content source like RSS, YouTube, X, or email.',
-		{
+		z.object({
 			config: z.record(z.string(), z.unknown()).optional(),
 			identifier: z.string().min(1),
 			kind: z.enum(['rss', 'youtube', 'x', 'email']),
 			name: z.string().optional(),
 			syncNow: z.boolean().default(true).optional(),
-		},
+		}),
 		async (args) => {
 			const source = await addSource(env, {
 				config: args.config,
@@ -276,9 +277,9 @@ export function buildKeepRootMcpServer(env: StorageEnv, user: AuthenticatedUser)
 	registerTool(
 		'remove_source',
 		'Remove a source.',
-		{
+		z.object({
 			id: z.string(),
-		},
+		}),
 		async (args) => {
 			const removed = await removeSource(env, user.userId, args.id);
 			if (!removed) {
@@ -295,26 +296,26 @@ export function buildKeepRootMcpServer(env: StorageEnv, user: AuthenticatedUser)
 	registerTool(
 		'get_stats',
 		'Get usage stats for the current account.',
-		{},
+		z.object({}),
 		async () => getUsageStats(env, user.userId),
 	);
 
 	registerTool(
 		'list_inbox',
 		'List unprocessed inbox items.',
-		{
+		z.object({
 			cursor: z.string().nullable().optional(),
 			limit: z.number().int().min(1).max(100).default(20).optional(),
-		},
+		}),
 		async (args) => listInbox(env, user.userId, args),
 	);
 
 	registerTool(
 		'mark_done',
 		'Mark an inbox item as processed.',
-		{
+		z.object({
 			id: z.string(),
-		},
+		}),
 		async (args) => {
 			const updated = await markInboxDone(env, user.userId, args.id);
 			if (!updated) {

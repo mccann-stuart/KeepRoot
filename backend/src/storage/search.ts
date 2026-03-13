@@ -37,6 +37,14 @@ interface SearchDocumentCandidateRow {
 	title: string | null;
 }
 
+type MatchReason = 'keyword' | 'semantic' | 'hybrid';
+
+interface SearchResultRow {
+	id: string;
+	matchReason: MatchReason;
+	score: number;
+}
+
 function normalizeText(value: string): string {
 	return value
 		.toLowerCase()
@@ -309,7 +317,7 @@ export async function searchBookmarkIds(
 	env: StorageEnv,
 	userId: string,
 	options: ItemSearchOptions,
-): Promise<Array<{ id: string; matchReason: 'keyword' | 'semantic' | 'hybrid'; score: number }>> {
+): Promise<SearchResultRow[]> {
 	const query = options.query?.trim();
 	if (!query) {
 		return [];
@@ -437,17 +445,18 @@ export async function searchBookmarkIds(
 			const metadata = bookmarkMeta.get(id);
 			return metadata ? matchesSearchFilters(metadata, options) : false;
 		})
-		.map((id) => {
+		.map<SearchResultRow & { keywordScore: number }>((id) => {
 			const keywordScore = keywordScores.get(id) ?? 0;
 			const semanticScore = semanticScores.get(id) ?? 0;
+			const matchReason: MatchReason = keywordScore > 0 && semanticScore > 0
+				? 'hybrid'
+				: keywordScore > 0
+					? 'keyword'
+					: 'semantic';
 			return {
 				id,
 				keywordScore,
-				matchReason: keywordScore > 0 && semanticScore > 0
-					? 'hybrid'
-					: keywordScore > 0
-						? 'keyword'
-						: 'semantic',
+				matchReason,
 				score: keywordScore + semanticScore,
 			};
 		})
