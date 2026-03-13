@@ -543,7 +543,11 @@ async function syncTags(env: StorageEnv, userId: string, bookmarkId: string, tag
 		}
 	}
 
-	const normalizedTags = Array.from(normalizedTagsMap.entries()).map(([normalized, name]) => ({ normalized, name }));
+	const normalizedTags: { normalized: string; name: string }[] = [];
+	for (const [normalized, name] of normalizedTagsMap.entries()) {
+		normalizedTags.push({ normalized, name });
+	}
+
 	const placeholders = normalizedTags.map(() => '?').join(', ');
 
 	// Pre-fetch all existing tags in a single query
@@ -553,7 +557,10 @@ async function syncTags(env: StorageEnv, userId: string, bookmarkId: string, tag
 		.bind(userId, ...normalizedTags.map(t => t.normalized))
 		.all<{ id: string; normalized_name: string }>();
 
-	const existingTagsMap = new Map(existingTags.results.map(row => [row.normalized_name, row.id]));
+	const existingTagsMap = new Map<string, string>();
+	for (const row of existingTags.results) {
+		existingTagsMap.set(row.normalized_name, row.id);
+	}
 
 	for (const tag of normalizedTags) {
 		let tagId = existingTagsMap.get(tag.normalized);
