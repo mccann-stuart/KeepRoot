@@ -30,21 +30,22 @@ function runWrangler(args, options = {}) {
 
 	const stdout = result.stdout ?? '';
 	const stderr = result.stderr ?? '';
-	if (stdout) {
-		process.stdout.write(stdout);
-	}
-	if (stderr) {
-		process.stderr.write(stderr);
-	}
+	
+	const isAllowedError = options.allowAlreadyExists && /already exists/i.test(`${stdout}\n${stderr}`);
 
 	if (result.status === 0) {
+		if (stdout) process.stdout.write(stdout);
+		if (stderr) process.stderr.write(stderr);
 		return;
 	}
 
-	if (options.allowAlreadyExists && /already exists/i.test(`${stdout}\n${stderr}`)) {
+	if (isAllowedError) {
+		// Suppress output to avoid confusing the user with scary error messages for benign failures
 		return;
 	}
 
+	if (stdout) process.stdout.write(stdout);
+	if (stderr) process.stderr.write(stderr);
 	process.exit(result.status ?? 1);
 }
 
