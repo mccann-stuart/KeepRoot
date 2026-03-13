@@ -524,33 +524,66 @@ async function getBookmarkTags(env: StorageEnv, bookmarkId: string): Promise<str
 }
 
 async function syncTags(env: StorageEnv, userId: string, bookmarkId: string, tags: string[], createdAt: string): Promise<void> {
-	const normalizedTags = [...new Set(tags.map((tag) => tag.trim()).filter(Boolean))];
-	await env.KEEPROOT_DB.prepare('DELETE FROM bookmark_tags WHERE bookmark_id = ?').bind(bookmarkId).run();
+	const rawTags = [...new Set(tags.map((tag) => tag.trim()).filter(Boolean))];
+	if (rawTags.length === 0) {
+		await env.KEEPROOT_DB.prepare('DELETE FROM bookmark_tags WHERE bookmark_id = ?').bind(bookmarkId).run();
+		return;
+	}
+
+	const batchStatements = [
+		env.KEEPROOT_DB.prepare('DELETE FROM bookmark_tags WHERE bookmark_id = ?').bind(bookmarkId),
+	];
+
+	// Deduplicate tags by their normalized name to avoid duplicate INSERTS in the batch
+	const normalizedTagsMap = new Map<string, string>();
+	for (const rawTag of rawTags) {
+		const normalized = normalizeTagName(rawTag);
+		if (!normalizedTagsMap.has(normalized)) {
+			normalizedTagsMap.set(normalized, rawTag);
+		}
+	}
+
+	const normalizedTags: { normalized: string; name: string }[] = [];
+	for (const [normalized, name] of normalizedTagsMap.entries()) {
+		normalizedTags.push({ normalized, name });
+	}
+
+	const placeholders = normalizedTags.map(() => '?').join(', ');
+
+	// Pre-fetch all existing tags in a single query
+	const existingTags = await env.KEEPROOT_DB.prepare(
+		`SELECT id, normalized_name FROM tags WHERE user_id = ? AND normalized_name IN (${placeholders})`
+	)
+		.bind(userId, ...normalizedTags.map(t => t.normalized))
+		.all<{ id: string; normalized_name: string }>();
+
+	const existingTagsMap = new Map<string, string>();
+	for (const row of existingTags.results) {
+		existingTagsMap.set(row.normalized_name, row.id);
+	}
 
 	for (const tag of normalizedTags) {
-		const normalizedTag = normalizeTagName(tag);
-		let tagRow = await env.KEEPROOT_DB.prepare(
-			'SELECT id, name FROM tags WHERE user_id = ? AND normalized_name = ?',
-		)
-			.bind(userId, normalizedTag)
-			.first<{ id: string; name: string }>();
+		let tagId = existingTagsMap.get(tag.normalized);
 
-		if (!tagRow) {
-			const tagId = crypto.randomUUID();
-			await env.KEEPROOT_DB.prepare(
-				'INSERT INTO tags (id, user_id, name, normalized_name, created_at) VALUES (?, ?, ?, ?, ?)',
-			)
-				.bind(tagId, userId, tag, normalizedTag, createdAt)
-				.run();
-			tagRow = { id: tagId, name: tag };
+		if (!tagId) {
+			tagId = crypto.randomUUID();
+			batchStatements.push(
+				env.KEEPROOT_DB.prepare(
+					'INSERT INTO tags (id, user_id, name, normalized_name, created_at) VALUES (?, ?, ?, ?, ?)',
+				).bind(tagId, userId, tag.name, tag.normalized, createdAt)
+			);
+			// We don't need to add it to existingTagsMap here because we've already
+			// deduplicated the incoming tags by normalized name.
 		}
 
-		await env.KEEPROOT_DB.prepare(
-			'INSERT OR IGNORE INTO bookmark_tags (bookmark_id, tag_id) VALUES (?, ?)',
-		)
-			.bind(bookmarkId, tagRow.id)
-			.run();
+		batchStatements.push(
+			env.KEEPROOT_DB.prepare(
+				'INSERT OR IGNORE INTO bookmark_tags (bookmark_id, tag_id) VALUES (?, ?)',
+			).bind(bookmarkId, tagId)
+		);
 	}
+
+	await env.KEEPROOT_DB.batch(batchStatements);
 }
 
 async function syncImages(env: StorageEnv, bookmarkId: string, images: BookmarkImagePayload[], createdAt: string): Promise<void> {
