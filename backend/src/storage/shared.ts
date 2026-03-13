@@ -14,8 +14,13 @@ export const encoder = new TextEncoder();
 
 export interface StorageEnv {
 	ASSETS?: Fetcher;
+	AI?: Ai;
+	BROWSER?: Fetcher;
+	INGEST_QUEUE?: Queue<unknown>;
 	KEEPROOT_DB: D1Database;
 	KEEPROOT_CONTENT: R2Bucket;
+	KEEPROOT_VECTOR_INDEX?: Vectorize;
+	MCP_EMAIL_DOMAIN?: string;
 }
 
 export type D1ColumnInfo = {
@@ -46,9 +51,12 @@ export interface BookmarkPayload {
 	lang?: string;
 	listId?: string | null;
 	markdownData?: string;
+	notes?: string;
 	pinned?: boolean;
+	processingState?: string;
 	siteName?: string;
 	sortOrder?: number;
+	sourceId?: string | null;
 	status?: string;
 	tags?: string[];
 	textContent?: string;
@@ -101,9 +109,40 @@ export interface SmartListPayload {
 export interface BookmarkPatchPayload {
 	isRead?: boolean;
 	listId?: string | null;
+	notes?: string | null;
 	pinned?: boolean;
 	sortOrder?: number;
+	status?: string;
 	tags?: string[];
+	title?: string;
+}
+
+export type SourceKind = 'rss' | 'youtube' | 'x' | 'email';
+
+export interface PaginationInput {
+	cursor?: string | null;
+	limit?: number;
+}
+
+export interface ItemListOptions extends PaginationInput {
+	domain?: string;
+	includeContent?: boolean;
+	includeHtml?: boolean;
+	isRead?: boolean;
+	listId?: string | null;
+	pinned?: boolean;
+	sourceId?: string | null;
+	status?: string | string[];
+	tags?: string[];
+}
+
+export interface ItemSearchOptions extends ItemListOptions {
+	query?: string;
+}
+
+export interface SourceListOptions extends PaginationInput {
+	kind?: SourceKind;
+	status?: string;
 }
 
 export function bufferToBase64URL(buffer: ArrayBuffer | Uint8Array): string {
