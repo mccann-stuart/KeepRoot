@@ -136,7 +136,8 @@ export default {
 
 				return jsonResponse(options);
 			} catch (error) {
-				return errorResponse(error instanceof Error ? error.message : 'Invalid request', 400);
+				console.error(error);
+				return errorResponse('Invalid request', 400);
 			}
 		}
 
@@ -163,7 +164,8 @@ export default {
 						response: body.response,
 					});
 				} catch (error) {
-					return errorResponse(error instanceof Error ? error.message : 'Verification failed', 400);
+					console.error(error);
+					return errorResponse('Verification failed', 400);
 				}
 
 				if (!verification.verified || !verification.registrationInfo) {
@@ -193,7 +195,8 @@ export default {
 
 				return jsonResponse({ token, verified: true });
 			} catch (error) {
-				return errorResponse(error instanceof Error ? error.message : 'Unable to verify registration', 500);
+				console.error(error);
+				return errorResponse('Unable to verify registration', 500);
 			}
 		}
 
@@ -230,7 +233,8 @@ export default {
 
 				return jsonResponse(options);
 			} catch (error) {
-				return errorResponse(error instanceof Error ? error.message : 'Unable to generate authentication options', 400);
+				console.error(error);
+				return errorResponse('Unable to generate authentication options', 400);
 			}
 		}
 
@@ -274,7 +278,8 @@ export default {
 						response: body.response,
 					});
 				} catch (error) {
-					return errorResponse(error instanceof Error ? error.message : 'Verification failed', 400);
+					console.error(error);
+					return errorResponse('Verification failed', 400);
 				}
 
 				if (!verification.verified || !verification.authenticationInfo) {
@@ -291,7 +296,8 @@ export default {
 
 				return jsonResponse({ token, verified: true });
 			} catch (error) {
-				return errorResponse(error instanceof Error ? error.message : 'Unable to verify authentication', 500);
+				console.error(error);
+				return errorResponse('Unable to verify authentication', 500);
 			}
 		}
 
