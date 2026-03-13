@@ -37,5 +37,5 @@ function extractContent() {
   }
 }
 
-// Ensure the function is accessible globally in the executing context
-window.extractContent = extractContent;
+// Expose the extractor to the extension execution world for follow-up calls.
+globalThis.extractContent = extractContent;

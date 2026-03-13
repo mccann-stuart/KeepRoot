@@ -10,7 +10,7 @@ KeepRoot saves bookmarks from a browser extension, extracts readable page conten
 
 KeepRoot has two main components:
 
-- **Extension (Chrome, Manifest V3):** Captures the active page content and sends bookmark payloads to your Worker.
+- **Extension (Chrome + Safari, Manifest V3):** Captures the active page content and sends bookmark payloads to your Worker.
 - **Backend (Cloudflare Worker):**
   - **D1 (`KEEPROOT_DB`):** Stores auth data, bookmark metadata, tags, and image references.
   - **R2 (`KEEPROOT_CONTENT`):** Stores content blobs (`content/*.json`, optional `html/*.html`, image objects).
@@ -37,7 +37,7 @@ KeepRoot has two main components:
 ```
 KeepRoot/
 ├── backend/     # Cloudflare Worker, storage layer, migrations, tests
-└── extension/   # Chrome extension source and build output
+└── extension/   # Cross-browser extension source, webextension build, and Safari packager
 ```
 
 ---
@@ -122,7 +122,7 @@ npm run dev
 
 ---
 
-## Extension Setup (Chrome)
+## Extension Setup (Chrome / Safari)
 
 ```bash
 cd extension
@@ -130,11 +130,31 @@ npm install
 npm run build
 ```
 
-### Load unpacked extension
+`npm run build` produces a packaged WebExtension in `extension/build/webextension`.
+
+### Load unpacked extension in Chrome
 
 1. Open `chrome://extensions`.
 2. Enable **Developer mode**.
-3. Click **Load unpacked** and select the `extension/` directory.
+3. Click **Load unpacked** and select the `extension/build/webextension/` directory.
+
+### Package for Safari on macOS 26 / Safari 26.3
+
+```bash
+cd extension
+npm run build
+npm run build:safari
+```
+
+This generates a macOS-only Safari app project in `extension/build/safari/`.
+
+If you need a custom app name or bundle identifier, set:
+
+```bash
+SAFARI_APP_NAME="KeepRoot" SAFARI_BUNDLE_ID="com.yourcompany.keeproot" npm run build:safari
+```
+
+Open the generated Xcode project, set your signing team if needed, then build/run the host app to enable the Safari extension in Safari settings.
 
 ### Configure the extension
 

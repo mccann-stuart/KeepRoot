@@ -1,3 +1,9 @@
+import {
+  openOptionsPage,
+  queryTabs,
+  sendRuntimeMessage,
+} from '../shared/webextension-api.js';
+
 document.addEventListener('DOMContentLoaded', () => {
   const btn = document.getElementById('action-btn');
   const btnText = document.getElementById('btn-text');
@@ -5,63 +11,62 @@ document.addEventListener('DOMContentLoaded', () => {
   const openSettings = document.getElementById('open-settings');
 
   openSettings.addEventListener('click', () => {
-    chrome.runtime.openOptionsPage();
+    openOptionsPage().catch((error) => showStatus(error.message, true));
   });
 
   btn.addEventListener('click', async () => {
-    // UI Loading state
-    btn.disabled = true;
-    spinner.style.display = 'inline-block';
-    btnText.textContent = 'Saving...';
-    
-    // Clear old status
+    setLoadingState();
     showStatus('');
     
     try {
-      const tabs = await chrome.tabs.query({ active: true, currentWindow: true });
-      if (!tabs[0]) throw new Error('No active tab found.');
+      const tabs = await queryTabs({ active: true, currentWindow: true });
+      if (!tabs[0]?.id) throw new Error('No active tab found.');
 
-      // Communication with background script
-      chrome.runtime.sendMessage(
-        { action: 'SAVE_PAGE', tabId: tabs[0].id },
-        (response) => {
-          // Wait slightly to prevent jarring fast responses
-          setTimeout(() => {
-            resetLoading();
+      const response = await sendRuntimeMessage({ action: 'SAVE_PAGE', tabId: tabs[0].id });
 
-            if (chrome.runtime.lastError) {
-              return showStatus('Extension Error: ' + chrome.runtime.lastError.message, true);
-            }
+      setTimeout(() => {
+        resetLoading();
 
-            if (!response) {
-              return showStatus('No response from background script.', true);
-            }
-
-            if (response.success) {
-              showStatus('Saved successfully!');
-              btn.textContent = 'Saved!';
-              btn.className = 'btn btn-primary';
-              btn.style.backgroundColor = 'var(--success)';
-            } else {
-              showStatus(`Failed: ${response.error}`, true);
-              if (response.error.includes('configured')) {
-                // Hint to check settings
-                setTimeout(() => chrome.runtime.openOptionsPage(), 3000);
-              }
-            }
-          }, 400);
+        if (!response) {
+          showStatus('No response from background script.', true);
+          return;
         }
-      );
+
+        if (response.success) {
+          showStatus('Saved successfully!');
+          btnText.textContent = 'Saved!';
+          btn.className = 'btn btn-primary';
+          btn.style.backgroundColor = 'var(--success)';
+          return;
+        }
+
+        showStatus(`Failed: ${response.error}`, true);
+        if (response.error.includes('configured')) {
+          setTimeout(() => {
+            openOptionsPage().catch(() => {});
+          }, 3000);
+        }
+      }, 400);
     } catch (e) {
       resetLoading();
       showStatus(e.message, true);
     }
   });
 
+  function setLoadingState() {
+    btn.disabled = true;
+    btn.className = 'btn btn-primary';
+    btn.style.backgroundColor = '';
+    spinner.style.display = 'inline-block';
+    btnText.textContent = 'Saving...';
+  }
+
   function resetLoading() {
     btn.disabled = false;
     spinner.style.display = 'none';
-    btnText.textContent = 'Save Page';
+    if (btnText.textContent === 'Saving...') {
+      btnText.textContent = 'Save Page';
+    }
   }
 
   function showStatus(message, isError = false) {

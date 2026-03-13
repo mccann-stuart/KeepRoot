@@ -1,6 +1,11 @@
-// KeepRoot Background Worker
+import {
+  addRuntimeMessageListener,
+  executeScript,
+  getStorage,
+  setStorage,
+} from '../shared/webextension-api.js';
 
-chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
+addRuntimeMessageListener((request, sender, sendResponse) => {
   if (request.action === 'SAVE_PAGE' && request.tabId) {
     handleSavePage(request.tabId)
       .then(result => sendResponse(result))
@@ -27,13 +32,7 @@ function normalizeWorkerUrl(rawWorkerUrl) {
 }
 
 async function handleSavePage(tabId) {
-  // 1. Configuration check — dump all stored keys for diagnostics
-  const allStorage = await chrome.storage.local.get(null);
-  console.log('[KeepRoot] All storage keys:', Object.keys(allStorage));
-  console.log('[KeepRoot] workerUrl value:', JSON.stringify(allStorage.workerUrl));
-  console.log('[KeepRoot] apiSecret length:', allStorage.apiSecret?.length, 'value:', JSON.stringify(allStorage.apiSecret));
-
-  const cfg = { workerUrl: allStorage.workerUrl, apiSecret: allStorage.apiSecret };
+  const cfg = await getStorage({ workerUrl: '', apiSecret: '' });
 
   if (!cfg.workerUrl || !cfg.apiSecret) {
     throw new Error('Extension not configured. Please open settings.');
@@ -41,20 +40,33 @@ async function handleSavePage(tabId) {
 
   const normalizedWorkerUrl = normalizeWorkerUrl(cfg.workerUrl);
   if (normalizedWorkerUrl !== cfg.workerUrl) {
-    await chrome.storage.local.set({ workerUrl: normalizedWorkerUrl });
+    await setStorage({ workerUrl: normalizedWorkerUrl });
   }
 
-  // 2. Execute Content Script to extract page contents
-  const [{ result }] = await chrome.scripting.executeScript({
-    target: { tabId: tabId },
-    files: ['dist/content.js']
-  });
-  
-  // Script executes, but we need to trigger the extraction function
-  const executionResults = await chrome.scripting.executeScript({
-    target: { tabId: tabId },
-    func: () => window.extractContent()
-  });
+  let executionResults;
+  try {
+    await executeScript({
+      target: { tabId },
+      files: ['dist/content.js'],
+    });
+
+    executionResults = await executeScript({
+      target: { tabId },
+      func: () => {
+        if (typeof globalThis.extractContent !== 'function') {
+          return { error: 'Content extractor failed to initialize.' };
+        }
+
+        return globalThis.extractContent();
+      },
+    });
+  } catch (error) {
+    if (/Cannot access|Missing host permission|The extensions gallery cannot be scripted/i.test(error.message)) {
+      throw new Error('This page cannot be saved because the browser blocks extensions on it.');
+    }
+
+    throw error;
+  }
 
   const extraction = executionResults[0].result;
   
@@ -75,7 +87,6 @@ async function handleSavePage(tabId) {
   const authHeader = `Bearer ${cfg.apiSecret}`;
   
   console.log('[KeepRoot] Request URL:', targetUrl);
-  console.log('[KeepRoot] Auth header:', `Bearer ${cfg.apiSecret.substring(0, 8)}...${cfg.apiSecret.substring(cfg.apiSecret.length - 4)}`);
   console.log('[KeepRoot] Payload size:', JSON.stringify(payload).length, 'bytes');
   
   const response = await fetch(targetUrl, {

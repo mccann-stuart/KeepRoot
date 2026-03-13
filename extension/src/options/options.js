@@ -1,3 +1,5 @@
+import { getStorage, setStorage } from '../shared/webextension-api.js';
+
 document.addEventListener('DOMContentLoaded', restoreOptions);
 document.getElementById('settings-form').addEventListener('submit', saveOptions);
 
@@ -29,7 +31,7 @@ function normalizeWorkerUrl(rawWorkerUrl) {
   return parsedUrl.origin;
 }
 
-function saveOptions(e) {
+async function saveOptions(e) {
   e.preventDefault();
   
   const workerUrl = document.getElementById('workerUrl').value.trim();
@@ -47,27 +49,23 @@ function saveOptions(e) {
   btn.disabled = true;
   btn.textContent = 'Saving...';
 
-  chrome.storage.local.set(
-    { workerUrl: normalizedWorkerUrl, apiSecret },
-    () => {
-      btn.disabled = false;
-      btn.textContent = 'Save Settings';
-      
-      if (chrome.runtime.lastError) {
-        showStatus('Failed to save settings: ' + chrome.runtime.lastError.message, true);
-      } else {
-        showStatus('Settings saved successfully!');
-      }
-    }
-  );
+  try {
+    await setStorage({ workerUrl: normalizedWorkerUrl, apiSecret });
+    showStatus('Settings saved successfully!');
+  } catch (error) {
+    showStatus('Failed to save settings: ' + error.message, true);
+  } finally {
+    btn.disabled = false;
+    btn.textContent = 'Save Settings';
+  }
 }
 
-function restoreOptions() {
-  chrome.storage.local.get(
-    { workerUrl: '', apiSecret: '' },
-    (items) => {
-      document.getElementById('workerUrl').value = items.workerUrl;
-      document.getElementById('apiSecret').value = items.apiSecret;
-    }
-  );
+async function restoreOptions() {
+  try {
+    const items = await getStorage({ workerUrl: '', apiSecret: '' });
+    document.getElementById('workerUrl').value = items.workerUrl;
+    document.getElementById('apiSecret').value = items.apiSecret;
+  } catch (error) {
+    showStatus('Failed to load settings: ' + error.message, true);
+  }
 }

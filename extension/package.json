@@ -5,6 +5,7 @@
   "main": "index.js",
   "scripts": {
     "build": "node build.js",
+    "build:safari": "node build-safari.js",
     "watch": "node build.js --watch",
     "test": "echo \"Error: no test specified\" && exit 1"
   },
