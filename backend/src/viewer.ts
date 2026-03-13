@@ -122,6 +122,21 @@ export const viewerHtml = `<!DOCTYPE html>
             border-color: rgba(37, 140, 244, 0.5) !important;
             background-color: rgba(37, 140, 244, 0.05);
         }
+
+        .stats-toggle-active {
+            color: #258cf4 !important;
+            background-color: rgba(37, 140, 244, 0.12) !important;
+        }
+        .stats-toggle-active:hover {
+            background-color: rgba(37, 140, 244, 0.18) !important;
+        }
+        .dark .stats-toggle-active {
+            color: #60a5fa !important;
+            background-color: rgba(37, 140, 244, 0.2) !important;
+        }
+        .dark .stats-toggle-active:hover {
+            background-color: rgba(37, 140, 244, 0.28) !important;
+        }
         
         /* Modals */
         .modal-overlay {
@@ -219,7 +234,7 @@ export const viewerHtml = `<!DOCTYPE html>
                         <span class="material-symbols-outlined absolute left-3 top-1/2 -translate-y-1/2 text-slate-400 text-lg">search</span>
                         <input type="text" id="search-input" class="pl-10 pr-4 py-2 bg-slate-100 dark:bg-slate-800/50 border border-transparent dark:border-slate-700/50 rounded-lg text-sm w-64 focus:ring-2 focus:ring-primary/50 transition-all outline-none" placeholder="Search your bookmarks..."/>
                     </div>
-                    <button id="toggle-stats-btn" class="p-2 text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 transition-colors hidden xl:flex items-center justify-center rounded-lg hover:bg-slate-100 dark:hover:bg-slate-800" title="Toggle Reading Stats">
+                    <button id="toggle-stats-btn" class="p-2 text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 transition-colors hidden xl:flex items-center justify-center rounded-lg hover:bg-slate-100 dark:hover:bg-slate-800" title="Toggle Reading Stats" aria-pressed="false">
                         <span class="material-symbols-outlined">analytics</span>
                     </button>
                 </div>
@@ -683,6 +698,15 @@ export const viewerHtml = `<!DOCTYPE html>
         DOM.setupBtn.addEventListener('click', () => switchView('setup'));
         DOM.openSettingsBtn.addEventListener('click', () => switchView('settings'));
 
+        function syncStatsToggleButton() {
+            if (!DOM.toggleStatsBtn || !DOM.statsPanel) return;
+
+            const isActive = !DOM.statsPanel.classList.contains('hidden-view');
+            DOM.toggleStatsBtn.classList.toggle('stats-toggle-active', isActive);
+            DOM.toggleStatsBtn.classList.toggle('text-slate-400', !isActive);
+            DOM.toggleStatsBtn.setAttribute('aria-pressed', String(isActive));
+        }
+
         if (DOM.toggleStatsBtn) {
             DOM.toggleStatsBtn.addEventListener('click', () => {
                 DOM.statsPanel.classList.toggle('hidden-view');
@@ -694,8 +718,11 @@ export const viewerHtml = `<!DOCTYPE html>
                     DOM.markdownContainer.classList.toggle('max-w-5xl');
                     DOM.markdownContainer.classList.toggle('max-w-3xl');
                 }
+                syncStatsToggleButton();
             });
         }
+
+        syncStatsToggleButton();
 
         // Search
         DOM.searchInput.addEventListener('input', (e) => {
