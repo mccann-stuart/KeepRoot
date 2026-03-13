@@ -157,7 +157,7 @@ export const viewerHtml = `<!DOCTYPE html>
     </div>
 
     <!-- Main Application (Hidden initially) -->
-    <div id="app" class="flex h-screen overflow-hidden hidden-view" style="display: none;">
+    <div id="app" class="flex h-screen overflow-hidden hidden-view">
 
         <!-- Sidebar Navigation -->
         <aside class="w-64 flex-shrink-0 border-r border-slate-200 dark:border-slate-800 bg-white dark:bg-background-dark flex flex-col">
