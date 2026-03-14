@@ -8,7 +8,7 @@ function getBookmarkTags(bookmark: BookmarkSummary): string[] {
 function matchesSmartList(bookmark: BookmarkSummary, smartList: SmartListSummary): boolean {
 	const rules = smartList.rules.split(',').map((rule) => rule.trim().toLowerCase()).filter(Boolean);
 	const tags = getBookmarkTags(bookmark).map((tag) => tag.toLowerCase());
-	return rules.some((rule) => tags.includes(rule));
+	return rules.some((rule) => tags.some((tag) => tag.includes(rule)));
 }
 
 export function collectTags(bookmarks: BookmarkSummary[]): string[] {

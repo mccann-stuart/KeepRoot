@@ -387,7 +387,7 @@ function updateSummaryStats() {
 	dom.statRecent.textContent = String(
 		state.bookmarks.filter((bookmark) => {
 			const createdAt = bookmark.metadata?.createdAt ? new Date(bookmark.metadata.createdAt).getTime() : 0;
-			return createdAt > Date.now() - 24 * 60 * 60 * 1000;
+			return createdAt > new Date().setHours(0, 0, 0, 0);
 		}).length,
 	);
 }
