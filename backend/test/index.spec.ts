@@ -24,6 +24,18 @@ describe('KeepRoot Worker', () => {
 		expect(await response.json()).toEqual({ error: 'Unauthorized' });
 	});
 
+	it('responds with 401 if empty token provided', async () => {
+		const request = new Request('http://example.com/bookmarks', {
+			headers: { 'Authorization': '' },
+		});
+		const ctx = createExecutionContext();
+		const response = await worker.fetch(request, env, ctx);
+		await waitOnExecutionContext(ctx);
+
+		expect(response.status).toBe(401);
+		expect(await response.json()).toEqual({ error: 'Unauthorized' });
+	});
+
 	it('responds with 401 if invalid token provided', async () => {
 		const request = new Request('http://example.com/bookmarks', {
 			headers: { 'Authorization': 'Bearer invalid-token' },
