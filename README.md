@@ -138,23 +138,37 @@ npm run build
 2. Enable **Developer mode**.
 3. Click **Load unpacked** and select the `extension/build/webextension/` directory.
 
-### Package for Safari on macOS 26 / Safari 26.3
+### Package for Safari in a macOS app
 
 ```bash
 cd extension
-npm run build
 npm run build:safari
 ```
 
-This generates a macOS-only Safari app project in `extension/build/safari/`.
+`npm run build:safari` now does three things:
 
-If you need a custom app name or bundle identifier, set:
+- rebuilds the WebExtension in `extension/build/webextension/`
+- syncs the extension resources into the checked-in Xcode host app at `extension/safari/KeepRoot/`
+- refreshes the host app icon set from `extension/public/icons/icon1024.png`
+
+Open `extension/safari/KeepRoot/KeepRoot.xcodeproj` in Xcode, choose your signing team, and archive the `KeepRoot` scheme for App Store submission.
+
+To verify the project compiles without signing:
 
 ```bash
-SAFARI_APP_NAME="KeepRoot" SAFARI_BUNDLE_ID="com.yourcompany.keeproot" npm run build:safari
+npm run verify:safari
 ```
 
-Open the generated Xcode project, set your signing team if needed, then build/run the host app to enable the Safari extension in Safari settings.
+To create a release archive from the command line:
+
+```bash
+SAFARI_TEAM_ID="YOURTEAMID" npm run archive:safari
+```
+
+The archive is written to `extension/build/safari/KeepRoot.xcarchive`.
+Set `SAFARI_BUILD_NUMBER` when you need to increment the App Store build number without changing `extension/package.json`.
+
+If you are publishing under your own Apple account, set a unique bundle identifier in Xcode before submitting the app.
 
 ### Configure the extension
 

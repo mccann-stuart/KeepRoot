@@ -4,75 +4,104 @@ const { spawnSync } = require('node:child_process');
 
 const rootDir = __dirname;
 const packagedExtensionDir = path.join(rootDir, 'build', 'webextension');
-const safariProjectDir = path.join(rootDir, 'build', 'safari');
-const appName = process.env.SAFARI_APP_NAME || 'KeepRoot';
-const bundleIdentifier = process.env.SAFARI_BUNDLE_ID || 'com.keeproot.safari';
+const safariAppDir = path.join(rootDir, 'safari', 'KeepRoot');
+const projectFilePath = path.join(safariAppDir, 'KeepRoot.xcodeproj', 'project.pbxproj');
+const extensionResourcesDir = path.join(safariAppDir, 'KeepRoot Extension', 'Resources');
+const hostAppIconSetDir = path.join(
+  safariAppDir,
+  'KeepRoot',
+  'Assets.xcassets',
+  'AppIcon.appiconset',
+);
+const hostAppIconPath = path.join(safariAppDir, 'KeepRoot', 'Resources', 'Icon.png');
+const iconSourcePath = path.join(rootDir, 'public', 'icons', 'icon1024.png');
+const packageJsonPath = path.join(rootDir, 'package.json');
 
-function patchProjectBundleIdentifiers() {
-  const projectFilePath = path.join(
-    safariProjectDir,
-    appName,
-    `${appName}.xcodeproj`,
-    'project.pbxproj',
-  );
+const { version: marketingVersion = '1.0.0' } = JSON.parse(fs.readFileSync(packageJsonPath, 'utf8'));
+const buildNumber = process.env.SAFARI_BUILD_NUMBER || '1';
 
-  if (!fs.existsSync(projectFilePath)) {
-    console.warn(`Unable to locate generated Xcode project at ${projectFilePath}`);
-    return;
+const iconVariants = [
+  ['mac-icon-16@1x.png', 16],
+  ['mac-icon-16@2x.png', 32],
+  ['mac-icon-32@1x.png', 32],
+  ['mac-icon-32@2x.png', 64],
+  ['mac-icon-128@1x.png', 128],
+  ['mac-icon-128@2x.png', 256],
+  ['mac-icon-256@1x.png', 256],
+  ['mac-icon-256@2x.png', 512],
+  ['mac-icon-512@1x.png', 512],
+  ['mac-icon-512@2x.png', 1024],
+];
+
+function fail(message) {
+  console.error(message);
+  process.exit(1);
+}
+
+function ensureExists(filePath, message) {
+  if (!fs.existsSync(filePath)) {
+    fail(message);
+  }
+}
+
+function copyDirectoryContents(sourceDir, destinationDir) {
+  fs.rmSync(destinationDir, { recursive: true, force: true });
+  fs.mkdirSync(destinationDir, { recursive: true });
+
+  for (const entry of fs.readdirSync(sourceDir)) {
+    const sourcePath = path.join(sourceDir, entry);
+    const destinationPath = path.join(destinationDir, entry);
+    fs.cpSync(sourcePath, destinationPath, { recursive: true });
+  }
+}
+
+function run(command, args, options = {}) {
+  const stdio = options.quiet ? 'pipe' : 'inherit';
+  const result = spawnSync(command, args, { stdio });
+
+  if (result.error) {
+    fail(result.error.message);
   }
 
-  const originalProject = fs.readFileSync(projectFilePath, 'utf8');
-  const patchedProject = originalProject.replace(
-    /PRODUCT_BUNDLE_IDENTIFIER = ([^;]+);/g,
-    (match, currentIdentifier) => {
-      if (currentIdentifier.trim().endsWith('.Extension')) {
-        return match;
-      }
+  if ((result.status ?? 0) !== 0) {
+    process.exit(result.status ?? 1);
+  }
+}
 
-      return `PRODUCT_BUNDLE_IDENTIFIER = ${bundleIdentifier};`;
-    },
+function syncHostAppIcons() {
+  ensureExists(
+    iconSourcePath,
+    'Missing extension/public/icons/icon1024.png. Generate the high-resolution app icon first.',
   );
 
-  fs.writeFileSync(projectFilePath, patchedProject);
+  fs.mkdirSync(hostAppIconSetDir, { recursive: true });
+
+  for (const [fileName, size] of iconVariants) {
+    const outputPath = path.join(hostAppIconSetDir, fileName);
+    run('sips', ['-z', `${size}`, `${size}`, iconSourcePath, '--out', outputPath], {
+      quiet: true,
+    });
+  }
+
+  fs.copyFileSync(iconSourcePath, hostAppIconPath);
 }
 
-if (!fs.existsSync(packagedExtensionDir)) {
-  console.error('Missing build/webextension. Run "npm run build" first.');
-  process.exit(1);
+function syncProjectVersions() {
+  const originalProject = fs.readFileSync(projectFilePath, 'utf8');
+  const updatedProject = originalProject
+    .replace(/MARKETING_VERSION = [^;]+;/g, `MARKETING_VERSION = ${marketingVersion};`)
+    .replace(/CURRENT_PROJECT_VERSION = [^;]+;/g, `CURRENT_PROJECT_VERSION = ${buildNumber};`);
+
+  if (updatedProject !== originalProject) {
+    fs.writeFileSync(projectFilePath, updatedProject);
+  }
 }
 
-fs.rmSync(safariProjectDir, { recursive: true, force: true });
+ensureExists(packagedExtensionDir, 'Missing build/webextension. Run "npm run build" first.');
+ensureExists(projectFilePath, 'Missing extension/safari/KeepRoot. Restore the checked-in Safari app project.');
 
-const result = spawnSync(
-  'xcrun',
-  [
-    'safari-web-extension-packager',
-    '--project-location',
-    safariProjectDir,
-    '--app-name',
-    appName,
-    '--bundle-identifier',
-    bundleIdentifier,
-    '--swift',
-    '--macos-only',
-    '--copy-resources',
-    '--no-open',
-    '--no-prompt',
-    '--force',
-    packagedExtensionDir,
-  ],
-  {
-    stdio: 'inherit',
-  },
-);
+copyDirectoryContents(packagedExtensionDir, extensionResourcesDir);
+syncHostAppIcons();
+syncProjectVersions();
 
-if (result.error) {
-  console.error(result.error.message);
-  process.exit(1);
-}
-
-if ((result.status ?? 0) === 0) {
-  patchProjectBundleIdentifiers();
-}
-
-process.exit(result.status ?? 0);
+console.log(`Safari app project synced at ${safariAppDir}`);

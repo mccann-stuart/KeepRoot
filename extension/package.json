@@ -5,7 +5,9 @@
   "main": "index.js",
   "scripts": {
     "build": "node build.js",
-    "build:safari": "node build-safari.js",
+    "build:safari": "npm run build && node build-safari.js",
+    "verify:safari": "npm run build:safari && xcodebuild -project safari/KeepRoot/KeepRoot.xcodeproj -scheme KeepRoot -configuration Release -destination 'generic/platform=macOS' CODE_SIGNING_ALLOWED=NO build",
+    "archive:safari": "npm run build:safari && node archive-safari.js",
     "watch": "node build.js --watch",
     "test": "vitest run"
   },

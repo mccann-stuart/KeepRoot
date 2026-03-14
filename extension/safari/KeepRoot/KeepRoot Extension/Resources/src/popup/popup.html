@@ -1,0 +1,30 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>KeepRoot</title>
+  <link rel="stylesheet" href="../styles/theme.css">
+  <link rel="stylesheet" href="../styles/popup.css">
+</head>
+<body>
+  <main class="popup-shell">
+    <header class="popup-shell__header">
+      <p class="popup-shell__eyebrow">KeepRoot</p>
+      <h1>Save this page</h1>
+      <p>Archive the active tab to your Cloudflare-backed library.</p>
+    </header>
+
+    <button id="action-btn" class="btn btn-primary popup-shell__action">
+      <div class="spinner" id="btn-spinner"></div>
+      <span id="btn-text">Save Page</span>
+    </button>
+
+    <div id="status-message" class="status-msg text-center"></div>
+
+    <button id="open-settings" class="text-link" type="button">Open Settings</button>
+  </main>
+
+  <script src="../../dist/popup.js"></script>
+</body>
+</html>
