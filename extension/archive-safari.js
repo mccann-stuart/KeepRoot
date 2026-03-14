@@ -5,25 +5,44 @@ const { spawnSync } = require('node:child_process');
 const rootDir = __dirname;
 const projectPath = path.join(rootDir, 'safari', 'KeepRoot', 'KeepRoot.xcodeproj');
 const archiveRoot = path.join(rootDir, 'build', 'safari');
-const archivePath = path.join(archiveRoot, 'KeepRoot.xcarchive');
 const teamId = process.env.SAFARI_TEAM_ID || process.env.DEVELOPMENT_TEAM;
+const platform = (process.env.SAFARI_PLATFORM || 'macos').toLowerCase();
+
+const platformConfig = {
+  ios: {
+    archiveName: 'KeepRoot-iOS.xcarchive',
+    destination: 'generic/platform=iOS',
+    scheme: 'KeepRoot (iOS)',
+  },
+  macos: {
+    archiveName: 'KeepRoot-macOS.xcarchive',
+    destination: 'generic/platform=macOS',
+    scheme: 'KeepRoot (macOS)',
+  },
+}[platform];
 
 if (!fs.existsSync(projectPath)) {
   console.error('Missing extension/safari/KeepRoot/KeepRoot.xcodeproj. Run "npm run build:safari" first.');
   process.exit(1);
 }
 
+if (!platformConfig) {
+  console.error(`Unsupported SAFARI_PLATFORM "${platform}". Use "ios" or "macos".`);
+  process.exit(1);
+}
+
 fs.mkdirSync(archiveRoot, { recursive: true });
+const archivePath = path.join(archiveRoot, platformConfig.archiveName);
 
 const args = [
   '-project',
   projectPath,
   '-scheme',
-  'KeepRoot',
+  platformConfig.scheme,
   '-configuration',
   'Release',
   '-destination',
-  'generic/platform=macOS',
+  platformConfig.destination,
   '-archivePath',
   archivePath,
   'archive',

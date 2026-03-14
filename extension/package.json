@@ -6,8 +6,12 @@
   "scripts": {
     "build": "node build.js",
     "build:safari": "npm run build && node build-safari.js",
-    "verify:safari": "npm run build:safari && xcodebuild -project safari/KeepRoot/KeepRoot.xcodeproj -scheme KeepRoot -configuration Release -destination 'generic/platform=macOS' CODE_SIGNING_ALLOWED=NO build",
-    "archive:safari": "npm run build:safari && node archive-safari.js",
+    "verify:safari": "npm run build:safari && node verify-safari.js",
+    "verify:safari:ios": "npm run build:safari && SAFARI_PLATFORM=ios node verify-safari.js",
+    "verify:safari:macos": "npm run build:safari && SAFARI_PLATFORM=macos node verify-safari.js",
+    "archive:safari": "npm run archive:safari:macos",
+    "archive:safari:ios": "npm run build:safari && SAFARI_PLATFORM=ios node archive-safari.js",
+    "archive:safari:macos": "npm run build:safari && SAFARI_PLATFORM=macos node archive-safari.js",
     "watch": "node build.js --watch",
     "test": "vitest run"
   },

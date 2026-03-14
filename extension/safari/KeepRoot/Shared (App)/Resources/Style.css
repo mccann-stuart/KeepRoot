@@ -40,7 +40,7 @@ body {
     place-items: center;
     margin: 0;
     padding: 32px;
-    height: 100%;
+    min-height: 100%;
     background:
         radial-gradient(circle at top, var(--bg-1), transparent 55%),
         linear-gradient(180deg, var(--bg-0), var(--bg-0));
@@ -52,7 +52,7 @@ body {
     display: flex;
     flex-direction: column;
     gap: 18px;
-    width: min(640px, 100%);
+    width: min(680px, 100%);
     padding: 32px;
     border: 1px solid var(--border);
     border-radius: 28px;
@@ -91,6 +91,20 @@ h1 {
     line-height: 1.5;
 }
 
+.platform-panel {
+    display: none;
+    flex-direction: column;
+    gap: 16px;
+}
+
+body[data-platform="ios"] .platform-ios {
+    display: flex;
+}
+
+body[data-platform="mac"] .platform-mac {
+    display: flex;
+}
+
 .status {
     margin: 0;
     padding: 14px 16px;
@@ -101,15 +115,15 @@ h1 {
     line-height: 1.45;
 }
 
-body[data-state="unknown"] :is(.state-on, .state-off) {
+body[data-platform="mac"][data-state="unknown"] :is(.state-on, .state-off) {
     display: none;
 }
 
-body[data-state="on"] :is(.state-off, .state-unknown) {
+body[data-platform="mac"][data-state="on"] :is(.state-off, .state-unknown) {
     display: none;
 }
 
-body[data-state="off"] :is(.state-on, .state-unknown) {
+body[data-platform="mac"][data-state="off"] :is(.state-on, .state-unknown) {
     display: none;
 }
 
@@ -120,6 +134,13 @@ body[data-state="off"] :is(.state-on, .state-unknown) {
     padding-left: 20px;
     color: var(--muted);
     font-size: 14px;
+    line-height: 1.45;
+}
+
+.footnote {
+    margin: 0;
+    color: var(--muted);
+    font-size: 13px;
     line-height: 1.45;
 }
 

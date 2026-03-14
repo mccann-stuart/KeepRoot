@@ -1,17 +1,17 @@
-//
-//  ViewController.swift
-//  KeepRoot
-//
-//  Created by Mccann Stuart on 14/03/2026.
-//
+import WebKit
 
+#if os(iOS)
+import UIKit
+typealias PlatformViewController = UIViewController
+#elseif os(macOS)
 import Cocoa
 import SafariServices
-import WebKit
+typealias PlatformViewController = NSViewController
+#endif
 
 private let fallbackAppBundleIdentifier = "com.keeproot.safari"
 
-final class ViewController: NSViewController, WKNavigationDelegate, WKScriptMessageHandler {
+final class ViewController: PlatformViewController, WKNavigationDelegate, WKScriptMessageHandler {
 
     @IBOutlet var webView: WKWebView!
 
@@ -32,6 +32,10 @@ final class ViewController: NSViewController, WKNavigationDelegate, WKScriptMess
     }
 
     func webView(_ webView: WKWebView, didFinish navigation: WKNavigation!) {
+#if os(iOS)
+        webView.evaluateJavaScript("show('ios')")
+#elseif os(macOS)
+        webView.evaluateJavaScript("show('mac')")
         SFSafariExtensionManager.getStateOfSafariExtension(withIdentifier: extensionBundleIdentifier) { state, error in
             guard let state = state, error == nil else {
                 return
@@ -39,21 +43,24 @@ final class ViewController: NSViewController, WKNavigationDelegate, WKScriptMess
 
             DispatchQueue.main.async {
                 if #available(macOS 13, *) {
-                    webView.evaluateJavaScript("show(\(state.isEnabled), true)")
+                    webView.evaluateJavaScript("show('mac', \(state.isEnabled), true)")
                 } else {
-                    webView.evaluateJavaScript("show(\(state.isEnabled), false)")
+                    webView.evaluateJavaScript("show('mac', \(state.isEnabled), false)")
                 }
             }
         }
+#endif
     }
 
     func userContentController(_ userContentController: WKUserContentController, didReceive message: WKScriptMessage) {
+#if os(macOS)
         guard let action = message.body as? String, action == "open-preferences" else { return }
 
         SFSafariApplication.showPreferencesForExtension(withIdentifier: extensionBundleIdentifier) { _ in
             DispatchQueue.main.async {
-                NSApplication.shared.terminate(nil)
+                NSApp.terminate(nil)
             }
         }
+#endif
     }
 }

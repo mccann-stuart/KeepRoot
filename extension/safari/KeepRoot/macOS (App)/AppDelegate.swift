@@ -1,6 +1,6 @@
 //
 //  AppDelegate.swift
-//  KeepRoot
+//  macOS (App)
 //
 //  Created by Mccann Stuart on 14/03/2026.
 //

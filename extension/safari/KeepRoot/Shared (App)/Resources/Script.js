@@ -1,5 +1,11 @@
-function show(enabled, useSettingsInsteadOfPreferences) {
+function show(platform, enabled, useSettingsInsteadOfPreferences) {
     const actionButton = document.querySelector("button.open-preferences");
+    document.body.dataset.platform = platform;
+    document.body.dataset.state = "unknown";
+
+    if (platform !== "mac") {
+        return;
+    }
 
     if (useSettingsInsteadOfPreferences) {
         document.getElementsByClassName("state-on")[0].innerText =
@@ -19,8 +25,6 @@ function show(enabled, useSettingsInsteadOfPreferences) {
         actionButton.innerText = "Quit and Open Safari Extensions Preferences";
     }
 
-    document.body.dataset.state = "unknown";
-
     if (typeof enabled === "boolean") {
         document.body.dataset.state = enabled ? "on" : "off";
     }
@@ -30,4 +34,4 @@ function openPreferences() {
     webkit.messageHandlers.controller.postMessage("open-preferences");
 }
 
-document.querySelector("button.open-preferences").addEventListener("click", openPreferences);
+document.querySelector("button.open-preferences")?.addEventListener("click", openPreferences);

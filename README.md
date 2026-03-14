@@ -138,7 +138,7 @@ npm run build
 2. Enable **Developer mode**.
 3. Click **Load unpacked** and select the `extension/build/webextension/` directory.
 
-### Package for Safari in a macOS app
+### Package for Safari in iOS and macOS apps
 
 ```bash
 cd extension
@@ -149,26 +149,48 @@ npm run build:safari
 
 - rebuilds the WebExtension in `extension/build/webextension/`
 - syncs the extension resources into the checked-in Xcode host app at `extension/safari/KeepRoot/`
-- refreshes the host app icon set from `extension/public/icons/icon1024.png`
+- refreshes the shared iOS/macOS app icon set from `extension/public/icons/icon1024.png`
+- updates the checked-in Xcode project version numbers from `extension/package.json`
 
-Open `extension/safari/KeepRoot/KeepRoot.xcodeproj` in Xcode, choose your signing team, and archive the `KeepRoot` scheme for App Store submission.
+Open `extension/safari/KeepRoot/KeepRoot.xcodeproj` in Xcode. The project includes:
 
-To verify the project compiles without signing:
+- `KeepRoot (iOS)` for the iPhone/iPad containing app and Safari extension
+- `KeepRoot (macOS)` for the Mac containing app and Safari extension
+
+If you want to override the default bundle identifier for both platforms during sync, set `SAFARI_BUNDLE_ID`:
+
+```bash
+SAFARI_BUNDLE_ID="com.yourcompany.keeproot" npm run build:safari
+```
+
+To verify both platform schemes compile without signing:
 
 ```bash
 npm run verify:safari
 ```
 
-To create a release archive from the command line:
+Platform-specific verification commands are also available:
 
 ```bash
-SAFARI_TEAM_ID="YOURTEAMID" npm run archive:safari
+npm run verify:safari:ios
+npm run verify:safari:macos
 ```
 
-The archive is written to `extension/build/safari/KeepRoot.xcarchive`.
+To create release archives from the command line:
+
+```bash
+SAFARI_TEAM_ID="YOURTEAMID" npm run archive:safari:ios
+SAFARI_TEAM_ID="YOURTEAMID" npm run archive:safari:macos
+```
+
+Archives are written to:
+
+- `extension/build/safari/KeepRoot-iOS.xcarchive`
+- `extension/build/safari/KeepRoot-macOS.xcarchive`
+
 Set `SAFARI_BUILD_NUMBER` when you need to increment the App Store build number without changing `extension/package.json`.
 
-If you are publishing under your own Apple account, set a unique bundle identifier in Xcode before submitting the app.
+If you are publishing under your own Apple account, set a unique bundle identifier with `SAFARI_BUNDLE_ID` or in Xcode before submitting the app.
 
 ### Configure the extension
 

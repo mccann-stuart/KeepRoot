@@ -1,6 +1,6 @@
 //
 //  SafariWebExtensionHandler.swift
-//  KeepRoot Extension
+//  Shared (Extension)
 //
 //  Created by Mccann Stuart on 14/03/2026.
 //
