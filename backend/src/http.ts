@@ -1,10 +1,32 @@
 import type { AuthenticatedUser, StorageEnv } from './storage';
 
 export const corsHeaders = {
-	'Access-Control-Allow-Origin': '*',
 	'Access-Control-Allow-Methods': 'GET, POST, PATCH, DELETE, OPTIONS',
 	'Access-Control-Allow-Headers': 'Content-Type, Authorization',
 };
+
+export function applyCorsHeaders(request: Request, headers: Headers): Headers {
+	for (const [key, value] of Object.entries(corsHeaders)) {
+		headers.set(key, value);
+	}
+
+	const origin = request.headers.get('Origin');
+	const urlOrigin = new URL(request.url).origin;
+
+	if (
+		origin &&
+		(origin === urlOrigin ||
+			origin.startsWith('chrome-extension://') ||
+			origin.startsWith('moz-extension://') ||
+			origin.startsWith('safari-web-extension://'))
+	) {
+		headers.set('Access-Control-Allow-Origin', origin);
+	} else {
+		headers.set('Access-Control-Allow-Origin', urlOrigin);
+	}
+
+	return headers;
+}
 
 export interface RouteContext<Env extends StorageEnv = StorageEnv> {
 	env: Env;
@@ -49,15 +71,8 @@ export function createRouteContext<Env extends StorageEnv>(request: Request, env
 	};
 }
 
-export function appendCorsHeaders(headers: Headers): Headers {
-	for (const [key, value] of Object.entries(corsHeaders)) {
-		headers.set(key, value);
-	}
-	return headers;
-}
-
-export function jsonResponse(body: unknown, status = 200, headers?: HeadersInit): Response {
-	const responseHeaders = appendCorsHeaders(new Headers(headers));
+export function jsonResponse(request: Request, body: unknown, status = 200, headers?: HeadersInit): Response {
+	const responseHeaders = applyCorsHeaders(request, new Headers(headers));
 	responseHeaders.set('Content-Type', 'application/json');
 	return new Response(JSON.stringify(body), {
 		headers: responseHeaders,
@@ -65,8 +80,8 @@ export function jsonResponse(body: unknown, status = 200, headers?: HeadersInit)
 	});
 }
 
-export function textResponse(body: string, contentType: string, status = 200, headers?: HeadersInit): Response {
-	const responseHeaders = appendCorsHeaders(new Headers(headers));
+export function textResponse(request: Request, body: string, contentType: string, status = 200, headers?: HeadersInit): Response {
+	const responseHeaders = applyCorsHeaders(request, new Headers(headers));
 	responseHeaders.set('Content-Type', contentType);
 	return new Response(body, {
 		headers: responseHeaders,
@@ -74,8 +89,8 @@ export function textResponse(body: string, contentType: string, status = 200, he
 	});
 }
 
-export function errorResponse(message: string, status: number): Response {
-	return jsonResponse({ error: message }, status);
+export function errorResponse(request: Request, message: string, status: number): Response {
+	return jsonResponse(request, { error: message }, status);
 }
 
 export async function parseJson<T>(request: Request): Promise<T> {

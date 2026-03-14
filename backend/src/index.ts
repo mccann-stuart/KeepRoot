@@ -31,7 +31,7 @@ export default {
 		}
 
 		if (!isProtectedApiPath(context.pathname)) {
-			return errorResponse('Not found', 404);
+			return errorResponse(context.request, 'Not found', 404);
 		}
 
 		const authHeader = request.headers.get('Authorization');
@@ -39,7 +39,7 @@ export default {
 		const authUser = token ? await authenticateBearerToken(env, token) : null;
 
 		if (!authUser) {
-			return errorResponse('Unauthorized', 401);
+			return errorResponse(context.request, 'Unauthorized', 401);
 		}
 
 		try {
@@ -51,10 +51,10 @@ export default {
 				?? await handleBookmarkRoute(protectedContext)
 				?? await handleListRoute(protectedContext)
 				?? await handleSmartListRoute(protectedContext)
-				?? errorResponse('Not found', 404);
+				?? errorResponse(context.request, 'Not found', 404);
 		} catch (error) {
 			console.error(error);
-			return errorResponse('Internal Server Error', 500);
+			return errorResponse(context.request, 'Internal Server Error', 500);
 		}
 	},
 };

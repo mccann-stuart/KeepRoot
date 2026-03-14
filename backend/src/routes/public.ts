@@ -1,13 +1,13 @@
-import { appendCorsHeaders, corsHeaders, errorResponse, isProtectedApiPath, type RouteContext } from '../http';
+import { applyCorsHeaders, errorResponse, isProtectedApiPath, type RouteContext } from '../http';
 
 async function handleStoredObjectRequest(context: RouteContext): Promise<Response> {
 	const objectKey = context.pathname.slice(1);
 	const objectBody = await context.env.KEEPROOT_CONTENT.get(objectKey);
 	if (!objectBody) {
-		return errorResponse('Not found', 404);
+		return errorResponse(context.request, 'Not found', 404);
 	}
 
-	const headers = appendCorsHeaders(new Headers());
+	const headers = applyCorsHeaders(context.request, new Headers());
 	objectBody.writeHttpMetadata(headers);
 	headers.set('etag', objectBody.httpEtag);
 	headers.set('Cache-Control', 'public, max-age=31536000, immutable');
@@ -16,7 +16,7 @@ async function handleStoredObjectRequest(context: RouteContext): Promise<Respons
 
 async function handleStaticAssetRequest(context: RouteContext): Promise<Response> {
 	if (!context.env.ASSETS) {
-		return errorResponse('Static asset binding unavailable', 500);
+		return errorResponse(context.request, 'Static asset binding unavailable', 500);
 	}
 
 	return context.env.ASSETS.fetch(context.request);
@@ -28,7 +28,8 @@ function isPublicAssetPath(pathname: string): boolean {
 
 export async function handlePublicRoute(context: RouteContext): Promise<Response | undefined> {
 	if (context.request.method === 'OPTIONS') {
-		return new Response(null, { headers: corsHeaders });
+		const headers = applyCorsHeaders(context.request, new Headers());
+		return new Response(null, { headers });
 	}
 
 	if (context.request.method === 'GET' && (context.pathname.startsWith('/images/') || context.pathname.startsWith('/thumbs/'))) {
