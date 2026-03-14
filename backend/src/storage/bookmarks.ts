@@ -694,13 +694,13 @@ export async function saveBookmark(
 
 	const urlHash = await sha256Hex(canonicalUrl);
 	const existingBookmark = await env.KEEPROOT_DB.prepare(
-		`SELECT id, created_at
+		`SELECT id, created_at, is_read
 		FROM bookmarks
 		WHERE user_id = ? AND url_hash = ?
 		LIMIT 1`,
 	)
 		.bind(user.userId, urlHash)
-		.first<{ created_at: string; id: string }>();
+		.first<{ created_at: string; id: string; is_read: number }>();
 
 	const bookmarkId = existingBookmark?.id ?? crypto.randomUUID();
 	const createdAt = existingBookmark?.created_at ?? now;
@@ -733,7 +733,7 @@ export async function saveBookmark(
 				payload.listId ?? null,
 				payload.pinned ? 1 : 0,
 				payload.sortOrder ?? 0,
-				payload.isRead ? 1 : 0,
+				payload.isRead !== undefined ? (payload.isRead ? 1 : 0) : existingBookmark.is_read,
 				bookmarkId,
 				user.userId,
 			)
@@ -810,7 +810,7 @@ export async function saveBookmark(
 			domain,
 			excerpt,
 			id: bookmarkId,
-			isRead: payload.isRead ? true : false,
+			isRead: existingBookmark ? (payload.isRead !== undefined ? payload.isRead : Boolean(existingBookmark.is_read)) : Boolean(payload.isRead),
 			lang: payload.lang ?? null,
 			lastFetchedAt: now,
 			listId: payload.listId ?? null,
