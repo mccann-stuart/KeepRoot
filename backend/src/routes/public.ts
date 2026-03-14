@@ -1,4 +1,4 @@
-import { appendCorsHeaders, corsHeaders, errorResponse, isProtectedApiPath, type RouteContext } from '../http';
+import { errorResponse, isProtectedApiPath, type RouteContext } from '../http';
 
 async function handleStoredObjectRequest(context: RouteContext): Promise<Response> {
 	const objectKey = context.pathname.slice(1);
@@ -7,7 +7,7 @@ async function handleStoredObjectRequest(context: RouteContext): Promise<Respons
 		return errorResponse('Not found', 404);
 	}
 
-	const headers = appendCorsHeaders(new Headers());
+	const headers = new Headers();
 	objectBody.writeHttpMetadata(headers);
 	headers.set('etag', objectBody.httpEtag);
 	headers.set('Cache-Control', 'public, max-age=31536000, immutable');
@@ -28,7 +28,7 @@ function isPublicAssetPath(pathname: string): boolean {
 
 export async function handlePublicRoute(context: RouteContext): Promise<Response | undefined> {
 	if (context.request.method === 'OPTIONS') {
-		return new Response(null, { headers: corsHeaders });
+		return new Response(null);
 	}
 
 	if (context.request.method === 'GET' && (context.pathname.startsWith('/images/') || context.pathname.startsWith('/thumbs/'))) {
