@@ -146,6 +146,53 @@ describe('KeepRoot Worker', () => {
 		expect(response.status).toBe(200);
 	});
 
+	it('responds with 400 Bad Request if bookmark content is missing', async () => {
+		const ctx = createExecutionContext();
+		const createReq = new Request('http://example.com/bookmarks', {
+			method: 'POST',
+			headers: {
+				Authorization: `Bearer ${API_KEY}`,
+				'Content-Type': 'application/json',
+			},
+			body: JSON.stringify({
+				url: 'https://example.com/missing-content',
+				title: 'Missing Content',
+			}),
+		});
+
+		const response = await worker.fetch(createReq, env, ctx);
+		await waitOnExecutionContext(ctx);
+
+		expect(response.status).toBe(400);
+		expect(await response.json()).toEqual({ error: 'Missing bookmark content' });
+	});
+
+	it('successfully creates a bookmark via POST /bookmarks', async () => {
+		const ctx = createExecutionContext();
+		const createReq = new Request('http://example.com/bookmarks', {
+			method: 'POST',
+			headers: {
+				Authorization: `Bearer ${API_KEY}`,
+				'Content-Type': 'application/json',
+			},
+			body: JSON.stringify({
+				url: 'https://example.com/success',
+				title: 'Success Bookmark',
+				markdownData: '# Success Content',
+			}),
+		});
+
+		const response = await worker.fetch(createReq, env, ctx);
+		await waitOnExecutionContext(ctx);
+
+		expect(response.status).toBe(201);
+		const data = (await response.json()) as any;
+		expect(data.id).toBeDefined();
+		expect(data.message).toBe('Saved successfully');
+		expect(data.metadata.url).toBe('https://example.com/success');
+		expect(data.metadata.title).toBe('Success Bookmark');
+	});
+
 	it('handles bookmark CRUD operations with D1 metadata and R2 content', async () => {
 		const ctx = createExecutionContext();
 
