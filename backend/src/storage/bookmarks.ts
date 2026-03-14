@@ -563,26 +563,53 @@ async function syncTags(env: StorageEnv, userId: string, bookmarkId: string, tag
 }
 
 async function syncImages(env: StorageEnv, bookmarkId: string, images: BookmarkImagePayload[], createdAt: string): Promise<void> {
-	await env.KEEPROOT_DB.prepare('DELETE FROM bookmark_images WHERE bookmark_id = ?').bind(bookmarkId).run();
+	const batchStatements: D1PreparedStatement[] = [
+		env.KEEPROOT_DB.prepare('DELETE FROM bookmark_images WHERE bookmark_id = ?').bind(bookmarkId),
+	];
 
-	for (const image of images) {
+	// Map and deduplicate image uploads concurrently
+	const uploadPromises = images.map(async (image) => {
 		if (!image.dataBase64) {
-			continue;
+			return null;
 		}
 
 		const bytes = base64ToUint8Array(image.dataBase64);
 		const imageHash = await sha256Hex(bytes);
 		const variant = normalizeVariant(image.variant);
 		const key = variant === 'original' ? `images/${imageHash}` : `thumbs/${imageHash}/${variant}`;
+
 		await putIfMissing(env.KEEPROOT_CONTENT, key, bytes, image.contentType ?? 'application/octet-stream');
 
-		await env.KEEPROOT_DB.prepare(
-			`INSERT OR REPLACE INTO bookmark_images (bookmark_id, image_hash, r2_key, width, height, type, created_at)
-			VALUES (?, ?, ?, ?, ?, ?, ?)`,
-		)
-			.bind(bookmarkId, imageHash, key, image.width ?? null, image.height ?? null, image.contentType ?? null, createdAt)
-			.run();
+		return {
+			imageHash,
+			key,
+			width: image.width ?? null,
+			height: image.height ?? null,
+			type: image.contentType ?? null,
+		};
+	});
+
+	const processedImages = (await Promise.all(uploadPromises)).filter((img): img is NonNullable<typeof img> => img !== null);
+
+	const seenImageHashes = new Set<string>();
+
+	for (const image of processedImages) {
+		// Prevent unique constraint violations if multiple variants have same hash
+		const dedupKey = `${image.imageHash}-${image.key}`;
+		if (seenImageHashes.has(dedupKey)) {
+			continue;
+		}
+		seenImageHashes.add(dedupKey);
+
+		batchStatements.push(
+			env.KEEPROOT_DB.prepare(
+				`INSERT OR REPLACE INTO bookmark_images (bookmark_id, image_hash, r2_key, width, height, type, created_at)
+				VALUES (?, ?, ?, ?, ?, ?, ?)`
+			).bind(bookmarkId, image.imageHash, image.key, image.width, image.height, image.type, createdAt)
+		);
 	}
+
+	await env.KEEPROOT_DB.batch(batchStatements);
 }
 
 async function getContentDocument(env: StorageEnv, contentRow: BookmarkContentRow | null): Promise<StoredContentDocument | null> {
