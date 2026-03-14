@@ -1,11 +1,5 @@
 import type { AuthenticatedUser, StorageEnv } from './storage';
 
-export const corsHeaders = {
-	'Access-Control-Allow-Origin': '*',
-	'Access-Control-Allow-Methods': 'GET, POST, PATCH, DELETE, OPTIONS',
-	'Access-Control-Allow-Headers': 'Content-Type, Authorization',
-};
-
 export interface RouteContext<Env extends StorageEnv = StorageEnv> {
 	env: Env;
 	origin: string;
@@ -49,15 +43,8 @@ export function createRouteContext<Env extends StorageEnv>(request: Request, env
 	};
 }
 
-export function appendCorsHeaders(headers: Headers): Headers {
-	for (const [key, value] of Object.entries(corsHeaders)) {
-		headers.set(key, value);
-	}
-	return headers;
-}
-
 export function jsonResponse(body: unknown, status = 200, headers?: HeadersInit): Response {
-	const responseHeaders = appendCorsHeaders(new Headers(headers));
+	const responseHeaders = new Headers(headers);
 	responseHeaders.set('Content-Type', 'application/json');
 	return new Response(JSON.stringify(body), {
 		headers: responseHeaders,
@@ -66,7 +53,7 @@ export function jsonResponse(body: unknown, status = 200, headers?: HeadersInit)
 }
 
 export function textResponse(body: string, contentType: string, status = 200, headers?: HeadersInit): Response {
-	const responseHeaders = appendCorsHeaders(new Headers(headers));
+	const responseHeaders = new Headers(headers);
 	responseHeaders.set('Content-Type', contentType);
 	return new Response(body, {
 		headers: responseHeaders,
