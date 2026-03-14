@@ -11,11 +11,12 @@ body {
 
 .settings-card {
   background-color: var(--surface);
-  border-radius: var(--radius);
+  border-radius: 18px;
   padding: 2.5rem;
   width: 100%;
   box-shadow: 0 16px 30px -18px rgba(0, 0, 0, 0.45);
   border: 1px solid var(--border);
+  backdrop-filter: blur(18px);
 }
 
 .settings-header {
@@ -30,7 +31,7 @@ body {
   font-weight: 700;
   letter-spacing: 0.14em;
   text-transform: uppercase;
-  color: var(--text-muted);
+  color: #bfdbfe;
 }
 
 .settings-header h1 {
@@ -44,9 +45,20 @@ body {
 .form-hint {
   font-size: 0.875rem;
   margin-top: 0.5rem;
+  color: var(--text-muted);
 }
 
 .btn-block {
   width: 100%;
   margin-top: 1rem;
+}
+
+@media (max-width: 640px) {
+  body {
+    padding: 1rem;
+  }
+
+  .settings-card {
+    padding: 1.4rem;
+  }
 }

@@ -1,13 +1,20 @@
 body {
   width: 320px;
   min-height: 320px;
-  display: block;
-  padding: 1.4rem;
+  display: grid;
+  align-items: stretch;
+  padding: 1rem;
 }
 
 .popup-shell {
   display: grid;
   gap: 1rem;
+  padding: 1.2rem;
+  border: 1px solid var(--border);
+  border-radius: 18px;
+  background: var(--surface);
+  box-shadow: var(--shadow);
+  backdrop-filter: blur(18px);
 }
 
 .popup-shell__header {
@@ -21,11 +28,12 @@ body {
   font-weight: 700;
   letter-spacing: 0.14em;
   text-transform: uppercase;
-  color: var(--text-muted);
+  color: #bfdbfe;
 }
 
 .popup-shell__header h1 {
   font-size: 1.4rem;
+  line-height: 1.1;
 }
 
 .popup-shell__header p {
@@ -46,6 +54,11 @@ body {
   border-radius: 50%;
   border-top-color: #fff;
   animation: spin 1s linear infinite;
+}
+
+.text-link {
+  justify-self: center;
+  font-size: 0.9rem;
 }
 
 @keyframes spin {
