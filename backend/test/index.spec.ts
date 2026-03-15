@@ -1,13 +1,22 @@
 import { env, createExecutionContext, waitOnExecutionContext } from 'cloudflare:test';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import worker from '../src/index';
-import { hashToken } from '../src/storage';
+import { createUserWithCredential, hashToken, storeAuthChallenge } from '../src/storage';
 import initialSchemaSql from '../migrations/0001_initial.sql?raw';
 
 const API_KEY = 'test-api-key-12345';
 const TEST_USER_ID = 'test-user-id';
 const TEST_USERNAME = 'testuser';
 const TINY_PNG_BASE64 = 'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8Xw8AAoMBgQJ8i1QAAAAASUVORK5CYII=';
+const verifyRegistrationResponseMock = vi.fn();
+const verifyAuthenticationResponseMock = vi.fn();
+
+vi.mock('@simplewebauthn/server', () => ({
+	generateAuthenticationOptions: vi.fn(),
+	generateRegistrationOptions: vi.fn(),
+	verifyAuthenticationResponse: verifyAuthenticationResponseMock,
+	verifyRegistrationResponse: verifyRegistrationResponseMock,
+}));
 
 function mockImageFetch(responses: Record<string, { bodyBase64?: string; contentType?: string }>) {
 	const originalFetch = globalThis.fetch;
@@ -182,6 +191,8 @@ async function mcpCallTool(name: string, args: Record<string, unknown> = {}): Pr
 describe('KeepRoot Worker', () => {
 	beforeEach(async () => {
 		vi.restoreAllMocks();
+		verifyRegistrationResponseMock.mockReset();
+		verifyAuthenticationResponseMock.mockReset();
 		delete (env as { INGEST_QUEUE?: unknown }).INGEST_QUEUE;
 		delete (env as { MCP_EMAIL_DOMAIN?: string }).MCP_EMAIL_DOMAIN;
 		await resetDatabase();
@@ -221,6 +232,99 @@ describe('KeepRoot Worker', () => {
 
 		expect(response.status).toBe(401);
 		expect(await response.json()).toEqual({ error: 'Unauthorized' });
+	});
+
+	it('accepts browser extension origins during passkey registration verification', async () => {
+		verifyRegistrationResponseMock.mockResolvedValue({
+			registrationInfo: {
+				credential: {
+					counter: 0,
+					id: 'registration-credential',
+					publicKey: new Uint8Array([1, 2, 3]),
+					transports: ['internal'],
+				},
+				credentialBackedUp: false,
+				credentialDeviceType: 'singleDevice',
+			},
+			verified: true,
+		});
+		await storeAuthChallenge(env, {
+			challenge: 'registration-challenge',
+			type: 'registration',
+			userId: 'registration-user-id',
+			username: 'passkey-registration-user',
+		});
+
+		const request = new Request('http://example.com/auth/verify-registration', {
+			method: 'POST',
+			headers: {
+				'Content-Type': 'application/json',
+				Origin: 'chrome-extension://keeproot',
+			},
+			body: JSON.stringify({
+				response: {
+					rawId: 'registration-credential',
+				},
+				username: 'passkey-registration-user',
+			}),
+		});
+		const ctx = createExecutionContext();
+		const response = await worker.fetch(request, env, ctx);
+		await waitOnExecutionContext(ctx);
+
+		expect(response.status).toBe(200);
+		expect(verifyRegistrationResponseMock).toHaveBeenCalledTimes(1);
+		expect(verifyRegistrationResponseMock.mock.calls[0][0].expectedOrigin).toEqual([
+			'http://example.com',
+			'chrome-extension://keeproot',
+		]);
+	});
+
+	it('accepts browser extension origins during passkey authentication verification', async () => {
+		await createUserWithCredential(env, 'passkey-auth-user', 'passkey-auth-user-id', {
+			backedUp: false,
+			counter: 0,
+			credentialId: 'authentication-credential',
+			deviceType: null,
+			publicKey: new Uint8Array([4, 5, 6]),
+			transports: ['internal'],
+		});
+		await storeAuthChallenge(env, {
+			challenge: 'authentication-challenge',
+			type: 'authentication',
+			userId: 'passkey-auth-user-id',
+			username: 'passkey-auth-user',
+		});
+		verifyAuthenticationResponseMock.mockResolvedValue({
+			authenticationInfo: {
+				newCounter: 1,
+			},
+			verified: true,
+		});
+
+		const request = new Request('http://example.com/auth/verify-authentication', {
+			method: 'POST',
+			headers: {
+				'Content-Type': 'application/json',
+				Origin: 'chrome-extension://keeproot',
+			},
+			body: JSON.stringify({
+				response: {
+					rawId: 'authentication-credential',
+				},
+				username: 'passkey-auth-user',
+			}),
+		});
+		const ctx = createExecutionContext();
+		const response = await worker.fetch(request, env, ctx);
+		await waitOnExecutionContext(ctx);
+
+		expect(response.status).toBe(200);
+		expect(verifyAuthenticationResponseMock).toHaveBeenCalledTimes(1);
+		expect(verifyAuthenticationResponseMock.mock.calls[0][0].expectedOrigin).toEqual([
+			'http://example.com',
+			'chrome-extension://keeproot',
+		]);
 	});
 
 	it('responds with 200 and CORS headers for OPTIONS request', async () => {
