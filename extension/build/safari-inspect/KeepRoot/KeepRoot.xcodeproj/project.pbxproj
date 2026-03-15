@@ -1,0 +1,981 @@
+// !$*UTF8*$!
+{
+	archiveVersion = 1;
+	classes = {
+	};
+	objectVersion = 77;
+	objects = {
+
+/* Begin PBXBuildFile section */
+		4B48F95A2F65922000AAEFCB /* AppDelegate.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4B48F9592F65922000AAEFCB /* AppDelegate.swift */; };
+		4B48F95C2F65922000AAEFCB /* SceneDelegate.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4B48F95B2F65922000AAEFCB /* SceneDelegate.swift */; };
+		4B48F95F2F65922000AAEFCB /* LaunchScreen.storyboard in Resources */ = {isa = PBXBuildFile; fileRef = 4B48F95D2F65922000AAEFCB /* LaunchScreen.storyboard */; };
+		4B48F9622F65922000AAEFCB /* Main.storyboard in Resources */ = {isa = PBXBuildFile; fileRef = 4B48F9602F65922000AAEFCB /* Main.storyboard */; };
+		4B48F96B2F65922000AAEFCB /* AppDelegate.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4B48F96A2F65922000AAEFCB /* AppDelegate.swift */; };
+		4B48F96E2F65922000AAEFCB /* Main.storyboard in Resources */ = {isa = PBXBuildFile; fileRef = 4B48F96C2F65922000AAEFCB /* Main.storyboard */; };
+		4B48F9752F65922000AAEFCB /* KeepRoot Extension.appex in Embed Foundation Extensions */ = {isa = PBXBuildFile; fileRef = 4B48F9742F65922000AAEFCB /* KeepRoot Extension.appex */; settings = {ATTRIBUTES = (RemoveHeadersOnCopy, ); }; };
+		4B48F97F2F65922000AAEFCB /* KeepRoot Extension.appex in Embed Foundation Extensions */ = {isa = PBXBuildFile; fileRef = 4B48F97E2F65922000AAEFCB /* KeepRoot Extension.appex */; settings = {ATTRIBUTES = (RemoveHeadersOnCopy, ); }; };
+		4B48F9842F65922000AAEFCB /* Main.html in Resources */ = {isa = PBXBuildFile; fileRef = 4B48F9492F65921E00AAEFCB /* Main.html */; };
+		4B48F9852F65922000AAEFCB /* Main.html in Resources */ = {isa = PBXBuildFile; fileRef = 4B48F9492F65921E00AAEFCB /* Main.html */; };
+		4B48F9862F65922000AAEFCB /* Icon.png in Resources */ = {isa = PBXBuildFile; fileRef = 4B48F94B2F65921E00AAEFCB /* Icon.png */; };
+		4B48F9872F65922000AAEFCB /* Icon.png in Resources */ = {isa = PBXBuildFile; fileRef = 4B48F94B2F65921E00AAEFCB /* Icon.png */; };
+		4B48F9882F65922000AAEFCB /* Style.css in Resources */ = {isa = PBXBuildFile; fileRef = 4B48F94C2F65921E00AAEFCB /* Style.css */; };
+		4B48F9892F65922000AAEFCB /* Style.css in Resources */ = {isa = PBXBuildFile; fileRef = 4B48F94C2F65921E00AAEFCB /* Style.css */; };
+		4B48F98A2F65922000AAEFCB /* Script.js in Resources */ = {isa = PBXBuildFile; fileRef = 4B48F94D2F65921E00AAEFCB /* Script.js */; };
+		4B48F98B2F65922000AAEFCB /* Script.js in Resources */ = {isa = PBXBuildFile; fileRef = 4B48F94D2F65921E00AAEFCB /* Script.js */; };
+		4B48F98C2F65922000AAEFCB /* ViewController.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4B48F94E2F65921E00AAEFCB /* ViewController.swift */; };
+		4B48F98D2F65922000AAEFCB /* ViewController.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4B48F94E2F65921E00AAEFCB /* ViewController.swift */; };
+		4B48F98E2F65922000AAEFCB /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = 4B48F94F2F65922000AAEFCB /* Assets.xcassets */; };
+		4B48F98F2F65922000AAEFCB /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = 4B48F94F2F65922000AAEFCB /* Assets.xcassets */; };
+		4B48F9902F65922000AAEFCB /* SafariWebExtensionHandler.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4B48F9512F65922000AAEFCB /* SafariWebExtensionHandler.swift */; };
+		4B48F9912F65922000AAEFCB /* SafariWebExtensionHandler.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4B48F9512F65922000AAEFCB /* SafariWebExtensionHandler.swift */; };
+		4B48F9A72F65922200AAEFCB /* dist in Resources */ = {isa = PBXBuildFile; fileRef = 4B48F9A32F65922200AAEFCB /* dist */; };
+		4B48F9A82F65922200AAEFCB /* public in Resources */ = {isa = PBXBuildFile; fileRef = 4B48F9A42F65922200AAEFCB /* public */; };
+		4B48F9A92F65922200AAEFCB /* manifest.json in Resources */ = {isa = PBXBuildFile; fileRef = 4B48F9A52F65922200AAEFCB /* manifest.json */; };
+		4B48F9AA2F65922200AAEFCB /* src in Resources */ = {isa = PBXBuildFile; fileRef = 4B48F9A62F65922200AAEFCB /* src */; };
+		4B48F9AB2F65922200AAEFCB /* dist in Resources */ = {isa = PBXBuildFile; fileRef = 4B48F9A32F65922200AAEFCB /* dist */; };
+		4B48F9AC2F65922200AAEFCB /* public in Resources */ = {isa = PBXBuildFile; fileRef = 4B48F9A42F65922200AAEFCB /* public */; };
+		4B48F9AD2F65922200AAEFCB /* manifest.json in Resources */ = {isa = PBXBuildFile; fileRef = 4B48F9A52F65922200AAEFCB /* manifest.json */; };
+		4B48F9AE2F65922200AAEFCB /* src in Resources */ = {isa = PBXBuildFile; fileRef = 4B48F9A62F65922200AAEFCB /* src */; };
+/* End PBXBuildFile section */
+
+/* Begin PBXContainerItemProxy section */
+		4B48F9762F65922000AAEFCB /* PBXContainerItemProxy */ = {
+			isa = PBXContainerItemProxy;
+			containerPortal = 4B48F9432F65921E00AAEFCB /* Project object */;
+			proxyType = 1;
+			remoteGlobalIDString = 4B48F9732F65922000AAEFCB;
+			remoteInfo = "KeepRoot Extension (iOS)";
+		};
+		4B48F9802F65922000AAEFCB /* PBXContainerItemProxy */ = {
+			isa = PBXContainerItemProxy;
+			containerPortal = 4B48F9432F65921E00AAEFCB /* Project object */;
+			proxyType = 1;
+			remoteGlobalIDString = 4B48F97D2F65922000AAEFCB;
+			remoteInfo = "KeepRoot Extension (macOS)";
+		};
+/* End PBXContainerItemProxy section */
+
+/* Begin PBXCopyFilesBuildPhase section */
+		4B48F9972F65922000AAEFCB /* Embed Foundation Extensions */ = {
+			isa = PBXCopyFilesBuildPhase;
+			buildActionMask = 2147483647;
+			dstPath = "";
+			dstSubfolderSpec = 13;
+			files = (
+				4B48F9752F65922000AAEFCB /* KeepRoot Extension.appex in Embed Foundation Extensions */,
+			);
+			name = "Embed Foundation Extensions";
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		4B48F99E2F65922000AAEFCB /* Embed Foundation Extensions */ = {
+			isa = PBXCopyFilesBuildPhase;
+			buildActionMask = 2147483647;
+			dstPath = "";
+			dstSubfolderSpec = 13;
+			files = (
+				4B48F97F2F65922000AAEFCB /* KeepRoot Extension.appex in Embed Foundation Extensions */,
+			);
+			name = "Embed Foundation Extensions";
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXCopyFilesBuildPhase section */
+
+/* Begin PBXFileReference section */
+		4B48F94A2F65921E00AAEFCB /* Base */ = {isa = PBXFileReference; lastKnownFileType = text.html; name = Base; path = Base.lproj/Main.html; sourceTree = "<group>"; };
+		4B48F94B2F65921E00AAEFCB /* Icon.png */ = {isa = PBXFileReference; lastKnownFileType = image.png; path = Icon.png; sourceTree = "<group>"; };
+		4B48F94C2F65921E00AAEFCB /* Style.css */ = {isa = PBXFileReference; lastKnownFileType = text.css; path = Style.css; sourceTree = "<group>"; };
+		4B48F94D2F65921E00AAEFCB /* Script.js */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.javascript; path = Script.js; sourceTree = "<group>"; };
+		4B48F94E2F65921E00AAEFCB /* ViewController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ViewController.swift; sourceTree = "<group>"; };
+		4B48F94F2F65922000AAEFCB /* Assets.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = Assets.xcassets; sourceTree = "<group>"; };
+		4B48F9512F65922000AAEFCB /* SafariWebExtensionHandler.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SafariWebExtensionHandler.swift; sourceTree = "<group>"; };
+		4B48F9562F65922000AAEFCB /* KeepRoot.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = KeepRoot.app; sourceTree = BUILT_PRODUCTS_DIR; };
+		4B48F9592F65922000AAEFCB /* AppDelegate.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppDelegate.swift; sourceTree = "<group>"; };
+		4B48F95B2F65922000AAEFCB /* SceneDelegate.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SceneDelegate.swift; sourceTree = "<group>"; };
+		4B48F95E2F65922000AAEFCB /* Base */ = {isa = PBXFileReference; lastKnownFileType = file.storyboard; name = Base; path = Base.lproj/LaunchScreen.storyboard; sourceTree = "<group>"; };
+		4B48F9612F65922000AAEFCB /* Base */ = {isa = PBXFileReference; lastKnownFileType = file.storyboard; name = Base; path = Base.lproj/Main.storyboard; sourceTree = "<group>"; };
+		4B48F9632F65922000AAEFCB /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist.xml; path = Info.plist; sourceTree = "<group>"; };
+		4B48F9682F65922000AAEFCB /* KeepRoot.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = KeepRoot.app; sourceTree = BUILT_PRODUCTS_DIR; };
+		4B48F96A2F65922000AAEFCB /* AppDelegate.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppDelegate.swift; sourceTree = "<group>"; };
+		4B48F96D2F65922000AAEFCB /* Base */ = {isa = PBXFileReference; lastKnownFileType = file.storyboard; name = Base; path = Base.lproj/Main.storyboard; sourceTree = "<group>"; };
+		4B48F96F2F65922000AAEFCB /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist.xml; path = Info.plist; sourceTree = "<group>"; };
+		4B48F9742F65922000AAEFCB /* KeepRoot Extension.appex */ = {isa = PBXFileReference; explicitFileType = "wrapper.app-extension"; includeInIndex = 0; path = "KeepRoot Extension.appex"; sourceTree = BUILT_PRODUCTS_DIR; };
+		4B48F9792F65922000AAEFCB /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist.xml; path = Info.plist; sourceTree = "<group>"; };
+		4B48F97E2F65922000AAEFCB /* KeepRoot Extension.appex */ = {isa = PBXFileReference; explicitFileType = "wrapper.app-extension"; includeInIndex = 0; path = "KeepRoot Extension.appex"; sourceTree = BUILT_PRODUCTS_DIR; };
+		4B48F9832F65922000AAEFCB /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist.xml; path = Info.plist; sourceTree = "<group>"; };
+		4B48F9A32F65922200AAEFCB /* dist */ = {isa = PBXFileReference; lastKnownFileType = folder; name = dist; path = Resources/dist; sourceTree = "<group>"; };
+		4B48F9A42F65922200AAEFCB /* public */ = {isa = PBXFileReference; lastKnownFileType = folder; name = public; path = Resources/public; sourceTree = "<group>"; };
+		4B48F9A52F65922200AAEFCB /* manifest.json */ = {isa = PBXFileReference; lastKnownFileType = text.json; name = manifest.json; path = Resources/manifest.json; sourceTree = "<group>"; };
+		4B48F9A62F65922200AAEFCB /* src */ = {isa = PBXFileReference; lastKnownFileType = folder; name = src; path = Resources/src; sourceTree = "<group>"; };
+/* End PBXFileReference section */
+
+/* Begin PBXFrameworksBuildPhase section */
+		4B48F9532F65922000AAEFCB /* Frameworks */ = {
+			isa = PBXFrameworksBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		4B48F9652F65922000AAEFCB /* Frameworks */ = {
+			isa = PBXFrameworksBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		4B48F9712F65922000AAEFCB /* Frameworks */ = {
+			isa = PBXFrameworksBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		4B48F97B2F65922000AAEFCB /* Frameworks */ = {
+			isa = PBXFrameworksBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXFrameworksBuildPhase section */
+
+/* Begin PBXGroup section */
+		4B48F9422F65921E00AAEFCB = {
+			isa = PBXGroup;
+			children = (
+				4B48F9472F65921E00AAEFCB /* Shared (App) */,
+				4B48F9502F65922000AAEFCB /* Shared (Extension) */,
+				4B48F9582F65922000AAEFCB /* iOS (App) */,
+				4B48F9692F65922000AAEFCB /* macOS (App) */,
+				4B48F9782F65922000AAEFCB /* iOS (Extension) */,
+				4B48F9822F65922000AAEFCB /* macOS (Extension) */,
+				4B48F9572F65922000AAEFCB /* Products */,
+			);
+			sourceTree = "<group>";
+		};
+		4B48F9472F65921E00AAEFCB /* Shared (App) */ = {
+			isa = PBXGroup;
+			children = (
+				4B48F94E2F65921E00AAEFCB /* ViewController.swift */,
+				4B48F94F2F65922000AAEFCB /* Assets.xcassets */,
+				4B48F9482F65921E00AAEFCB /* Resources */,
+			);
+			path = "Shared (App)";
+			sourceTree = "<group>";
+		};
+		4B48F9482F65921E00AAEFCB /* Resources */ = {
+			isa = PBXGroup;
+			children = (
+				4B48F9492F65921E00AAEFCB /* Main.html */,
+				4B48F94B2F65921E00AAEFCB /* Icon.png */,
+				4B48F94C2F65921E00AAEFCB /* Style.css */,
+				4B48F94D2F65921E00AAEFCB /* Script.js */,
+			);
+			path = Resources;
+			sourceTree = "<group>";
+		};
+		4B48F9502F65922000AAEFCB /* Shared (Extension) */ = {
+			isa = PBXGroup;
+			children = (
+				4B48F9A22F65922200AAEFCB /* Resources */,
+				4B48F9512F65922000AAEFCB /* SafariWebExtensionHandler.swift */,
+			);
+			path = "Shared (Extension)";
+			sourceTree = "<group>";
+		};
+		4B48F9572F65922000AAEFCB /* Products */ = {
+			isa = PBXGroup;
+			children = (
+				4B48F9562F65922000AAEFCB /* KeepRoot.app */,
+				4B48F9682F65922000AAEFCB /* KeepRoot.app */,
+				4B48F9742F65922000AAEFCB /* KeepRoot Extension.appex */,
+				4B48F97E2F65922000AAEFCB /* KeepRoot Extension.appex */,
+			);
+			name = Products;
+			sourceTree = "<group>";
+		};
+		4B48F9582F65922000AAEFCB /* iOS (App) */ = {
+			isa = PBXGroup;
+			children = (
+				4B48F9592F65922000AAEFCB /* AppDelegate.swift */,
+				4B48F95B2F65922000AAEFCB /* SceneDelegate.swift */,
+				4B48F95D2F65922000AAEFCB /* LaunchScreen.storyboard */,
+				4B48F9602F65922000AAEFCB /* Main.storyboard */,
+				4B48F9632F65922000AAEFCB /* Info.plist */,
+			);
+			path = "iOS (App)";
+			sourceTree = "<group>";
+		};
+		4B48F9692F65922000AAEFCB /* macOS (App) */ = {
+			isa = PBXGroup;
+			children = (
+				4B48F96A2F65922000AAEFCB /* AppDelegate.swift */,
+				4B48F96C2F65922000AAEFCB /* Main.storyboard */,
+				4B48F96F2F65922000AAEFCB /* Info.plist */,
+			);
+			path = "macOS (App)";
+			sourceTree = "<group>";
+		};
+		4B48F9782F65922000AAEFCB /* iOS (Extension) */ = {
+			isa = PBXGroup;
+			children = (
+				4B48F9792F65922000AAEFCB /* Info.plist */,
+			);
+			path = "iOS (Extension)";
+			sourceTree = "<group>";
+		};
+		4B48F9822F65922000AAEFCB /* macOS (Extension) */ = {
+			isa = PBXGroup;
+			children = (
+				4B48F9832F65922000AAEFCB /* Info.plist */,
+			);
+			path = "macOS (Extension)";
+			sourceTree = "<group>";
+		};
+		4B48F9A22F65922200AAEFCB /* Resources */ = {
+			isa = PBXGroup;
+			children = (
+				4B48F9A32F65922200AAEFCB /* dist */,
+				4B48F9A42F65922200AAEFCB /* public */,
+				4B48F9A52F65922200AAEFCB /* manifest.json */,
+				4B48F9A62F65922200AAEFCB /* src */,
+			);
+			name = Resources;
+			path = "Shared (Extension)";
+			sourceTree = SOURCE_ROOT;
+		};
+/* End PBXGroup section */
+
+/* Begin PBXNativeTarget section */
+		4B48F9552F65922000AAEFCB /* KeepRoot (iOS) */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = 4B48F9982F65922000AAEFCB /* Build configuration list for PBXNativeTarget "KeepRoot (iOS)" */;
+			buildPhases = (
+				4B48F9522F65922000AAEFCB /* Sources */,
+				4B48F9532F65922000AAEFCB /* Frameworks */,
+				4B48F9542F65922000AAEFCB /* Resources */,
+				4B48F9972F65922000AAEFCB /* Embed Foundation Extensions */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+				4B48F9772F65922000AAEFCB /* PBXTargetDependency */,
+			);
+			name = "KeepRoot (iOS)";
+			packageProductDependencies = (
+			);
+			productName = "KeepRoot (iOS)";
+			productReference = 4B48F9562F65922000AAEFCB /* KeepRoot.app */;
+			productType = "com.apple.product-type.application";
+		};
+		4B48F9672F65922000AAEFCB /* KeepRoot (macOS) */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = 4B48F99F2F65922000AAEFCB /* Build configuration list for PBXNativeTarget "KeepRoot (macOS)" */;
+			buildPhases = (
+				4B48F9642F65922000AAEFCB /* Sources */,
+				4B48F9652F65922000AAEFCB /* Frameworks */,
+				4B48F9662F65922000AAEFCB /* Resources */,
+				4B48F99E2F65922000AAEFCB /* Embed Foundation Extensions */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+				4B48F9812F65922000AAEFCB /* PBXTargetDependency */,
+			);
+			name = "KeepRoot (macOS)";
+			packageProductDependencies = (
+			);
+			productName = "KeepRoot (macOS)";
+			productReference = 4B48F9682F65922000AAEFCB /* KeepRoot.app */;
+			productType = "com.apple.product-type.application";
+		};
+		4B48F9732F65922000AAEFCB /* KeepRoot Extension (iOS) */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = 4B48F9942F65922000AAEFCB /* Build configuration list for PBXNativeTarget "KeepRoot Extension (iOS)" */;
+			buildPhases = (
+				4B48F9702F65922000AAEFCB /* Sources */,
+				4B48F9712F65922000AAEFCB /* Frameworks */,
+				4B48F9722F65922000AAEFCB /* Resources */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+			);
+			name = "KeepRoot Extension (iOS)";
+			packageProductDependencies = (
+			);
+			productName = "KeepRoot Extension (iOS)";
+			productReference = 4B48F9742F65922000AAEFCB /* KeepRoot Extension.appex */;
+			productType = "com.apple.product-type.app-extension";
+		};
+		4B48F97D2F65922000AAEFCB /* KeepRoot Extension (macOS) */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = 4B48F99B2F65922000AAEFCB /* Build configuration list for PBXNativeTarget "KeepRoot Extension (macOS)" */;
+			buildPhases = (
+				4B48F97A2F65922000AAEFCB /* Sources */,
+				4B48F97B2F65922000AAEFCB /* Frameworks */,
+				4B48F97C2F65922000AAEFCB /* Resources */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+			);
+			name = "KeepRoot Extension (macOS)";
+			packageProductDependencies = (
+			);
+			productName = "KeepRoot Extension (macOS)";
+			productReference = 4B48F97E2F65922000AAEFCB /* KeepRoot Extension.appex */;
+			productType = "com.apple.product-type.app-extension";
+		};
+/* End PBXNativeTarget section */
+
+/* Begin PBXProject section */
+		4B48F9432F65921E00AAEFCB /* Project object */ = {
+			isa = PBXProject;
+			attributes = {
+				BuildIndependentTargetsInParallel = 1;
+				LastSwiftUpdateCheck = 2630;
+				LastUpgradeCheck = 2630;
+				TargetAttributes = {
+					4B48F9552F65922000AAEFCB = {
+						CreatedOnToolsVersion = 26.3;
+					};
+					4B48F9672F65922000AAEFCB = {
+						CreatedOnToolsVersion = 26.3;
+					};
+					4B48F9732F65922000AAEFCB = {
+						CreatedOnToolsVersion = 26.3;
+					};
+					4B48F97D2F65922000AAEFCB = {
+						CreatedOnToolsVersion = 26.3;
+					};
+				};
+			};
+			buildConfigurationList = 4B48F9462F65921E00AAEFCB /* Build configuration list for PBXProject "KeepRoot" */;
+			developmentRegion = en;
+			hasScannedForEncodings = 0;
+			knownRegions = (
+				en,
+				Base,
+			);
+			mainGroup = 4B48F9422F65921E00AAEFCB;
+			minimizedProjectReferenceProxies = 1;
+			preferredProjectObjectVersion = 77;
+			productRefGroup = 4B48F9572F65922000AAEFCB /* Products */;
+			projectDirPath = "";
+			projectRoot = "";
+			targets = (
+				4B48F9552F65922000AAEFCB /* KeepRoot (iOS) */,
+				4B48F9672F65922000AAEFCB /* KeepRoot (macOS) */,
+				4B48F9732F65922000AAEFCB /* KeepRoot Extension (iOS) */,
+				4B48F97D2F65922000AAEFCB /* KeepRoot Extension (macOS) */,
+			);
+		};
+/* End PBXProject section */
+
+/* Begin PBXResourcesBuildPhase section */
+		4B48F9542F65922000AAEFCB /* Resources */ = {
+			isa = PBXResourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				4B48F9862F65922000AAEFCB /* Icon.png in Resources */,
+				4B48F95F2F65922000AAEFCB /* LaunchScreen.storyboard in Resources */,
+				4B48F9842F65922000AAEFCB /* Main.html in Resources */,
+				4B48F98A2F65922000AAEFCB /* Script.js in Resources */,
+				4B48F98E2F65922000AAEFCB /* Assets.xcassets in Resources */,
+				4B48F9622F65922000AAEFCB /* Main.storyboard in Resources */,
+				4B48F9882F65922000AAEFCB /* Style.css in Resources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		4B48F9662F65922000AAEFCB /* Resources */ = {
+			isa = PBXResourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				4B48F9872F65922000AAEFCB /* Icon.png in Resources */,
+				4B48F9892F65922000AAEFCB /* Style.css in Resources */,
+				4B48F96E2F65922000AAEFCB /* Main.storyboard in Resources */,
+				4B48F98B2F65922000AAEFCB /* Script.js in Resources */,
+				4B48F98F2F65922000AAEFCB /* Assets.xcassets in Resources */,
+				4B48F9852F65922000AAEFCB /* Main.html in Resources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		4B48F9722F65922000AAEFCB /* Resources */ = {
+			isa = PBXResourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				4B48F9AB2F65922200AAEFCB /* dist in Resources */,
+				4B48F9AD2F65922200AAEFCB /* manifest.json in Resources */,
+				4B48F9AC2F65922200AAEFCB /* public in Resources */,
+				4B48F9AE2F65922200AAEFCB /* src in Resources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		4B48F97C2F65922000AAEFCB /* Resources */ = {
+			isa = PBXResourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				4B48F9A72F65922200AAEFCB /* dist in Resources */,
+				4B48F9A92F65922200AAEFCB /* manifest.json in Resources */,
+				4B48F9A82F65922200AAEFCB /* public in Resources */,
+				4B48F9AA2F65922200AAEFCB /* src in Resources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXResourcesBuildPhase section */
+
+/* Begin PBXSourcesBuildPhase section */
+		4B48F9522F65922000AAEFCB /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				4B48F98C2F65922000AAEFCB /* ViewController.swift in Sources */,
+				4B48F95A2F65922000AAEFCB /* AppDelegate.swift in Sources */,
+				4B48F95C2F65922000AAEFCB /* SceneDelegate.swift in Sources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		4B48F9642F65922000AAEFCB /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				4B48F98D2F65922000AAEFCB /* ViewController.swift in Sources */,
+				4B48F96B2F65922000AAEFCB /* AppDelegate.swift in Sources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		4B48F9702F65922000AAEFCB /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				4B48F9902F65922000AAEFCB /* SafariWebExtensionHandler.swift in Sources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		4B48F97A2F65922000AAEFCB /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				4B48F9912F65922000AAEFCB /* SafariWebExtensionHandler.swift in Sources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXSourcesBuildPhase section */
+
+/* Begin PBXTargetDependency section */
+		4B48F9772F65922000AAEFCB /* PBXTargetDependency */ = {
+			isa = PBXTargetDependency;
+			target = 4B48F9732F65922000AAEFCB /* KeepRoot Extension (iOS) */;
+			targetProxy = 4B48F9762F65922000AAEFCB /* PBXContainerItemProxy */;
+		};
+		4B48F9812F65922000AAEFCB /* PBXTargetDependency */ = {
+			isa = PBXTargetDependency;
+			target = 4B48F97D2F65922000AAEFCB /* KeepRoot Extension (macOS) */;
+			targetProxy = 4B48F9802F65922000AAEFCB /* PBXContainerItemProxy */;
+		};
+/* End PBXTargetDependency section */
+
+/* Begin PBXVariantGroup section */
+		4B48F9492F65921E00AAEFCB /* Main.html */ = {
+			isa = PBXVariantGroup;
+			children = (
+				4B48F94A2F65921E00AAEFCB /* Base */,
+			);
+			name = Main.html;
+			sourceTree = "<group>";
+		};
+		4B48F95D2F65922000AAEFCB /* LaunchScreen.storyboard */ = {
+			isa = PBXVariantGroup;
+			children = (
+				4B48F95E2F65922000AAEFCB /* Base */,
+			);
+			name = LaunchScreen.storyboard;
+			sourceTree = "<group>";
+		};
+		4B48F9602F65922000AAEFCB /* Main.storyboard */ = {
+			isa = PBXVariantGroup;
+			children = (
+				4B48F9612F65922000AAEFCB /* Base */,
+			);
+			name = Main.storyboard;
+			sourceTree = "<group>";
+		};
+		4B48F96C2F65922000AAEFCB /* Main.storyboard */ = {
+			isa = PBXVariantGroup;
+			children = (
+				4B48F96D2F65922000AAEFCB /* Base */,
+			);
+			name = Main.storyboard;
+			sourceTree = "<group>";
+		};
+/* End PBXVariantGroup section */
+
+/* Begin XCBuildConfiguration section */
+		4B48F9922F65922000AAEFCB /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ALWAYS_SEARCH_USER_PATHS = NO;
+				ASSETCATALOG_COMPILER_GENERATE_SWIFT_ASSET_SYMBOL_EXTENSIONS = YES;
+				CLANG_ANALYZER_NONNULL = YES;
+				CLANG_ANALYZER_NUMBER_OBJECT_CONVERSION = YES_AGGRESSIVE;
+				CLANG_CXX_LANGUAGE_STANDARD = "gnu++20";
+				CLANG_ENABLE_MODULES = YES;
+				CLANG_ENABLE_OBJC_ARC = YES;
+				CLANG_ENABLE_OBJC_WEAK = YES;
+				CLANG_WARN_BLOCK_CAPTURE_AUTORELEASING = YES;
+				CLANG_WARN_BOOL_CONVERSION = YES;
+				CLANG_WARN_COMMA = YES;
+				CLANG_WARN_CONSTANT_CONVERSION = YES;
+				CLANG_WARN_DEPRECATED_OBJC_IMPLEMENTATIONS = YES;
+				CLANG_WARN_DIRECT_OBJC_ISA_USAGE = YES_ERROR;
+				CLANG_WARN_DOCUMENTATION_COMMENTS = YES;
+				CLANG_WARN_EMPTY_BODY = YES;
+				CLANG_WARN_ENUM_CONVERSION = YES;
+				CLANG_WARN_INFINITE_RECURSION = YES;
+				CLANG_WARN_INT_CONVERSION = YES;
+				CLANG_WARN_NON_LITERAL_NULL_CONVERSION = YES;
+				CLANG_WARN_OBJC_IMPLICIT_RETAIN_SELF = YES;
+				CLANG_WARN_OBJC_LITERAL_CONVERSION = YES;
+				CLANG_WARN_OBJC_ROOT_CLASS = YES_ERROR;
+				CLANG_WARN_QUOTED_INCLUDE_IN_FRAMEWORK_HEADER = YES;
+				CLANG_WARN_RANGE_LOOP_ANALYSIS = YES;
+				CLANG_WARN_STRICT_PROTOTYPES = YES;
+				CLANG_WARN_SUSPICIOUS_MOVE = YES;
+				CLANG_WARN_UNGUARDED_AVAILABILITY = YES_AGGRESSIVE;
+				CLANG_WARN_UNREACHABLE_CODE = YES;
+				CLANG_WARN__DUPLICATE_METHOD_MATCH = YES;
+				COPY_PHASE_STRIP = NO;
+				DEBUG_INFORMATION_FORMAT = dwarf;
+				ENABLE_STRICT_OBJC_MSGSEND = YES;
+				ENABLE_TESTABILITY = YES;
+				ENABLE_USER_SCRIPT_SANDBOXING = YES;
+				GCC_C_LANGUAGE_STANDARD = gnu17;
+				GCC_DYNAMIC_NO_PIC = NO;
+				GCC_NO_COMMON_BLOCKS = YES;
+				GCC_OPTIMIZATION_LEVEL = 0;
+				GCC_PREPROCESSOR_DEFINITIONS = (
+					"DEBUG=1",
+					"$(inherited)",
+				);
+				GCC_WARN_64_TO_32_BIT_CONVERSION = YES;
+				GCC_WARN_ABOUT_RETURN_TYPE = YES_ERROR;
+				GCC_WARN_UNDECLARED_SELECTOR = YES;
+				GCC_WARN_UNINITIALIZED_AUTOS = YES_AGGRESSIVE;
+				GCC_WARN_UNUSED_FUNCTION = YES;
+				GCC_WARN_UNUSED_VARIABLE = YES;
+				LOCALIZATION_PREFERS_STRING_CATALOGS = YES;
+				MTL_ENABLE_DEBUG_INFO = INCLUDE_SOURCE;
+				MTL_FAST_MATH = YES;
+				ONLY_ACTIVE_ARCH = YES;
+				SWIFT_ACTIVE_COMPILATION_CONDITIONS = "DEBUG $(inherited)";
+				SWIFT_OPTIMIZATION_LEVEL = "-Onone";
+			};
+			name = Debug;
+		};
+		4B48F9932F65922000AAEFCB /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ALWAYS_SEARCH_USER_PATHS = NO;
+				ASSETCATALOG_COMPILER_GENERATE_SWIFT_ASSET_SYMBOL_EXTENSIONS = YES;
+				CLANG_ANALYZER_NONNULL = YES;
+				CLANG_ANALYZER_NUMBER_OBJECT_CONVERSION = YES_AGGRESSIVE;
+				CLANG_CXX_LANGUAGE_STANDARD = "gnu++20";
+				CLANG_ENABLE_MODULES = YES;
+				CLANG_ENABLE_OBJC_ARC = YES;
+				CLANG_ENABLE_OBJC_WEAK = YES;
+				CLANG_WARN_BLOCK_CAPTURE_AUTORELEASING = YES;
+				CLANG_WARN_BOOL_CONVERSION = YES;
+				CLANG_WARN_COMMA = YES;
+				CLANG_WARN_CONSTANT_CONVERSION = YES;
+				CLANG_WARN_DEPRECATED_OBJC_IMPLEMENTATIONS = YES;
+				CLANG_WARN_DIRECT_OBJC_ISA_USAGE = YES_ERROR;
+				CLANG_WARN_DOCUMENTATION_COMMENTS = YES;
+				CLANG_WARN_EMPTY_BODY = YES;
+				CLANG_WARN_ENUM_CONVERSION = YES;
+				CLANG_WARN_INFINITE_RECURSION = YES;
+				CLANG_WARN_INT_CONVERSION = YES;
+				CLANG_WARN_NON_LITERAL_NULL_CONVERSION = YES;
+				CLANG_WARN_OBJC_IMPLICIT_RETAIN_SELF = YES;
+				CLANG_WARN_OBJC_LITERAL_CONVERSION = YES;
+				CLANG_WARN_OBJC_ROOT_CLASS = YES_ERROR;
+				CLANG_WARN_QUOTED_INCLUDE_IN_FRAMEWORK_HEADER = YES;
+				CLANG_WARN_RANGE_LOOP_ANALYSIS = YES;
+				CLANG_WARN_STRICT_PROTOTYPES = YES;
+				CLANG_WARN_SUSPICIOUS_MOVE = YES;
+				CLANG_WARN_UNGUARDED_AVAILABILITY = YES_AGGRESSIVE;
+				CLANG_WARN_UNREACHABLE_CODE = YES;
+				CLANG_WARN__DUPLICATE_METHOD_MATCH = YES;
+				COPY_PHASE_STRIP = NO;
+				DEBUG_INFORMATION_FORMAT = "dwarf-with-dsym";
+				ENABLE_NS_ASSERTIONS = NO;
+				ENABLE_STRICT_OBJC_MSGSEND = YES;
+				ENABLE_USER_SCRIPT_SANDBOXING = YES;
+				GCC_C_LANGUAGE_STANDARD = gnu17;
+				GCC_NO_COMMON_BLOCKS = YES;
+				GCC_WARN_64_TO_32_BIT_CONVERSION = YES;
+				GCC_WARN_ABOUT_RETURN_TYPE = YES_ERROR;
+				GCC_WARN_UNDECLARED_SELECTOR = YES;
+				GCC_WARN_UNINITIALIZED_AUTOS = YES_AGGRESSIVE;
+				GCC_WARN_UNUSED_FUNCTION = YES;
+				GCC_WARN_UNUSED_VARIABLE = YES;
+				LOCALIZATION_PREFERS_STRING_CATALOGS = YES;
+				MTL_ENABLE_DEBUG_INFO = NO;
+				MTL_FAST_MATH = YES;
+				SWIFT_COMPILATION_MODE = wholemodule;
+			};
+			name = Release;
+		};
+		4B48F9952F65922000AAEFCB /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				CODE_SIGN_STYLE = Automatic;
+				CURRENT_PROJECT_VERSION = 1;
+				GENERATE_INFOPLIST_FILE = YES;
+				INFOPLIST_FILE = "iOS (Extension)/Info.plist";
+				INFOPLIST_KEY_CFBundleDisplayName = "KeepRoot Extension";
+				INFOPLIST_KEY_NSHumanReadableCopyright = "";
+				IPHONEOS_DEPLOYMENT_TARGET = 15.0;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+					"@executable_path/../../Frameworks",
+				);
+				MARKETING_VERSION = 1.0;
+				OTHER_LDFLAGS = (
+					"-framework",
+					SafariServices,
+				);
+				PRODUCT_BUNDLE_IDENTIFIER = com.keeproot.inspect.Extension;
+				PRODUCT_NAME = "KeepRoot Extension";
+				SDKROOT = iphoneos;
+				SKIP_INSTALL = YES;
+				STRING_CATALOG_GENERATE_SYMBOLS = YES;
+				SWIFT_APPROACHABLE_CONCURRENCY = YES;
+				SWIFT_EMIT_LOC_STRINGS = YES;
+				SWIFT_UPCOMING_FEATURE_MEMBER_IMPORT_VISIBILITY = YES;
+				SWIFT_VERSION = 5.0;
+				TARGETED_DEVICE_FAMILY = "1,2";
+			};
+			name = Debug;
+		};
+		4B48F9962F65922000AAEFCB /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				CODE_SIGN_STYLE = Automatic;
+				CURRENT_PROJECT_VERSION = 1;
+				GENERATE_INFOPLIST_FILE = YES;
+				INFOPLIST_FILE = "iOS (Extension)/Info.plist";
+				INFOPLIST_KEY_CFBundleDisplayName = "KeepRoot Extension";
+				INFOPLIST_KEY_NSHumanReadableCopyright = "";
+				IPHONEOS_DEPLOYMENT_TARGET = 15.0;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+					"@executable_path/../../Frameworks",
+				);
+				MARKETING_VERSION = 1.0;
+				OTHER_LDFLAGS = (
+					"-framework",
+					SafariServices,
+				);
+				PRODUCT_BUNDLE_IDENTIFIER = com.keeproot.inspect.Extension;
+				PRODUCT_NAME = "KeepRoot Extension";
+				SDKROOT = iphoneos;
+				SKIP_INSTALL = YES;
+				STRING_CATALOG_GENERATE_SYMBOLS = YES;
+				SWIFT_APPROACHABLE_CONCURRENCY = YES;
+				SWIFT_EMIT_LOC_STRINGS = YES;
+				SWIFT_UPCOMING_FEATURE_MEMBER_IMPORT_VISIBILITY = YES;
+				SWIFT_VERSION = 5.0;
+				TARGETED_DEVICE_FAMILY = "1,2";
+				VALIDATE_PRODUCT = YES;
+			};
+			name = Release;
+		};
+		4B48F9992F65922000AAEFCB /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
+				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
+				CODE_SIGN_STYLE = Automatic;
+				CURRENT_PROJECT_VERSION = 1;
+				GENERATE_INFOPLIST_FILE = YES;
+				INFOPLIST_FILE = "iOS (App)/Info.plist";
+				INFOPLIST_KEY_CFBundleDisplayName = KeepRoot;
+				INFOPLIST_KEY_UIApplicationSupportsIndirectInputEvents = YES;
+				INFOPLIST_KEY_UILaunchStoryboardName = LaunchScreen;
+				INFOPLIST_KEY_UIMainStoryboardFile = Main;
+				INFOPLIST_KEY_UISupportedInterfaceOrientations = "UIInterfaceOrientationPortrait UIInterfaceOrientationLandscapeLeft UIInterfaceOrientationLandscapeRight";
+				INFOPLIST_KEY_UISupportedInterfaceOrientations_iPad = "UIInterfaceOrientationPortrait UIInterfaceOrientationPortraitUpsideDown UIInterfaceOrientationLandscapeLeft UIInterfaceOrientationLandscapeRight";
+				IPHONEOS_DEPLOYMENT_TARGET = 15.0;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+				);
+				MARKETING_VERSION = 1.0;
+				OTHER_LDFLAGS = (
+					"-framework",
+					SafariServices,
+					"-framework",
+					WebKit,
+				);
+				PRODUCT_BUNDLE_IDENTIFIER = com.keeproot.inspect;
+				PRODUCT_NAME = KeepRoot;
+				SDKROOT = iphoneos;
+				STRING_CATALOG_GENERATE_SYMBOLS = YES;
+				SWIFT_APPROACHABLE_CONCURRENCY = YES;
+				SWIFT_DEFAULT_ACTOR_ISOLATION = MainActor;
+				SWIFT_EMIT_LOC_STRINGS = YES;
+				SWIFT_UPCOMING_FEATURE_MEMBER_IMPORT_VISIBILITY = YES;
+				SWIFT_VERSION = 5.0;
+				TARGETED_DEVICE_FAMILY = "1,2";
+			};
+			name = Debug;
+		};
+		4B48F99A2F65922000AAEFCB /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
+				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
+				CODE_SIGN_STYLE = Automatic;
+				CURRENT_PROJECT_VERSION = 1;
+				GENERATE_INFOPLIST_FILE = YES;
+				INFOPLIST_FILE = "iOS (App)/Info.plist";
+				INFOPLIST_KEY_CFBundleDisplayName = KeepRoot;
+				INFOPLIST_KEY_UIApplicationSupportsIndirectInputEvents = YES;
+				INFOPLIST_KEY_UILaunchStoryboardName = LaunchScreen;
+				INFOPLIST_KEY_UIMainStoryboardFile = Main;
+				INFOPLIST_KEY_UISupportedInterfaceOrientations = "UIInterfaceOrientationPortrait UIInterfaceOrientationLandscapeLeft UIInterfaceOrientationLandscapeRight";
+				INFOPLIST_KEY_UISupportedInterfaceOrientations_iPad = "UIInterfaceOrientationPortrait UIInterfaceOrientationPortraitUpsideDown UIInterfaceOrientationLandscapeLeft UIInterfaceOrientationLandscapeRight";
+				IPHONEOS_DEPLOYMENT_TARGET = 15.0;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+				);
+				MARKETING_VERSION = 1.0;
+				OTHER_LDFLAGS = (
+					"-framework",
+					SafariServices,
+					"-framework",
+					WebKit,
+				);
+				PRODUCT_BUNDLE_IDENTIFIER = com.keeproot.inspect;
+				PRODUCT_NAME = KeepRoot;
+				SDKROOT = iphoneos;
+				STRING_CATALOG_GENERATE_SYMBOLS = YES;
+				SWIFT_APPROACHABLE_CONCURRENCY = YES;
+				SWIFT_DEFAULT_ACTOR_ISOLATION = MainActor;
+				SWIFT_EMIT_LOC_STRINGS = YES;
+				SWIFT_UPCOMING_FEATURE_MEMBER_IMPORT_VISIBILITY = YES;
+				SWIFT_VERSION = 5.0;
+				TARGETED_DEVICE_FAMILY = "1,2";
+				VALIDATE_PRODUCT = YES;
+			};
+			name = Release;
+		};
+		4B48F99C2F65922000AAEFCB /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				CODE_SIGN_STYLE = Automatic;
+				CURRENT_PROJECT_VERSION = 1;
+				ENABLE_APP_SANDBOX = YES;
+				ENABLE_HARDENED_RUNTIME = YES;
+				ENABLE_USER_SELECTED_FILES = readonly;
+				GENERATE_INFOPLIST_FILE = YES;
+				INFOPLIST_FILE = "macOS (Extension)/Info.plist";
+				INFOPLIST_KEY_CFBundleDisplayName = "KeepRoot Extension";
+				INFOPLIST_KEY_NSHumanReadableCopyright = "";
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/../Frameworks",
+					"@executable_path/../../../../Frameworks",
+				);
+				MACOSX_DEPLOYMENT_TARGET = 10.14;
+				MARKETING_VERSION = 1.0;
+				OTHER_LDFLAGS = (
+					"-framework",
+					SafariServices,
+				);
+				PRODUCT_BUNDLE_IDENTIFIER = com.keeproot.inspect.Extension;
+				PRODUCT_NAME = "KeepRoot Extension";
+				SDKROOT = macosx;
+				SKIP_INSTALL = YES;
+				STRING_CATALOG_GENERATE_SYMBOLS = YES;
+				SWIFT_APPROACHABLE_CONCURRENCY = YES;
+				SWIFT_EMIT_LOC_STRINGS = YES;
+				SWIFT_UPCOMING_FEATURE_MEMBER_IMPORT_VISIBILITY = YES;
+				SWIFT_VERSION = 5.0;
+			};
+			name = Debug;
+		};
+		4B48F99D2F65922000AAEFCB /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				CODE_SIGN_STYLE = Automatic;
+				CURRENT_PROJECT_VERSION = 1;
+				ENABLE_APP_SANDBOX = YES;
+				ENABLE_HARDENED_RUNTIME = YES;
+				ENABLE_USER_SELECTED_FILES = readonly;
+				GENERATE_INFOPLIST_FILE = YES;
+				INFOPLIST_FILE = "macOS (Extension)/Info.plist";
+				INFOPLIST_KEY_CFBundleDisplayName = "KeepRoot Extension";
+				INFOPLIST_KEY_NSHumanReadableCopyright = "";
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/../Frameworks",
+					"@executable_path/../../../../Frameworks",
+				);
+				MACOSX_DEPLOYMENT_TARGET = 10.14;
+				MARKETING_VERSION = 1.0;
+				OTHER_LDFLAGS = (
+					"-framework",
+					SafariServices,
+				);
+				PRODUCT_BUNDLE_IDENTIFIER = com.keeproot.inspect.Extension;
+				PRODUCT_NAME = "KeepRoot Extension";
+				SDKROOT = macosx;
+				SKIP_INSTALL = YES;
+				STRING_CATALOG_GENERATE_SYMBOLS = YES;
+				SWIFT_APPROACHABLE_CONCURRENCY = YES;
+				SWIFT_EMIT_LOC_STRINGS = YES;
+				SWIFT_UPCOMING_FEATURE_MEMBER_IMPORT_VISIBILITY = YES;
+				SWIFT_VERSION = 5.0;
+			};
+			name = Release;
+		};
+		4B48F9A02F65922000AAEFCB /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
+				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
+				CODE_SIGN_STYLE = Automatic;
+				CURRENT_PROJECT_VERSION = 1;
+				ENABLE_APP_SANDBOX = YES;
+				ENABLE_HARDENED_RUNTIME = YES;
+				ENABLE_OUTGOING_NETWORK_CONNECTIONS = YES;
+				ENABLE_USER_SELECTED_FILES = readonly;
+				GENERATE_INFOPLIST_FILE = YES;
+				INFOPLIST_FILE = "macOS (App)/Info.plist";
+				INFOPLIST_KEY_CFBundleDisplayName = KeepRoot;
+				INFOPLIST_KEY_NSMainStoryboardFile = Main;
+				INFOPLIST_KEY_NSPrincipalClass = NSApplication;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/../Frameworks",
+				);
+				MACOSX_DEPLOYMENT_TARGET = 10.14;
+				MARKETING_VERSION = 1.0;
+				OTHER_LDFLAGS = (
+					"-framework",
+					SafariServices,
+					"-framework",
+					WebKit,
+				);
+				PRODUCT_BUNDLE_IDENTIFIER = com.keeproot.inspect;
+				PRODUCT_NAME = KeepRoot;
+				REGISTER_APP_GROUPS = YES;
+				SDKROOT = macosx;
+				STRING_CATALOG_GENERATE_SYMBOLS = YES;
+				SWIFT_APPROACHABLE_CONCURRENCY = YES;
+				SWIFT_DEFAULT_ACTOR_ISOLATION = MainActor;
+				SWIFT_EMIT_LOC_STRINGS = YES;
+				SWIFT_UPCOMING_FEATURE_MEMBER_IMPORT_VISIBILITY = YES;
+				SWIFT_VERSION = 5.0;
+			};
+			name = Debug;
+		};
+		4B48F9A12F65922000AAEFCB /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
+				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
+				CODE_SIGN_STYLE = Automatic;
+				CURRENT_PROJECT_VERSION = 1;
+				ENABLE_APP_SANDBOX = YES;
+				ENABLE_HARDENED_RUNTIME = YES;
+				ENABLE_OUTGOING_NETWORK_CONNECTIONS = YES;
+				ENABLE_USER_SELECTED_FILES = readonly;
+				GENERATE_INFOPLIST_FILE = YES;
+				INFOPLIST_FILE = "macOS (App)/Info.plist";
+				INFOPLIST_KEY_CFBundleDisplayName = KeepRoot;
+				INFOPLIST_KEY_NSMainStoryboardFile = Main;
+				INFOPLIST_KEY_NSPrincipalClass = NSApplication;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/../Frameworks",
+				);
+				MACOSX_DEPLOYMENT_TARGET = 10.14;
+				MARKETING_VERSION = 1.0;
+				OTHER_LDFLAGS = (
+					"-framework",
+					SafariServices,
+					"-framework",
+					WebKit,
+				);
+				PRODUCT_BUNDLE_IDENTIFIER = com.keeproot.inspect;
+				PRODUCT_NAME = KeepRoot;
+				REGISTER_APP_GROUPS = YES;
+				SDKROOT = macosx;
+				STRING_CATALOG_GENERATE_SYMBOLS = YES;
+				SWIFT_APPROACHABLE_CONCURRENCY = YES;
+				SWIFT_DEFAULT_ACTOR_ISOLATION = MainActor;
+				SWIFT_EMIT_LOC_STRINGS = YES;
+				SWIFT_UPCOMING_FEATURE_MEMBER_IMPORT_VISIBILITY = YES;
+				SWIFT_VERSION = 5.0;
+			};
+			name = Release;
+		};
+/* End XCBuildConfiguration section */
+
+/* Begin XCConfigurationList section */
+		4B48F9462F65921E00AAEFCB /* Build configuration list for PBXProject "KeepRoot" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				4B48F9922F65922000AAEFCB /* Debug */,
+				4B48F9932F65922000AAEFCB /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Release;
+		};
+		4B48F9942F65922000AAEFCB /* Build configuration list for PBXNativeTarget "KeepRoot Extension (iOS)" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				4B48F9952F65922000AAEFCB /* Debug */,
+				4B48F9962F65922000AAEFCB /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Release;
+		};
+		4B48F9982F65922000AAEFCB /* Build configuration list for PBXNativeTarget "KeepRoot (iOS)" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				4B48F9992F65922000AAEFCB /* Debug */,
+				4B48F99A2F65922000AAEFCB /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Release;
+		};
+		4B48F99B2F65922000AAEFCB /* Build configuration list for PBXNativeTarget "KeepRoot Extension (macOS)" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				4B48F99C2F65922000AAEFCB /* Debug */,
+				4B48F99D2F65922000AAEFCB /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Release;
+		};
+		4B48F99F2F65922000AAEFCB /* Build configuration list for PBXNativeTarget "KeepRoot (macOS)" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				4B48F9A02F65922000AAEFCB /* Debug */,
+				4B48F9A12F65922000AAEFCB /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Release;
+		};
+/* End XCConfigurationList section */
+	};
+	rootObject = 4B48F9432F65921E00AAEFCB /* Project object */;
+}
