@@ -23,7 +23,7 @@ async function handleStaticAssetRequest(context: RouteContext): Promise<Response
 }
 
 function isPublicAssetPath(pathname: string): boolean {
-	return !pathname.startsWith('/auth/') && !isProtectedApiPath(pathname);
+	return pathname !== '/mcp' && !pathname.startsWith('/auth/') && !isProtectedApiPath(pathname);
 }
 
 export async function handlePublicRoute(context: RouteContext): Promise<Response | undefined> {

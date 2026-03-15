@@ -12,7 +12,12 @@ export async function handleSmartListRoute(context: ProtectedRouteContext): Prom
 		if (!body.name || !body.rules) {
 			return errorResponse('Name and rules required', 400);
 		}
-		const list = await createSmartList(context.env, context.authUser.userId, body);
+		const list = await createSmartList(context.env, context.authUser.userId, {
+			icon: body.icon,
+			name: body.name,
+			rules: body.rules,
+			sortOrder: body.sortOrder,
+		});
 		return jsonResponse(list, 201);
 	}
 

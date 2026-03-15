@@ -1,10 +1,18 @@
 import { errorResponse, jsonResponse, parseJson, type ProtectedRouteContext } from '../http';
-import { deleteBookmark, getBookmark, listBookmarks, patchBookmark, saveBookmark, type BookmarkPayload } from '../storage';
+import { deleteBookmark, getBookmark, listBookmarks, patchBookmark, refreshBookmarkSearchDocument, saveBookmark, upsertInboxEntry, type BookmarkPayload } from '../storage';
 
 export async function handleBookmarkRoute(context: ProtectedRouteContext): Promise<Response | undefined> {
 	if (context.request.method === 'POST' && context.pathname === '/bookmarks') {
 		const body = await parseJson<BookmarkPayload>(context.request);
 		const { id, metadata } = await saveBookmark(context.env, context.authUser, body);
+		await refreshBookmarkSearchDocument(context.env, id);
+		await upsertInboxEntry(context.env, {
+			bookmarkId: id,
+			reason: 'manual_save',
+			reopen: true,
+			sourceId: body.sourceId ?? null,
+			userId: context.authUser.userId,
+		});
 		return jsonResponse({ id, message: 'Saved successfully', metadata }, 201);
 	}
 

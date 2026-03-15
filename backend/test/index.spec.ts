@@ -1,7 +1,9 @@
+import { Client } from '@modelcontextprotocol/sdk/client/index.js';
+import { StreamableHTTPClientTransport } from '@modelcontextprotocol/sdk/client/streamableHttp.js';
 import { env, createExecutionContext, waitOnExecutionContext } from 'cloudflare:test';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import worker from '../src/index';
-import { hashToken } from '../src/storage';
+import { ensureMcpSchema, ensureOrganizationSchema, hashToken } from '../src/storage';
 import initialSchemaSql from '../migrations/0001_initial.sql?raw';
 
 const API_KEY = 'test-api-key-12345';
@@ -27,6 +29,23 @@ function mockImageFetch(responses: Record<string, { bodyBase64?: string; content
 	});
 }
 
+function mockPageFetch(responses: Record<string, { body: string; contentType?: string }>) {
+	const originalFetch = globalThis.fetch;
+	return vi.spyOn(globalThis, 'fetch').mockImplementation(async (input, init) => {
+		const url = typeof input === 'string' ? input : input instanceof URL ? input.toString() : input.url;
+		const match = responses[url];
+		if (match) {
+			return new Response(match.body, {
+				headers: {
+					'Content-Type': match.contentType ?? 'text/html;charset=UTF-8',
+				},
+			});
+		}
+
+		return originalFetch(input, init);
+	});
+}
+
 async function execStatements(sql: string): Promise<void> {
 	const statements = sql
 		.split(/;\s*\n/g)
@@ -40,7 +59,16 @@ async function execStatements(sql: string): Promise<void> {
 
 async function resetDatabase(): Promise<void> {
 	await execStatements(initialSchemaSql);
+	await ensureOrganizationSchema(env);
+	await ensureMcpSchema(env);
 	await execStatements(`
+		DELETE FROM tool_usage_events;
+		DELETE FROM bookmark_embeddings;
+		DELETE FROM item_search_documents;
+		DELETE FROM inbox_entries;
+		DELETE FROM source_runs;
+		DELETE FROM sources;
+		DELETE FROM account_settings;
 		DELETE FROM bookmark_tags;
 		DELETE FROM bookmark_images;
 		DELETE FROM bookmark_contents;
@@ -86,6 +114,46 @@ async function seedApiKey(): Promise<void> {
 			createdAt,
 		)
 		.run();
+}
+
+function createWorkerFetch(headers?: HeadersInit) {
+	return async (input: RequestInfo | URL, init?: RequestInit): Promise<Response> => {
+		const mergedHeaders = new Headers(input instanceof Request ? input.headers : undefined);
+		for (const [key, value] of new Headers(headers)) {
+			mergedHeaders.set(key, value);
+		}
+		for (const [key, value] of new Headers(init?.headers)) {
+			mergedHeaders.set(key, value);
+		}
+
+		const request = input instanceof Request
+			? new Request(input, {
+				...init,
+				headers: mergedHeaders,
+			})
+			: new Request(typeof input === 'string' || input instanceof URL ? input.toString() : String(input), {
+				...init,
+				headers: mergedHeaders,
+			});
+		const ctx = createExecutionContext();
+		const response = await worker.fetch(request, env, ctx);
+		await waitOnExecutionContext(ctx);
+		return response;
+	};
+}
+
+async function createMcpClient() {
+	const transport = new StreamableHTTPClientTransport(new URL('http://example.com/mcp'), {
+		fetch: createWorkerFetch({
+			Authorization: `Bearer ${API_KEY}`,
+		}),
+	});
+	const client = new Client({
+		name: 'keeproot-test-client',
+		version: '1.0.0',
+	});
+	await client.connect(transport);
+	return { client, transport };
 }
 
 describe('KeepRoot Worker', () => {
@@ -144,6 +212,22 @@ describe('KeepRoot Worker', () => {
 		await waitOnExecutionContext(ctx);
 
 		expect(response.status).toBe(200);
+	});
+
+	it('responds with 401 for unauthenticated MCP requests', async () => {
+		const request = new Request('http://example.com/mcp', {
+			method: 'POST',
+			headers: {
+				'Content-Type': 'application/json',
+			},
+			body: JSON.stringify({}),
+		});
+		const ctx = createExecutionContext();
+		const response = await worker.fetch(request, env, ctx);
+		await waitOnExecutionContext(ctx);
+
+		expect(response.status).toBe(401);
+		expect(await response.json()).toEqual({ error: 'Unauthorized' });
 	});
 
 	it('handles bookmark CRUD operations with D1 metadata and R2 content', async () => {
@@ -564,5 +648,128 @@ describe('KeepRoot Worker', () => {
 		expect(await serviceWorkerResponse.text()).toContain('keeproot-v2');
 
 		expect(missingResponse.status).toBe(404);
+	});
+
+	it('serves MCP tools for save/search/inbox/source/stats workflows', async () => {
+		mockPageFetch({
+			'https://example.com/mcp-article': {
+				body: `
+					<html lang="en">
+						<head><title>Deep Dive</title></head>
+						<body>
+							<main>
+								<article>
+									<h1>Deep Dive</h1>
+									<p>This article covers hybrid search, inbox triage, and bookmark workflows.</p>
+								</article>
+							</main>
+						</body>
+					</html>
+				`,
+			},
+		});
+
+		const { client, transport } = await createMcpClient();
+		const tools = await client.listTools();
+		expect(tools.tools.some((tool) => tool.name === 'save_item')).toBe(true);
+
+		const saveResult = await client.callTool({
+			arguments: {
+				notes: 'Review this later',
+				tags: ['research', 'hybrid-search'],
+				url: 'https://example.com/mcp-article',
+			},
+			name: 'save_item',
+		});
+		const saveData = saveResult.structuredContent as any;
+		expect(saveData.processingState).toBe('ready');
+		expect(saveData.item.metadata.title).toBe('Deep Dive');
+
+		const itemId = saveData.item.id;
+
+		const inboxResult = await client.callTool({
+			arguments: { limit: 10 },
+			name: 'list_inbox',
+		});
+		const inboxData = inboxResult.structuredContent as any;
+		expect(inboxData.entries).toHaveLength(1);
+		expect(inboxData.entries[0].item.id).toBe(itemId);
+
+		const searchResult = await client.callTool({
+			arguments: { query: 'hybrid search' },
+			name: 'search_items',
+		});
+		const searchData = searchResult.structuredContent as any;
+		expect(searchData.items[0].id).toBe(itemId);
+
+		const getResult = await client.callTool({
+			arguments: { include_content: true, item_id: itemId },
+			name: 'get_item',
+		});
+		const getData = getResult.structuredContent as any;
+		expect(getData.item.markdownData).toContain('hybrid search');
+
+		const updateResult = await client.callTool({
+			arguments: {
+				item_id: itemId,
+				notes: 'Updated note from MCP',
+				status: 'archived',
+			},
+			name: 'update_item',
+		});
+		const updateData = updateResult.structuredContent as any;
+		expect(updateData.item.metadata.status).toBe('archived');
+		expect(updateData.item.metadata.notes).toBe('Updated note from MCP');
+
+		const whoamiResult = await client.callTool({
+			arguments: {},
+			name: 'whoami',
+		});
+		const whoamiData = whoamiResult.structuredContent as any;
+		expect(whoamiData.account.userId).toBe(TEST_USER_ID);
+		expect(whoamiData.account.features.mcp).toBe(true);
+
+		const addSourceResult = await client.callTool({
+			arguments: {
+				identifier: 'https://example.com/feed.xml',
+				kind: 'rss',
+				name: 'Example Feed',
+			},
+			name: 'add_source',
+		});
+		const addSourceData = addSourceResult.structuredContent as any;
+		expect(addSourceData.source.kind).toBe('rss');
+
+		const listSourcesResult = await client.callTool({
+			arguments: {},
+			name: 'list_sources',
+		});
+		const listSourcesData = listSourcesResult.structuredContent as any;
+		expect(listSourcesData.sources).toHaveLength(1);
+
+		const markDoneResult = await client.callTool({
+			arguments: { inbox_entry_id: inboxData.entries[0].id },
+			name: 'mark_done',
+		});
+		const markDoneData = markDoneResult.structuredContent as any;
+		expect(markDoneData.entry.state).toBe('done');
+
+		const removeSourceResult = await client.callTool({
+			arguments: { source_id: addSourceData.source.id },
+			name: 'remove_source',
+		});
+		const removeSourceData = removeSourceResult.structuredContent as any;
+		expect(removeSourceData.source.status).toBe('disabled');
+
+		const statsResult = await client.callTool({
+			arguments: {},
+			name: 'get_stats',
+		});
+		const statsData = statsResult.structuredContent as any;
+		expect(statsData.stats.totalItems).toBe(1);
+		expect(statsData.stats.inboxPendingCount).toBe(0);
+		expect(statsData.stats.recentToolUsage.some((tool: any) => tool.toolName === 'save_item')).toBe(true);
+
+		await transport.close();
 	});
 });

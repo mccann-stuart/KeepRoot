@@ -14,8 +14,11 @@ export const encoder = new TextEncoder();
 
 export interface StorageEnv {
 	ASSETS?: Fetcher;
+	EMAIL_SOURCE_DOMAIN?: string;
+	ENABLE_X_SOURCES?: string;
 	KEEPROOT_DB: D1Database;
 	KEEPROOT_CONTENT: R2Bucket;
+	X_SOURCE_BRIDGE_BASE_URL?: string;
 }
 
 export type D1ColumnInfo = {
@@ -46,9 +49,12 @@ export interface BookmarkPayload {
 	lang?: string;
 	listId?: string | null;
 	markdownData?: string;
+	notes?: string;
 	pinned?: boolean;
+	processingState?: string;
 	siteName?: string;
 	sortOrder?: number;
+	sourceId?: string | null;
 	status?: string;
 	tags?: string[];
 	textContent?: string;
@@ -101,9 +107,12 @@ export interface SmartListPayload {
 export interface BookmarkPatchPayload {
 	isRead?: boolean;
 	listId?: string | null;
+	notes?: string | null;
 	pinned?: boolean;
 	sortOrder?: number;
+	status?: string;
 	tags?: string[];
+	title?: string;
 }
 
 export function bufferToBase64URL(buffer: ArrayBuffer | Uint8Array): string {

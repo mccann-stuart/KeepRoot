@@ -12,6 +12,7 @@ import {
 	type BookmarkRecord,
 	type StorageEnv,
 } from './shared';
+import { refreshBookmarkSearchDocument } from './search';
 
 interface BookmarkRow {
 	canonical_url: string;
@@ -21,15 +22,20 @@ interface BookmarkRow {
 	content_type: string | null;
 	created_at: string;
 	domain: string | null;
+	embedding_updated_at: string | null;
 	excerpt: string | null;
 	id: string;
 	is_read: number;
 	lang: string | null;
 	last_fetched_at: string | null;
 	list_id: string | null;
+	notes: string | null;
 	pinned: number;
+	processing_state: string;
+	search_updated_at: string | null;
 	site_name: string | null;
 	sort_order: number;
+	source_id: string | null;
 	status: string;
 	title: string;
 	updated_at: string;
@@ -458,6 +464,7 @@ function makeBookmarkMetadata(row: BookmarkRow, tags: string[], images: Bookmark
 		contentType: row.content_type,
 		createdAt: row.created_at,
 		domain: row.domain,
+		embeddingUpdatedAt: row.embedding_updated_at,
 		excerpt: row.excerpt,
 		id: row.id,
 		imageCount: images.length,
@@ -465,9 +472,13 @@ function makeBookmarkMetadata(row: BookmarkRow, tags: string[], images: Bookmark
 		lang: row.lang,
 		lastFetchedAt: row.last_fetched_at,
 		listId: row.list_id,
+		notes: row.notes,
 		pinned: Boolean(row.pinned),
+		processingState: row.processing_state,
+		searchUpdatedAt: row.search_updated_at,
 		siteName: row.site_name,
 		sortOrder: row.sort_order,
+		sourceId: row.source_id,
 		status: row.status,
 		tags,
 		title: row.title,
@@ -621,8 +632,11 @@ export async function saveBookmark(
 	const now = new Date().toISOString();
 	const title = payload.title?.trim() || 'Untitled';
 	const domain = domainFromUrl(canonicalUrl);
+	const notes = payload.notes?.trim() || null;
+	const processingState = (payload.processingState ?? 'ready').trim().toLowerCase() || 'ready';
 	const status = normalizeStatus(payload.status);
 	const siteName = payload.siteName?.trim() || domain;
+	const sourceId = payload.sourceId ?? null;
 	const hydratedImages = await hydrateImagePayloads(payload, normalizedUrl);
 
 	let rewrittenMarkdownData = markdownData;
@@ -710,7 +724,8 @@ export async function saveBookmark(
 			`UPDATE bookmarks
 			SET url = ?, canonical_url = ?, url_hash = ?, title = ?, site_name = ?, domain = ?, status = ?,
 				updated_at = ?, last_fetched_at = ?, content_hash = ?, content_ref = ?, content_type = ?,
-				content_length = ?, excerpt = ?, word_count = ?, lang = ?, list_id = ?, pinned = ?, sort_order = ?, is_read = ?
+				content_length = ?, excerpt = ?, word_count = ?, lang = ?, list_id = ?, pinned = ?, sort_order = ?, is_read = ?,
+				notes = ?, source_id = ?, processing_state = ?
 			WHERE id = ? AND user_id = ?`,
 		)
 			.bind(
@@ -734,6 +749,9 @@ export async function saveBookmark(
 				payload.pinned ? 1 : 0,
 				payload.sortOrder ?? 0,
 				payload.isRead ? 1 : 0,
+				notes,
+				sourceId,
+				processingState,
 				bookmarkId,
 				user.userId,
 			)
@@ -741,8 +759,8 @@ export async function saveBookmark(
 	} else {
 		await env.KEEPROOT_DB.prepare(
 			`INSERT INTO bookmarks
-			(id, user_id, url, canonical_url, url_hash, title, site_name, domain, status, created_at, updated_at, last_fetched_at, content_hash, content_ref, content_type, content_length, excerpt, word_count, lang, list_id, pinned, sort_order, is_read)
-			VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+			(id, user_id, url, canonical_url, url_hash, title, site_name, domain, status, created_at, updated_at, last_fetched_at, content_hash, content_ref, content_type, content_length, excerpt, word_count, lang, list_id, pinned, sort_order, is_read, notes, source_id, processing_state)
+			VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
 		)
 			.bind(
 				bookmarkId,
@@ -768,6 +786,9 @@ export async function saveBookmark(
 				payload.pinned ? 1 : 0,
 				payload.sortOrder ?? 0,
 				payload.isRead ? 1 : 0,
+				notes,
+				sourceId,
+				processingState,
 			)
 			.run();
 	}
@@ -814,9 +835,12 @@ export async function saveBookmark(
 			lang: payload.lang ?? null,
 			lastFetchedAt: now,
 			listId: payload.listId ?? null,
+			notes,
 			pinned: payload.pinned ? true : false,
+			processingState,
 			siteName,
 			sortOrder: payload.sortOrder ?? 0,
+			sourceId,
 			status,
 			title,
 			updatedAt: now,
@@ -829,7 +853,8 @@ export async function saveBookmark(
 export async function listBookmarks(env: StorageEnv, userId: string): Promise<BookmarkListItem[]> {
 	const rawBookmarks = await env.KEEPROOT_DB.prepare(
 		`SELECT id, url, canonical_url, title, site_name, domain, status, created_at, updated_at, last_fetched_at,
-			content_hash, content_ref, content_type, content_length, excerpt, word_count, lang, list_id, pinned, sort_order, is_read
+			content_hash, content_ref, content_type, content_length, excerpt, word_count, lang, list_id, pinned, sort_order, is_read,
+			notes, source_id, processing_state, search_updated_at, embedding_updated_at
 		FROM bookmarks
 		WHERE user_id = ?
 		ORDER BY pinned DESC, sort_order ASC, created_at DESC`,
@@ -861,7 +886,8 @@ export async function listBookmarks(env: StorageEnv, userId: string): Promise<Bo
 export async function getBookmark(env: StorageEnv, userId: string, bookmarkId: string): Promise<BookmarkRecord | null> {
 	const bookmarkRow = await env.KEEPROOT_DB.prepare(
 		`SELECT id, url, canonical_url, title, site_name, domain, status, created_at, updated_at, last_fetched_at,
-			content_hash, content_ref, content_type, content_length, excerpt, word_count, lang, list_id, pinned, sort_order, is_read
+			content_hash, content_ref, content_type, content_length, excerpt, word_count, lang, list_id, pinned, sort_order, is_read,
+			notes, source_id, processing_state, search_updated_at, embedding_updated_at
 		FROM bookmarks
 		WHERE id = ? AND user_id = ?
 		LIMIT 1`,
@@ -933,6 +959,7 @@ export async function deleteBookmark(env: StorageEnv, userId: string, bookmarkId
 export async function patchBookmark(env: StorageEnv, userId: string, bookmarkId: string, payload: BookmarkPatchPayload): Promise<boolean> {
 	const updates: string[] = [];
 	const bindings: unknown[] = [];
+	let needsSearchRefresh = false;
 
 	if (payload.isRead !== undefined) {
 		updates.push('is_read = ?');
@@ -950,8 +977,24 @@ export async function patchBookmark(env: StorageEnv, userId: string, bookmarkId:
 		updates.push('sort_order = ?');
 		bindings.push(payload.sortOrder);
 	}
+	if (payload.notes !== undefined) {
+		updates.push('notes = ?');
+		bindings.push(payload.notes?.trim() || null);
+		needsSearchRefresh = true;
+	}
+	if (payload.status !== undefined) {
+		updates.push('status = ?');
+		bindings.push(normalizeStatus(payload.status));
+	}
+	if (payload.title !== undefined) {
+		updates.push('title = ?');
+		bindings.push(payload.title.trim() || 'Untitled');
+		needsSearchRefresh = true;
+	}
 
 	if (updates.length > 0) {
+		updates.push('updated_at = ?');
+		bindings.push(new Date().toISOString());
 		bindings.push(bookmarkId, userId);
 		const result = await env.KEEPROOT_DB.prepare(
 			`UPDATE bookmarks SET ${updates.join(', ')} WHERE id = ? AND user_id = ?`,
@@ -964,6 +1007,12 @@ export async function patchBookmark(env: StorageEnv, userId: string, bookmarkId:
 	if (payload.tags !== undefined) {
 		const now = new Date().toISOString();
 		await syncTags(env, userId, bookmarkId, payload.tags, now);
+		await env.KEEPROOT_DB.prepare('UPDATE bookmarks SET updated_at = ? WHERE id = ? AND user_id = ?').bind(now, bookmarkId, userId).run();
+		needsSearchRefresh = true;
+	}
+
+	if (needsSearchRefresh) {
+		await refreshBookmarkSearchDocument(env, bookmarkId);
 	}
 
 	return true;
