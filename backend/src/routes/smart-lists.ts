@@ -9,10 +9,17 @@ export async function handleSmartListRoute(context: ProtectedRouteContext): Prom
 
 	if (context.request.method === 'POST' && context.pathname === '/smart-lists') {
 		const body = await parseJson<{ icon?: string; name?: string; rules?: string; sortOrder?: number }>(context.request);
-		if (!body.name || !body.rules) {
+		const name = body.name?.trim();
+		const rules = body.rules?.trim();
+		if (!name || !rules) {
 			return errorResponse('Name and rules required', 400);
 		}
-		const list = await createSmartList(context.env, context.authUser.userId, body);
+		const list = await createSmartList(context.env, context.authUser.userId, {
+			icon: body.icon,
+			name,
+			rules,
+			sortOrder: body.sortOrder,
+		});
 		return jsonResponse(list, 201);
 	}
 

@@ -9,10 +9,14 @@ export async function handleListRoute(context: ProtectedRouteContext): Promise<R
 
 	if (context.request.method === 'POST' && context.pathname === '/lists') {
 		const body = await parseJson<{ name?: string; sortOrder?: number }>(context.request);
-		if (!body.name) {
+		const name = body.name?.trim();
+		if (!name) {
 			return errorResponse('Name required', 400);
 		}
-		const list = await createList(context.env, context.authUser.userId, body);
+		const list = await createList(context.env, context.authUser.userId, {
+			name,
+			sortOrder: body.sortOrder,
+		});
 		return jsonResponse(list, 201);
 	}
 

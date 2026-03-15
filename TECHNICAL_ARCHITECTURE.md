@@ -1,81 +1,176 @@
 # KeepRoot MCP Server Technical Architecture
 
 ## Summary
-The recommended implementation is a Cloudflare-native remote MCP server added to the existing `backend/` Worker project. The design keeps the current KeepRoot storage model and routes, then layers MCP transport, OAuth-friendly auth, asynchronous ingestion, hybrid search, source polling, email ingestion, and inbox management on top.
+KeepRoot should be implemented as a Cloudflare-native remote MCP server that treats the system as a personal knowledge substrate with three technical layers:
+1. Canonical records
+2. Retrieval interfaces
+3. Agent actions
 
-The architecture should stay inside one Cloudflare Worker application unless scale or organizational constraints later justify a split. That keeps deployment simple while still allowing specialized handlers for `fetch`, `queue`, `scheduled`, and `email`.
+The human-facing Markdown layer sits on top of those three layers. It is important for inspectability and editing, but it should not replace the structured canonical store used at runtime.
 
-## Design Principles
-- Reuse the current KeepRoot `bookmarks` storage and content pipeline wherever possible.
-- Keep user-authenticated metadata in D1 and large blobs in R2.
-- Make `save_item` and source sync idempotent by canonical URL plus user.
-- Push long-running extraction and indexing work onto Queues.
-- Use Cloudflare-native vector and embedding services instead of external search infrastructure.
-- Keep the public MCP surface typed and small even if the internal pipeline has more moving parts.
+The architecture should stay inside the existing `backend/` Worker project unless there is a later operational reason to split components. That gives one deployable system with four Worker entrypoints:
+- `fetch`
+- `scheduled`
+- `queue`
+- `email`
+
+## Architectural Stance
+- File format is secondary. Agent behaviors come first.
+- Structured state is the centre of the system.
+- Markdown is a projection and authoring layer.
+- Retrieval is hybrid: metadata filters plus full-text plus vector search.
+- Agent capabilities should be exposed as explicit tools, not raw table operations.
+- Provenance, authorship, and reading state matter as much as raw text.
+
+## Why This Architecture
+This architecture is designed for the questions and actions agents actually need to perform:
+- fetch the right document or item
+- understand what the user has already saved, read, or processed
+- distinguish between similar items by source, recency, or importance
+- update notes or state safely
+- maintain the reading queue and source subscriptions
+
+That means the central design problem is not “Should this be Markdown or RAG?” The central design problem is “What exact records, retrieval paths, and tool actions must exist so the agent can behave reliably?”
+
+## Layered Architecture
+
+### 1. Canonical records
+This layer is the durable source of truth.
+
+Responsibilities:
+- stable item identities
+- structured metadata
+- reading and triage state
+- source subscriptions
+- provenance
+- durable content storage
+
+Primary Cloudflare products:
+- D1 for canonical metadata and state
+- R2 for full text, Markdown payloads, raw HTML, and optionally email source payloads
+
+### 2. Retrieval interfaces
+This layer decides how agents discover relevant context.
+
+Responsibilities:
+- exact metadata filtering
+- keyword search
+- semantic similarity search
+- relationship-aware retrieval later
+
+Primary Cloudflare products:
+- D1 queries for structured filters
+- D1 FTS5 for full-text search
+- Workers AI for embeddings
+- Vectorize for nearest-neighbour search
+
+### 3. Agent actions
+This layer defines what the agent is allowed to do.
+
+Responsibilities:
+- save URLs
+- fetch and update records
+- add and remove sources
+- manage inbox state
+- inspect account and usage
+
+Primary Cloudflare products:
+- Workers runtime for the MCP endpoint
+- Queues for asynchronous work
+- Cron Triggers for periodic source sync
+- Email Routing and Email Workers for inbound email ingestion
+
+### Human-facing Markdown projection
+This is not the runtime centre, but it is an important product layer.
+
+Responsibilities:
+- transparency
+- portability
+- human editing and inspection
+- optional future Obsidian-compatible export
+
+Primary storage:
+- Markdown payloads stored in R2 today
+- optional future file or Git export pipeline later
 
 ## Recommended Runtime Topology
 
 ```mermaid
 flowchart LR
-    Client["Remote MCP client"] --> Fetch["Workers fetch() /mcp"]
-    Fetch --> OAuth["Workers OAuth Provider"]
-    Fetch --> MCP["MCP_OBJECT Durable Object via McpAgent"]
+    Client["Remote MCP client"] --> Worker["Workers fetch() /mcp"]
+    Worker --> MCP["MCP server registry"]
     MCP --> Tools["Tool handlers"]
-    Tools --> D1["D1: KEEPROOT_DB"]
-    Tools --> R2["R2: KEEPROOT_CONTENT"]
-    Tools --> AI["Workers AI: AI binding"]
-    Tools --> Vec["Vectorize: KEEPROOT_VECTOR_INDEX"]
-    Tools --> Q["Queues producer: INGEST_QUEUE"]
 
-    Cron["Cron Trigger scheduled()"] --> Q
-    Email["Email Routing -> email()"] --> Q
+    Tools --> D1["D1: canonical metadata and state"]
+    Tools --> R2["R2: Markdown, HTML, raw content"]
+    Tools --> FTS["D1 FTS5 search tables"]
+    Tools --> AI["Workers AI embeddings"]
+    Tools --> Vec["Vectorize similarity index"]
+    Tools --> Queue["Queues producer"]
 
-    Q --> Consumer["Queues consumer"]
-    Consumer --> Extract["Extraction + normalization"]
-    Extract --> D1
-    Extract --> R2
-    Extract --> AI
-    Extract --> Vec
+    Cron["Cron Triggers scheduled()"] --> Queue
+    Email["Email Routing -> email()"] --> Queue
+    Queue --> Consumer["Queues consumer"]
+    Consumer --> Ingest["Extraction, sync, indexing"]
+    Ingest --> D1
+    Ingest --> R2
+    Ingest --> AI
+    Ingest --> Vec
+
+    R2 --> Markdown["Human-facing Markdown projection"]
 ```
 
 ## Cloudflare Products To Use
-| Product | Why it is needed | Concrete usage in this design |
+| Product | Exact module or binding | Why it belongs in this design |
 | --- | --- | --- |
-| Workers | Main compute runtime for MCP transport and KeepRoot API | Host `/mcp`, existing REST routes, source routes, and all tool handlers |
-| Durable Objects | Stateful backing object for Cloudflare `McpAgent` remote transport | `MCP_OBJECT` class to serve the MCP server |
-| Workers OAuth Provider | OAuth-friendly auth flow for remote MCP clients | Issue and validate MCP access tokens mapped to KeepRoot users |
-| D1 | Primary relational storage | Users, items, tags, sources, inbox, plan settings, search docs, source runs |
-| R2 | Durable blob storage | Markdown content JSON, raw HTML, email raw body, image assets |
-| Queues | Async processing | URL extraction, feed sync fan-out, re-index jobs, backfills |
-| Cron Triggers | Periodic work | Poll active RSS, YouTube, and X bridge sources |
-| Workers AI | Embeddings generation | Create query and item embeddings for semantic search |
-| Vectorize | Approximate nearest-neighbor vector search | Store per-item vectors and filter by `userId`, `status`, and `sourceId` |
-| Email Routing plus Email Workers | Email source ingestion | Receive inbound mail aliases and enqueue item creation |
-| Analytics Engine | Recommended for operational telemetry | Store recent tool usage, ingestion latency, and error counters for `get_stats` |
-| Browser Rendering | Optional fallback | Render difficult JavaScript-heavy pages before readability extraction |
-| Observability | Required for production operations | Logs, traces, and failure diagnosis |
+| Workers | Worker `fetch`, `scheduled`, `queue`, `email` handlers | Main runtime for MCP transport, REST compatibility, source sync, and ingest jobs |
+| Agents SDK | `createMcpHandler()` from `agents/mcp` | Recommended stateless MCP transport for the current design |
+| Workers OAuth Provider | `@cloudflare/workers-oauth-provider` | Production-grade remote OAuth flow for MCP clients when enabled |
+| D1 | `KEEPROOT_DB` binding | Canonical relational store for items, state, sources, inbox, and search metadata |
+| R2 | `KEEPROOT_CONTENT` binding | Durable storage for Markdown payloads, HTML snapshots, and optional raw ingest payloads |
+| Queues | `INGEST_QUEUE` binding | Asynchronous URL extraction, source sync, and re-indexing |
+| Cron Triggers | Worker `scheduled()` | Periodic polling of active sources |
+| Workers AI | `AI` binding | Query and item embeddings, and optional later reranking |
+| Vectorize | `KEEPROOT_VECTOR_INDEX` binding | Semantic retrieval over canonical records or chunks |
+| Email Routing and Email Workers | Worker `email()` plus email routes | Inbound newsletter and email-forwarding ingestion |
+| Browser Rendering | `BROWSER` binding, optional | Fallback for JavaScript-heavy pages that need a rendered DOM |
+| Observability | Workers observability features | Logging, traces, and failure diagnosis |
+| Workers Analytics Engine | optional dataset binding | Recommended only if telemetry volume grows beyond simple D1-backed stats |
 
-## Recommended Wrangler Additions
-The existing `backend/wrangler.jsonc` already binds D1 and R2. The MCP server design should add:
+## Transport Recommendation
+The launch recommendation is a stateless MCP server served directly from the Worker using `createMcpHandler()` from `agents/mcp`.
 
+Why:
+- The canonical state lives in D1 and R2, not in MCP transport state.
+- The tool set is primarily record-oriented and request-scoped.
+- This avoids introducing Durable Object transport state unless the product actually needs stateful MCP sessions.
+
+Escalation path:
+- If future agent features require transport-level session state, elicitation, sampling, or durable per-session memory, migrate the MCP transport to `McpAgent` plus Durable Objects without changing the canonical data layer.
+
+## Recommended Wrangler Bindings
 | Binding name | Product | Purpose |
 | --- | --- | --- |
-| `MCP_OBJECT` | Durable Object | Host the `McpAgent` server object |
-| `KEEPROOT_VECTOR_INDEX` | Vectorize | Store item embeddings |
-| `AI` | Workers AI | Create embeddings for items and queries |
-| `INGEST_QUEUE` | Queues producer and consumer | Async save, sync, and re-index work |
-| `USAGE_ANALYTICS` | Analytics Engine dataset | Recent usage and ingestion telemetry |
-| `BROWSER` | Browser Rendering, optional | Rendered capture fallback for difficult pages |
+| `KEEPROOT_DB` | D1 | Canonical relational data |
+| `KEEPROOT_CONTENT` | R2 | Content payloads and stored documents |
+| `KEEPROOT_VECTOR_INDEX` | Vectorize | Semantic search index |
+| `AI` | Workers AI | Embedding generation and future reranking |
+| `INGEST_QUEUE` | Queues | Async ingest and source processing |
+| `BROWSER` | Browser Rendering, optional | Rendered-page extraction fallback |
+| `MCP_EMAIL_DOMAIN` | environment variable | Stable inbound alias generation for email sources |
+| `USAGE_ANALYTICS` | Workers Analytics Engine, optional | High-volume telemetry if needed later |
 
-The Worker should export:
-- `fetch(request, env, ctx)`
-- `scheduled(controller, env, ctx)`
-- `queue(batch, env, ctx)`
-- `email(message, env, ctx)`
-- `class KeepRootMCP extends McpAgent`
+## Open-Source Modules To Use
+| Concern | Open-source modules | Why |
+| --- | --- | --- |
+| MCP protocol and schemas | `agents`, `@modelcontextprotocol/sdk`, `zod` | Remote MCP transport, tool registration, typed validation |
+| HTML extraction | `linkedom`, `@mozilla/readability`, `turndown` | Build DOMs in Workers, extract readable content, convert HTML to Markdown |
+| PDF extraction | `pdfjs-dist` | Pull text from PDFs saved via URL ingestion |
+| Feed parsing | `fast-xml-parser` | Parse RSS and Atom feeds in Workers |
+| Email parsing | `postal-mime` | Parse inbound MIME messages for email sources |
 
-## Suggested Code Layout
-This is the recommended code organization, not a build instruction set.
+## Recommended Code Layout
+This is the architectural module layout that matches the current backend direction.
 
 ```text
 backend/
@@ -83,357 +178,354 @@ backend/
     index.ts
     mcp/
       server.ts
-      auth.ts
-      tools/
-        save-item.ts
-        search-items.ts
-        list-items.ts
-        get-item.ts
-        update-item.ts
-        whoami.ts
-        list-sources.ts
-        add-source.ts
-        remove-source.ts
-        get-stats.ts
-        list-inbox.ts
-        mark-done.ts
     ingest/
-      queue.ts
-      sync-source.ts
       save-url.ts
-      extract-html.ts
-      extract-pdf.ts
-      email-source.ts
-      canonicalize.ts
-    search/
-      hybrid.ts
-      embeddings.ts
-      fts.ts
+      source-sync.ts
+      email.ts
+      jobs.ts
     storage/
-      items.ts
-      sources.ts
-      inbox.ts
-      stats.ts
       account.ts
+      bookmarks.ts
+      inbox.ts
+      items.ts
+      organization.ts
       search.ts
-      existing-bookmarks-adapter.ts
+      shared.ts
+      sources.ts
+      stats.ts
 ```
 
-## Open-Source Modules To Add
-| Module | Why it belongs here |
+## Logical Data Model
+The model should be understood in two ways:
+- conceptual entities that agents care about
+- physical tables and objects used in the Worker
+
+### Conceptual model
+| Concept | Purpose |
 | --- | --- |
-| `agents` | Cloudflare `McpAgent` implementation for remote MCP on Workers |
-| `@cloudflare/workers-oauth-provider` | OAuth provider flow for remote MCP clients |
-| `@modelcontextprotocol/sdk` | Shared MCP types, inspector compatibility, and local parity utilities |
-| `zod` | Tool input validation and schema definition |
-| `linkedom` | DOM construction inside Workers for server-side readability parsing |
-| `@mozilla/readability` | Main-article extraction from fetched HTML |
-| `turndown` | HTML-to-Markdown conversion |
-| `pdfjs-dist` | PDF text extraction for PDF saves |
-| `fast-xml-parser` | RSS and Atom parsing in the Worker |
-| `postal-mime` | MIME parsing for inbound email messages |
+| `items` | Canonical document or bookmark records |
+| `content_payloads` | Stored Markdown, text, HTML, and binary content |
+| `sources` | Configured subscriptions and ingest origins |
+| `inbox_entries` | Pending review queue |
+| `search_documents` | Denormalised text for fast retrieval |
+| `embeddings` | Semantic representations for similarity search |
+| `reading_events` | Opened, skimmed, finished, abandoned, revisited events |
+| `relationships` | Links like related-to, supports, contradicts, part-of |
 
-## Reuse From Current Repository
-- Keep the internal storage term `bookmark`; expose `item` only at the MCP boundary.
-- Reuse canonical URL normalization from the existing storage layer.
-- Reuse the current R2 content layout for Markdown and HTML objects.
-- Reuse existing tags and list relationships instead of creating a second tagging system.
-- Reuse the current WebAuthn-backed user identity as the root identity for MCP auth.
-- Keep the existing extension’s extraction stack as the reference behavior for readability and markdown output.
+### Physical implementation in v1
+| Conceptual entity | Physical implementation |
+| --- | --- |
+| items | `bookmarks` plus `bookmark_contents` |
+| tags | `tags` plus `bookmark_tags` |
+| sources | `sources` plus `source_runs` |
+| inbox | `inbox_entries` |
+| account | `account_settings` |
+| keyword search | `item_search_documents` plus `item_search_fts` |
+| semantic retrieval | `bookmark_embeddings` plus Vectorize |
+| usage telemetry | `tool_events` and optional Analytics Engine |
 
-## Data Model Changes
+### Recommended near-term schema extensions
+The current v1 physical model is sufficient for the shipped tool surface. To better support future recommendation and memory behaviors, reserve the following additions:
+- `doc_type`
+- `author`
+- `published_at`
+- `priority`
+- `summary`
+- `why_it_matters`
+- `why_saved`
+- `summary_origin`
+- `notes_origin`
+- `last_referenced_at`
+- `decision_relevance`
+- `related_project`
 
-### Existing Tables To Reuse
-- `users`
-- `sessions`
-- `api_keys`
-- `bookmarks`
-- `bookmark_contents`
-- `bookmark_images`
-- `tags`
-- `bookmark_tags`
-- `lists`
-- `smart_lists`
+### Recommended future tables
+These are not required for launch, but should be planned now so the product does not dead-end into a bookmark-only model:
 
-### New Columns On `bookmarks`
-| Column | Type | Why |
-| --- | --- | --- |
-| `notes` | `TEXT` | User-authored notes for `update_item` and search |
-| `source_id` | `TEXT NULL` | Link an item back to its originating source |
-| `processing_state` | `TEXT NOT NULL DEFAULT 'ready'` | Track `queued`, `processing`, `ready`, `error` |
-| `search_updated_at` | `TEXT NULL` | Track keyword index freshness |
-| `embedding_updated_at` | `TEXT NULL` | Track vector freshness |
-
-### New Tables
-
-#### `account_settings`
-Purpose: source of truth for `whoami`.
+#### `reading_events`
+Purpose:
+- capture opened, skimmed, finished, abandoned, revisited
+- enable recommendation and resurfacing logic
 
 Suggested columns:
-- `user_id TEXT PRIMARY KEY`
-- `plan_code TEXT NOT NULL DEFAULT 'self_hosted'`
-- `display_name TEXT`
-- `limits_json TEXT NOT NULL DEFAULT '{}'`
-- `features_json TEXT NOT NULL DEFAULT '{}'`
-- `created_at TEXT NOT NULL`
-- `updated_at TEXT NOT NULL`
-
-#### `sources`
-Purpose: configured subscriptions and source health.
-
-Suggested columns:
-- `id TEXT PRIMARY KEY`
-- `user_id TEXT NOT NULL`
-- `kind TEXT NOT NULL`
-- `name TEXT NOT NULL`
-- `normalized_identifier TEXT NOT NULL`
-- `poll_url TEXT`
-- `email_alias TEXT`
-- `status TEXT NOT NULL DEFAULT 'active'`
-- `config_json TEXT NOT NULL DEFAULT '{}'`
-- `last_polled_at TEXT`
-- `last_success_at TEXT`
-- `last_error TEXT`
-- `created_at TEXT NOT NULL`
-- `updated_at TEXT NOT NULL`
-
-Unique constraint:
-- `(user_id, kind, normalized_identifier)`
-
-#### `source_runs`
-Purpose: sync observability and `get_stats`.
-
-Suggested columns:
-- `id TEXT PRIMARY KEY`
-- `source_id TEXT NOT NULL`
-- `run_type TEXT NOT NULL`
-- `status TEXT NOT NULL`
-- `discovered_count INTEGER NOT NULL DEFAULT 0`
-- `saved_count INTEGER NOT NULL DEFAULT 0`
-- `error_count INTEGER NOT NULL DEFAULT 0`
-- `started_at TEXT NOT NULL`
-- `finished_at TEXT`
-- `error_text TEXT`
-
-#### `inbox_entries`
-Purpose: decouple inbox state from item status.
-
-Suggested columns:
-- `id TEXT PRIMARY KEY`
-- `user_id TEXT NOT NULL`
-- `bookmark_id TEXT NOT NULL`
-- `source_id TEXT`
-- `state TEXT NOT NULL DEFAULT 'pending'`
-- `reason TEXT NOT NULL`
-- `created_at TEXT NOT NULL`
-- `processed_at TEXT`
-
-Recommended enum values:
-- `state`: `pending`, `done`, `dismissed`
-- `reason`: `manual_save`, `source_sync`, `email_ingest`
-
-#### `item_search_documents`
-Purpose: keep searchable text in D1 without querying R2 at search time.
-
-Suggested columns:
-- `bookmark_id TEXT PRIMARY KEY`
-- `user_id TEXT NOT NULL`
-- `title TEXT`
-- `notes TEXT`
-- `tags_text TEXT`
-- `excerpt TEXT`
-- `body_text TEXT`
-- `updated_at TEXT NOT NULL`
-
-#### `item_search_fts`
-Purpose: D1 FTS5 virtual table for keyword search.
-
-Suggested indexed fields:
-- `title`
-- `notes`
-- `tags_text`
-- `excerpt`
-- `body_text`
-
-Suggested unindexed fields:
+- `id`
 - `bookmark_id`
 - `user_id`
+- `event_type`
+- `timestamp`
+- `duration_seconds`
+- `rating`
+- `source_context`
 
-#### `bookmark_embeddings`
-Purpose: track vectorization state.
+#### `item_relationships`
+Purpose:
+- connect items to each other and later to projects or themes
 
 Suggested columns:
-- `bookmark_id TEXT PRIMARY KEY`
-- `user_id TEXT NOT NULL`
-- `vector_id TEXT NOT NULL`
-- `model_name TEXT NOT NULL`
-- `embedding_version TEXT NOT NULL`
-- `updated_at TEXT NOT NULL`
+- `id`
+- `user_id`
+- `source_bookmark_id`
+- `target_bookmark_id`
+- `relation_type`
+- `created_at`
+- `created_by`
 
-## R2 Object Layout
-Retain the current object layout and extend it only where the new workflow needs raw source payloads.
+#### `note_fragments`
+Purpose:
+- separate rich note blocks from the base item record when needed
 
-| Key pattern | Purpose |
-| --- | --- |
-| `content/<hash>.json` | Canonical Markdown plus normalized text payload |
-| `html/<hash>.html` | Raw or rendered HTML snapshot |
-| `images/<hash>` | Saved image objects |
-| `thumbs/<hash>/<variant>` | Thumbnail derivatives if retained |
-| `email/<userId>/<messageId>.eml` | Optional raw inbound email archive for debugging |
+Suggested columns:
+- `id`
+- `bookmark_id`
+- `user_id`
+- `body_markdown`
+- `origin`
+- `created_at`
+- `updated_at`
 
-## Authentication Architecture
+#### `document_chunks`
+Purpose:
+- support chunk-level embeddings and retrieval when item-level vectors stop being sufficient
 
-### Recommended approach
-- Keep the current KeepRoot user identity and WebAuthn sign-in for the dashboard.
-- Add a Workers OAuth Provider flow for remote MCP clients.
-- Map OAuth subject directly to `users.id`.
-- Encode scopes at token issuance time and enforce them inside MCP tool handlers.
+Suggested columns:
+- `id`
+- `bookmark_id`
+- `user_id`
+- `chunk_index`
+- `text`
+- `token_count`
+- `updated_at`
 
-### Why not rely only on current API keys
-- MCP clients increasingly expect remote OAuth-compatible flows.
-- OAuth makes it easier to express scope, revocation, and approval semantics.
-- API keys can remain as an operator-only compatibility mode, but should not be the primary public contract.
+## Logical Canonical Record Shape
+The runtime should behave as though each item has a canonical shape like this, even if some fields are backed by separate tables or content blobs:
 
-## Tool Implementation Matrix
-| Tool | Primary code modules | D1 tables | Cloudflare bindings and products | Open-source modules |
-| --- | --- | --- | --- | --- |
-| `save_item` | `src/mcp/tools/save-item.ts`, `src/ingest/save-url.ts`, `src/ingest/extract-html.ts`, `src/ingest/extract-pdf.ts` | `bookmarks`, `bookmark_contents`, `bookmark_tags`, `tags`, `inbox_entries`, `item_search_documents`, `bookmark_embeddings` | Workers, D1, R2, Queues, Workers AI, Vectorize, optional Browser Rendering | `agents`, `@modelcontextprotocol/sdk`, `zod`, `linkedom`, `@mozilla/readability`, `turndown`, `pdfjs-dist` |
-| `search_items` | `src/mcp/tools/search-items.ts`, `src/search/hybrid.ts`, `src/search/embeddings.ts`, `src/search/fts.ts` | `item_search_documents`, `item_search_fts`, `bookmarks`, `bookmark_embeddings` | Workers, D1, Workers AI, Vectorize | `agents`, `@modelcontextprotocol/sdk`, `zod` |
-| `list_items` | `src/mcp/tools/list-items.ts`, `src/storage/items.ts` | `bookmarks`, `tags`, `bookmark_tags` | Workers, D1 | `agents`, `@modelcontextprotocol/sdk`, `zod` |
-| `get_item` | `src/mcp/tools/get-item.ts`, `src/storage/items.ts` | `bookmarks`, `bookmark_contents`, `bookmark_images`, `tags`, `bookmark_tags` | Workers, D1, R2 | `agents`, `@modelcontextprotocol/sdk`, `zod` |
-| `update_item` | `src/mcp/tools/update-item.ts`, `src/storage/items.ts`, `src/ingest/queue.ts` | `bookmarks`, `tags`, `bookmark_tags`, `item_search_documents`, `bookmark_embeddings` | Workers, D1, Queues, Workers AI, Vectorize | `agents`, `@modelcontextprotocol/sdk`, `zod` |
-| `whoami` | `src/mcp/tools/whoami.ts`, `src/mcp/auth.ts`, `src/storage/account.ts` | `users`, `account_settings` | Workers, Workers OAuth Provider, D1 | `agents`, `@cloudflare/workers-oauth-provider`, `@modelcontextprotocol/sdk` |
-| `list_sources` | `src/mcp/tools/list-sources.ts`, `src/storage/sources.ts` | `sources`, `source_runs` | Workers, D1 | `agents`, `@modelcontextprotocol/sdk`, `zod` |
-| `add_source` | `src/mcp/tools/add-source.ts`, `src/ingest/sync-source.ts`, `src/storage/sources.ts` | `sources`, `source_runs` | Workers, D1, Queues, Cron Triggers, Email Routing and Email Workers | `agents`, `@modelcontextprotocol/sdk`, `zod`, `fast-xml-parser`, `postal-mime` |
-| `remove_source` | `src/mcp/tools/remove-source.ts`, `src/storage/sources.ts` | `sources` | Workers, D1 | `agents`, `@modelcontextprotocol/sdk`, `zod` |
-| `get_stats` | `src/mcp/tools/get-stats.ts`, `src/storage/stats.ts` | `bookmarks`, `inbox_entries`, `sources`, `source_runs`, `account_settings` | Workers, D1, recommended Analytics Engine | `agents`, `@modelcontextprotocol/sdk`, `zod` |
-| `list_inbox` | `src/mcp/tools/list-inbox.ts`, `src/storage/inbox.ts` | `inbox_entries`, `bookmarks`, `sources` | Workers, D1 | `agents`, `@modelcontextprotocol/sdk`, `zod` |
-| `mark_done` | `src/mcp/tools/mark-done.ts`, `src/storage/inbox.ts` | `inbox_entries` | Workers, D1 | `agents`, `@modelcontextprotocol/sdk`, `zod` |
+```json
+{
+  "id": "item_01492",
+  "title": "Attention Is All You Need",
+  "itemType": "paper",
+  "url": "https://...",
+  "canonicalUrl": "https://...",
+  "contentRef": "content/<hash>.json",
+  "extractableText": "...",
+  "author": "Vaswani et al.",
+  "source": {
+    "kind": "rss",
+    "sourceId": "src_123"
+  },
+  "addedAt": "2026-03-01T10:15:00Z",
+  "publishedAt": "2017-06-12",
+  "tags": ["transformers", "ml", "architecture"],
+  "status": "read",
+  "priority": "high",
+  "notes": "User or agent notes",
+  "summary": "Short summary",
+  "whyItMatters": "Foundational for model architecture discussions",
+  "provenance": {
+    "ingestedVia": "manual_save",
+    "metadataUpdatedAt": "2026-03-14T09:00:00Z",
+    "summaryOrigin": "ai",
+    "notesOrigin": "human"
+  }
+}
+```
 
-## Request and Event Flows
+## Markdown Projection Format
+Markdown should be a projection of canonical records, not the system of record.
+
+Recommended export shape:
+
+```md
+---
+id: item_01492
+title: "Attention Is All You Need"
+type: paper
+status: read
+priority: high
+tags: [transformers, ml, architecture]
+source_url: "https://..."
+published_at: 2017-06-12
+added_at: 2026-03-01
+why_it_matters: "Foundational for model architecture discussions"
+summary: "Introduces the Transformer architecture."
+summary_origin: ai
+notes_origin: human
+related:
+  - item_00111
+  - item_00672
+---
+
+# Notes
+...
+
+# Key Passages
+...
+
+# Questions
+...
+```
+
+This projection is ideal for human editing, Git history, export, and future Obsidian compatibility, but the Worker should still query D1 and R2 directly at runtime.
+
+## Retrieval Architecture
+
+### Structured retrieval
+Use D1 for:
+- status filters
+- source filters
+- date filters
+- domain filters
+- tags
+- inbox state
+- account limits and feature flags
+
+This is what powers questions like:
+- what are my unread items?
+- what came from this source?
+- what was added recently?
+
+### Full-text retrieval
+Use D1 FTS5 via `item_search_fts` for:
+- exact phrase matches
+- title and note matches
+- precise keyword or name lookups
+
+### Semantic retrieval
+Use Workers AI plus Vectorize for:
+- paraphrase-tolerant search
+- conceptually similar items
+- passage or item-level similarity later
+
+### Hybrid ranking
+The default `search_items` path should:
+1. normalise filters in D1
+2. score exact matches from FTS
+3. score semantic matches from Vectorize
+4. merge, filter, and rank results
+5. return enough metadata so the client only calls `get_item` when necessary
+
+### Future graph retrieval
+When `item_relationships` exists, layer simple graph retrieval on top of D1 queries for:
+- related items
+- contradictory or supporting items
+- project-scoped context
+
+## Agent Action Architecture
+Group tools by intent, not by raw table operation.
+
+### Read and query tools
+- `search_items`
+- `list_items`
+- `get_item`
+- `whoami`
+- `list_sources`
+- `get_stats`
+- `list_inbox`
+
+### Mutation and workflow tools
+- `save_item`
+- `update_item`
+- `add_source`
+- `remove_source`
+- `mark_done`
+
+### Future synthesis tools
+These should come later once the canonical model is richer:
+- `recommend_next_read`
+- `summarise_topic`
+- `compare_documents`
+- `find_gaps_in_knowledge`
+
+The higher-level tools should compose the same canonical and retrieval layers instead of creating separate hidden data paths.
+
+## Ingestion And Processing Flows
 
 ### `save_item`
-1. MCP tool validates input with `zod`.
-2. Normalize canonical URL using the existing KeepRoot normalization logic.
-3. Check D1 for an existing `bookmarks` row by `(user_id, url_hash)`.
-4. Upsert a stub item with `processing_state = 'queued'` if content is not already current.
-5. Write an ingest message to `INGEST_QUEUE`.
-6. Queue consumer fetches the URL.
-7. Branch extraction:
-   - HTML: `linkedom` -> `Readability` -> `turndown`
-   - PDF: `pdfjs-dist`
-   - difficult pages: optional Browser Rendering fallback before readability
-8. Persist content object to R2.
-9. Update `bookmark_contents`, `item_search_documents`, and tag links in D1.
-10. Generate embeddings with Workers AI.
-11. Upsert vector into Vectorize and record metadata in `bookmark_embeddings`.
-12. Create or refresh `inbox_entries` row.
+1. Validate URL and options in the MCP tool.
+2. Normalise the canonical URL.
+3. Dedupe on `(user, canonical_url_hash)`.
+4. Fetch HTML or PDF.
+5. Extract readable text and Markdown.
+6. Persist canonical metadata to D1.
+7. Persist payloads to R2.
+8. Update search documents and embeddings.
+9. Create or refresh an inbox entry.
 
-### `search_items`
-1. Build D1 filter clauses from MCP input.
-2. Run D1 FTS query against `item_search_fts`.
-3. Generate one query embedding with Workers AI.
-4. Query Vectorize with the same user filter and optional metadata filters.
-5. Merge keyword and vector candidates using reciprocal-rank fusion in Worker code.
-6. Hydrate final item metadata from `bookmarks` and tag tables.
+### Source sync
+1. Cron or manual action identifies active sources.
+2. Queue fan-out runs source-specific sync jobs.
+3. Feed entries become candidate items.
+4. Candidate items go through the same dedupe and save path as manual saves.
+5. Source health is recorded in `source_runs`.
 
-### `add_source`
-1. Validate source type and normalize identifier.
-2. Persist source row in D1.
-3. If `kind = email`, provision or expose the inbound alias and stop there.
-4. If `kind = rss`, `youtube`, or `x`, enqueue an initial sync job.
-5. Scheduled polling later reuses the same queue-based sync path.
+### Email ingestion
+1. Email Routing forwards inbound mail to the Worker `email()` handler.
+2. MIME is parsed with `postal-mime`.
+3. First high-confidence URL is extracted.
+4. The item is passed into the same save path as a manual save.
+5. Provenance records that the source was email.
 
-### `email` ingestion
-1. Inbound message arrives through Email Routing.
-2. `email()` handler stores raw MIME in R2 if debugging is enabled.
-3. Parse MIME with `postal-mime`.
-4. Extract source metadata and first trustworthy URL.
-5. Enqueue `save_item`-style ingestion.
+## Security And Auth
 
-### `mark_done`
-1. Validate inbox entry ownership.
-2. Set `inbox_entries.state = 'done'` and `processed_at = now`.
-3. Do not delete or rewrite the underlying item unless an explicit workflow later requires it.
+### Primary design
+- Remote MCP clients should authenticate with OAuth where practical.
+- User identity maps directly to the KeepRoot user record.
+- Tool handlers must enforce per-user scoping for every read and write path.
 
-## Search Architecture
+### Compatibility design
+- Existing bearer token or API key flows can remain as a compatibility path for self-hosted operators and automation.
+- This compatibility mode should not change the canonical data model or the tool surface.
 
-### Keyword search
-- Use a D1 FTS5 virtual table.
-- Index title, notes, tags, excerpt, and a truncated plain-text body.
-- Keep the FTS document small enough that D1 remains fast and inexpensive.
+### Permission model
+Minimum logical scopes:
+- `items:read`
+- `items:write`
+- `sources:read`
+- `sources:write`
+- `stats:read`
 
-### Semantic search
-- Store one embedding per item in v1.
-- Build the embedding input from:
-  - title
-  - notes
-  - tags
-  - excerpt
-  - first part of normalized body text
-- Use Vectorize metadata to filter by `userId`, `status`, `sourceId`, and optionally `domain`.
+## Observability And Stats
+For launch:
+- D1-backed counters and `tool_events` are sufficient.
+- `get_stats` should read from canonical tables.
 
-### Ranking strategy
-- Default search mode is hybrid.
-- Run both keyword and vector retrieval.
-- Fuse results in Worker code.
-- Return a short `match_reason` field such as `keyword`, `semantic`, or `hybrid`.
+For scale:
+- move high-volume telemetry into Workers Analytics Engine
+- keep D1 for user-facing counts and source health
 
-### Re-index triggers
-- After `save_item`
-- After `update_item` when title, notes, or tags change
-- After a source sync refreshes an item
+## Why Not Markdown-Only
+- hard to do reliable filters and joins
+- hard to maintain consistent reading state
+- weak support for dedupe and provenance
+- awkward for source health, inbox, and usage telemetry
 
-## Source Connector Architecture
+## Why Not RAG-Only
+- weak for queue management and reading-state questions
+- weak for recommendation inputs like recency, source quality, and user behavior
+- weak for safe mutation semantics
 
-### RSS
-- Poll the source URL on a Cron schedule.
-- Parse XML with `fast-xml-parser`.
-- Deduplicate entries by destination item URL plus user.
+## Recommended Evolution Path
 
-### YouTube
-- Normalize channel or playlist input to a pollable feed URL when possible.
-- Treat the feed as an RSS-like source after normalization.
-- Save the destination watch URL as the item URL.
+### Launch
+- stateless MCP transport on Workers
+- D1 plus R2 canonical store
+- D1 FTS plus Vectorize hybrid retrieval
+- explicit 12-tool surface
 
-### X
-- Do not scrape X directly in v1.
-- Require an operator-configured bridge that exposes pollable feeds.
-- Store the original user handle in `config_json` and the bridge URL in `poll_url`.
+### Next
+- richer item fields such as type, priority, summary, and why-it-matters
+- better provenance and AI-versus-human attribution
+- Markdown export or sync path
 
-### Email
-- Use inbound aliases such as `save+<user-token>@example.com`.
-- Parse URL-first workflows before considering attachments.
-- Keep email source ingestion event-driven instead of scheduled.
+### Later
+- reading events
+- item relationships
+- chunk-level embeddings
+- recommendation and synthesis tools
 
-## Stats Architecture
-
-### D1-backed stats
-Use D1 for:
-- total item count
-- item count by status
-- inbox pending count
-- source count by kind
-- last source sync timestamps
-
-### Analytics Engine-backed stats
-Use Analytics Engine for recent operational metrics:
-- tool calls by name
-- p50 and p95 tool latency
-- queue failure counts
-- source-sync error rates
-
-`get_stats` should merge both when Analytics Engine is configured, and gracefully degrade to D1-only reporting when it is not.
-
-## Operational Notes
-- Every queue payload should include a `job_type` field, for example `save_url`, `sync_source`, or `reindex_item`.
-- Use structured logs with `userId`, `jobType`, `itemId`, and `sourceId`.
-- Record failed source runs in D1 so `list_sources` can expose health without querying logs.
-- Keep the queue consumer idempotent; retries must not duplicate items.
-
-## Recommended Decisions To Lock Before Coding
-- Confirm whether v1 needs OAuth-only MCP access or OAuth plus API key compatibility.
-- Decide whether `save_item` should ever block for extraction or always return a queued state.
-- Decide whether `get_stats` must require Analytics Engine at launch or treat it as optional.
-- Decide whether YouTube support is channel-only in v1 or channel plus playlist.
-- Decide whether X support should ship at all in v1 or remain behind a hard feature flag.
+## Key Decisions
+- Use D1 and R2 as the canonical centre.
+- Keep Markdown as a projection layer.
+- Prefer stateless `createMcpHandler()` until stateful MCP transport is truly needed.
+- Combine structured retrieval, full-text retrieval, and semantic retrieval.
+- Treat provenance, notes origin, and why-it-matters as first-class design concerns, not optional afterthoughts.

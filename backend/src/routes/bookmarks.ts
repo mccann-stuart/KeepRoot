@@ -1,5 +1,5 @@
 import { errorResponse, jsonResponse, parseJson, type ProtectedRouteContext } from '../http';
-import { deleteBookmark, getBookmark, listBookmarks, patchBookmark, saveBookmark, type BookmarkPayload } from '../storage';
+import { deleteBookmark, getBookmark, listBookmarks, patchBookmark, saveItemContent, type BookmarkPayload } from '../storage';
 
 export async function handleBookmarkRoute(context: ProtectedRouteContext): Promise<Response | undefined> {
 	if (context.request.method === 'POST' && context.pathname === '/bookmarks') {
@@ -8,8 +8,13 @@ export async function handleBookmarkRoute(context: ProtectedRouteContext): Promi
 		if (!rawContent) {
 			return errorResponse('Missing bookmark content', 400);
 		}
-		const { id, metadata } = await saveBookmark(context.env, context.authUser, body);
-		return jsonResponse({ id, message: 'Saved successfully', metadata }, 201);
+		const saved = await saveItemContent(context.env, context.authUser, body);
+		return jsonResponse({
+			id: saved.id,
+			inboxEntryId: saved.inboxEntryId,
+			message: 'Saved successfully',
+			metadata: (saved.item as { metadata: Record<string, unknown> }).metadata,
+		}, 201);
 	}
 
 	if (context.request.method === 'GET' && context.pathname === '/bookmarks') {
