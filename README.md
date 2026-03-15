@@ -2,42 +2,96 @@
 
 Save bookmarks for free. An open-source, self-hosted alternative to [keep.md](https://keep.md).
 
-KeepRoot saves bookmarks from a browser extension, extracts readable page content as Markdown, and stores everything in your own Cloudflare account. You own your data — no subscriptions, no vendor lock-in.
+KeepRoot stores your reading list and extracted content in your own Cloudflare account. It includes:
+- a browser extension for one-click capture
+- a Worker-hosted dashboard
+- a remote MCP server so agents can save, search, fetch, update, and triage items
+
+You own the data and the infrastructure: no subscriptions, no hosted SaaS dependency, and no vendor lock-in.
+
+---
+
+## MCP Support
+
+KeepRoot now exposes a remote MCP endpoint at `POST /mcp`.
+
+Current MCP implementation:
+- transport: Cloudflare Worker + `agents/mcp`
+- auth: `Authorization: Bearer <session-or-api-key>`
+- storage: D1 for structured state, R2 for content payloads
+- scope: item save/search/list/get/update, inbox triage, account profile, source records, and usage stats
+
+Current limitations:
+- MCP auth is bearer-token based today; OAuth-style MCP auth is planned, not shipped
+- search is currently keyword-backed over the indexed content store
+- source records are supported now; automated polling and email routing require additional Worker handlers and deployment configuration
+
+See [PRD.md](PRD.md) and [TECHNICAL_ARCHITECTURE.md](TECHNICAL_ARCHITECTURE.md) for the broader product and platform design.
 
 ---
 
 ## Architecture
 
-KeepRoot has two main components:
+KeepRoot is organised around three layers:
 
-- **Extension (Chrome + Safari, Manifest V3):** Captures the active page content and sends bookmark payloads to your Worker.
+1. Canonical records
+   D1 stores users, bookmark metadata, tags, inbox state, source records, and MCP usage metadata. R2 stores extracted Markdown, optional HTML snapshots, and image objects.
+2. Retrieval interfaces
+   The backend exposes filtered listing, indexed search, and full record fetches for both the dashboard and MCP clients.
+3. Agent actions
+   MCP tools let agents save URLs, update records, manage inbox state, inspect account details, and manage source records.
+
+Main components:
+- **Extension (Chrome + Safari, Manifest V3):** captures the active page and sends bookmark payloads to the Worker.
 - **Backend (Cloudflare Worker):**
-  - **D1 (`KEEPROOT_DB`):** Stores auth data, bookmark metadata, tags, and image references.
-  - **R2 (`KEEPROOT_CONTENT`):** Stores content blobs (`content/*.json`, optional `html/*.html`, image objects).
+  - **Workers runtime:** dashboard, REST API, and `/mcp`
+  - **D1 (`KEEPROOT_DB`):** auth data, bookmark metadata, tags, inbox, sources, search documents, and MCP usage events
+  - **R2 (`KEEPROOT_CONTENT`):** extracted content blobs in `content/*.json`, optional `html/*.html`, and image objects
 
-### Authentication
-
-- **WebAuthn + sessions** for dashboard sign-up/sign-in.
-- **API keys** for extension-to-backend bookmark writes.
+Authentication modes:
+- **WebAuthn + sessions** for dashboard sign-up/sign-in
+- **API keys** for extension writes and MCP clients
 
 ---
 
 ## Features
 
 - One-click page save from the extension popup
-- Readability + Markdown extraction in the extension, with PDF text extraction by URL
+- Server-side readable text extraction for saved URLs, including PDF text extraction
 - Web dashboard served directly from the Worker root URL
-- Bookmark CRUD API with canonical URL normalization and deduplication
+- Canonical URL normalization and per-user deduplication
+- Notes, tags, lists, pinned state, and read state on saved items
+- Inbox workflow for newly saved or source-linked items
+- Remote MCP server for agent access
 - User-owned storage in Cloudflare D1 + R2
+
+### MCP tools
+
+| Tool | Description |
+|---|---|
+| `save_item` | Save a URL, extract content, persist it, and place it in the inbox |
+| `search_items` | Search saved items by query plus filters |
+| `list_items` | List items with cursor pagination and filters |
+| `get_item` | Fetch one item with optional Markdown or HTML content |
+| `update_item` | Update title, notes, tags, or status |
+| `whoami` | Return account identity, feature flags, and limits |
+| `list_sources` | List configured source records |
+| `add_source` | Add an RSS, YouTube, X, or email source record |
+| `remove_source` | Disable a configured source record |
+| `get_stats` | Return item, inbox, source, and tool-usage stats |
+| `list_inbox` | List pending inbox entries and their linked items |
+| `mark_done` | Mark an inbox entry as processed |
 
 ---
 
 ## Repository Layout
 
-```
+```text
 KeepRoot/
-├── backend/     # Cloudflare Worker, storage layer, migrations, tests
-└── extension/   # Cross-browser extension source, webextension build, and Safari packager
+├── backend/                   # Cloudflare Worker, dashboard, storage layer, migrations, tests
+├── extension/                 # Cross-browser extension source and Safari packager
+├── PRD.md                     # MCP product requirements
+└── TECHNICAL_ARCHITECTURE.md  # MCP technical architecture
 ```
 
 ---
@@ -46,7 +100,7 @@ KeepRoot/
 
 - Cloudflare account with Workers, D1, and R2 access
 - Node.js and npm
-- Wrangler CLI (installed via backend dependencies)
+- Wrangler CLI via backend dependencies
 
 ---
 
@@ -58,14 +112,33 @@ cd KeepRoot/backend
 npm install
 ```
 
-### Configure resource names (optional)
+### Configure resource names
 
-Edit `backend/wrangler.jsonc` to customize resource names (defaults shown):
+Edit `backend/wrangler.jsonc` to customize resource names if needed.
 
 | Resource | Default name |
 |---|---|
 | D1 database | `keeproot` |
 | R2 bucket | `keeproot-content` |
+
+### Optional MCP-related environment variables
+
+If you want to enable more of the MCP source-management surface, add Worker `vars` in `backend/wrangler.jsonc`:
+
+```json
+{
+  "vars": {
+    "EMAIL_SOURCE_DOMAIN": "mail.example.com",
+    "ENABLE_X_SOURCES": "1",
+    "X_SOURCE_BRIDGE_BASE_URL": "https://your-bridge.example.com/feed"
+  }
+}
+```
+
+What they do:
+- `EMAIL_SOURCE_DOMAIN`: enables stable per-account email aliases for email sources
+- `ENABLE_X_SOURCES`: enables X source records when set to `"1"`
+- `X_SOURCE_BRIDGE_BASE_URL`: lets handle-based X sources resolve through a bridge feed
 
 ### Provision resources and apply schema
 
@@ -74,9 +147,9 @@ npm run provision
 ```
 
 This command:
-- Creates missing D1/R2 resources from `wrangler.jsonc`
-- Applies remote D1 migrations (`backend/migrations/0001_initial.sql`)
-- Regenerates Worker types
+- creates missing D1 and R2 resources from `wrangler.jsonc`
+- applies remote D1 migrations in `backend/migrations/`
+- regenerates Worker types
 
 ### Deploy
 
@@ -84,13 +157,13 @@ This command:
 npm run deploy
 ```
 
-After deploying, Cloudflare returns your Worker URL, e.g.:
+After deploying, Cloudflare returns your Worker URL, for example:
 
-```
+```text
 https://backend.<your-username>.workers.dev
 ```
 
-> **Note:** Use the root URL only in the extension settings. Do not append `/bookmarks`.
+Use the root origin in the extension and the `/mcp` path for MCP clients.
 
 ---
 
@@ -99,7 +172,69 @@ https://backend.<your-username>.workers.dev
 1. Open your Worker root URL in a WebAuthn-capable browser.
 2. Register a KeepRoot account.
 3. In dashboard settings, create an API key.
-4. Copy that API key into the extension settings.
+4. Use that API key in the extension or your MCP client.
+
+---
+
+## MCP Quick Start
+
+Endpoint:
+
+```text
+POST https://backend.<your-username>.workers.dev/mcp
+```
+
+Required headers:
+
+```text
+Authorization: Bearer <session-or-api-key>
+Content-Type: application/json
+Accept: application/json, text/event-stream
+```
+
+### List available tools
+
+```bash
+curl "$KEEPROOT_URL/mcp" \
+  -H "Authorization: Bearer $KEEPROOT_TOKEN" \
+  -H "Content-Type: application/json" \
+  -H "Accept: application/json, text/event-stream" \
+  -d '{
+    "jsonrpc": "2.0",
+    "id": "1",
+    "method": "tools/list",
+    "params": {}
+  }'
+```
+
+### Save an item through MCP
+
+```bash
+curl "$KEEPROOT_URL/mcp" \
+  -H "Authorization: Bearer $KEEPROOT_TOKEN" \
+  -H "Content-Type: application/json" \
+  -H "Accept: application/json, text/event-stream" \
+  -d '{
+    "jsonrpc": "2.0",
+    "id": "2",
+    "method": "tools/call",
+    "params": {
+      "name": "save_item",
+      "arguments": {
+        "url": "https://example.com/article",
+        "tags": ["reading", "mcp"],
+        "notes": "Saved from MCP"
+      }
+    }
+  }'
+```
+
+### Example MCP argument shapes
+
+- `get_item`: `{ "item_id": "...", "include_content": true, "include_html": false }`
+- `update_item`: `{ "item_id": "...", "title": "...", "notes": "...", "tags": ["..."], "status": "saved" }`
+- `add_source`: `{ "kind": "rss", "identifier": "https://example.com/feed.xml", "name": "Example Feed" }`
+- `mark_done`: `{ "inbox_entry_id": "..." }`
 
 ---
 
@@ -110,15 +245,18 @@ cd backend
 npm run dev
 ```
 
-`npm run dev` regenerates types, applies local D1 migrations, and starts `wrangler dev`.
+`npm run dev` regenerates types, applies local D1 migrations, builds the dashboard, and starts `wrangler dev`.
 
 ### Useful commands
 
 | Command | Description |
 |---|---|
-| `npm test` | Run backend tests (Vitest + Cloudflare test pool) |
+| `npm test` | Run backend and dashboard tests |
+| `npm run test:worker` | Run Worker tests only |
+| `npm run test:dashboard` | Run dashboard tests only |
 | `npm run db:migrate:local` | Apply local D1 migrations only |
 | `npm run db:migrate:remote` | Apply remote D1 migrations only |
+| `npm run cf-typegen` | Regenerate Worker binding types |
 
 ---
 
@@ -136,7 +274,7 @@ npm run build
 
 1. Open `chrome://extensions`.
 2. Enable **Developer mode**.
-3. Click **Load unpacked** and select the `extension/build/webextension/` directory.
+3. Click **Load unpacked** and select `extension/build/webextension/`.
 
 ### Package for Safari in iOS and macOS apps
 
@@ -145,15 +283,13 @@ cd extension
 npm run build:safari
 ```
 
-`npm run build:safari` now does three things:
-
+`npm run build:safari`:
 - rebuilds the WebExtension in `extension/build/webextension/`
-- syncs the extension resources into the checked-in Xcode host app at `extension/safari/KeepRoot/`
-- refreshes the shared iOS/macOS app icon set from `extension/public/icons/icon1024.png`
+- syncs extension resources into `extension/safari/KeepRoot/`
+- refreshes the shared app icon set from `extension/public/icons/icon1024.png`
 - updates the checked-in Xcode project version numbers from `extension/package.json`
 
 Open `extension/safari/KeepRoot/KeepRoot.xcodeproj` in Xcode. The project includes:
-
 - `KeepRoot (iOS)` for the iPhone/iPad containing app and Safari extension
 - `KeepRoot (macOS)` for the Mac containing app and Safari extension
 
@@ -184,22 +320,16 @@ SAFARI_TEAM_ID="YOURTEAMID" npm run archive:safari:macos
 ```
 
 Archives are written to:
-
 - `extension/build/safari/KeepRoot-iOS.xcarchive`
 - `extension/build/safari/KeepRoot-macOS.xcarchive`
-
-Set `SAFARI_BUILD_NUMBER` when you need to increment the App Store build number without changing `extension/package.json`.
-
-If you are publishing under your own Apple account, set a unique bundle identifier with `SAFARI_BUNDLE_ID` or in Xcode before submitting the app.
 
 ### Configure the extension
 
 Open the extension **Settings** and provide:
-
-- **Worker URL:** your Worker root origin (e.g. `https://backend.<user>.workers.dev`)
+- **Worker URL:** your Worker root origin, for example `https://backend.<user>.workers.dev`
 - **API key:** generated from the dashboard
 
-The extension normalizes the Worker URL to origin-only and posts bookmark saves to `POST /bookmarks`.
+The extension normalizes the Worker URL to origin-only and posts saves to `POST /bookmarks`.
 
 ---
 
@@ -221,13 +351,23 @@ Require `Authorization: Bearer <session-or-api-key>`.
 
 | Method | Path | Description |
 |---|---|---|
+| `POST` | `/mcp` | MCP JSON-RPC endpoint |
 | `GET` | `/api-keys` | List API keys |
 | `POST` | `/api-keys` | Create API key |
 | `DELETE` | `/api-keys/:id` | Delete API key |
 | `POST` | `/bookmarks` | Save bookmark |
 | `GET` | `/bookmarks` | List bookmarks |
 | `GET` | `/bookmarks/:id` | Get bookmark |
+| `PATCH` | `/bookmarks/:id` | Update bookmark metadata |
 | `DELETE` | `/bookmarks/:id` | Delete bookmark |
+| `GET` | `/lists` | List saved lists |
+| `POST` | `/lists` | Create list |
+| `PATCH` | `/lists/:id` | Update list |
+| `DELETE` | `/lists/:id` | Delete list |
+| `GET` | `/smart-lists` | List smart lists |
+| `POST` | `/smart-lists` | Create smart list |
+| `PATCH` | `/smart-lists/:id` | Update smart list |
+| `DELETE` | `/smart-lists/:id` | Delete smart list |
 
 ---
 
@@ -235,17 +375,35 @@ Require `Authorization: Bearer <session-or-api-key>`.
 
 ### D1 tables
 
+Base tables:
 - `users`, `webauthn_credentials`, `auth_challenges`, `sessions`, `api_keys`
 - `bookmarks`, `bookmark_contents`, `bookmark_images`
 - `tags`, `bookmark_tags`
+- `lists`, `smart_lists`
+
+MCP-related tables:
+- `account_settings`
+- `sources`
+- `source_runs`
+- `inbox_entries`
+- `item_search_documents`
+- `bookmark_embeddings`
+- `tool_usage_events`
+
+Additional bookmark metadata columns:
+- `notes`
+- `source_id`
+- `processing_state`
+- `search_updated_at`
+- `embedding_updated_at`
 
 ### R2 content keys
 
 | Key pattern | Description |
 |---|---|
-| `content/<hash>.json` | Markdown/content blob |
-| `html/<hash>.html` | Raw HTML (when provided) |
-| `images/<hash>` | Full-size image |
+| `content/<hash>.json` | Extracted Markdown and text payload |
+| `html/<hash>.html` | Raw HTML snapshot when present |
+| `images/<hash>` | Stored image object |
 | `thumbs/<hash>/<variant>` | Image thumbnail variant |
 
 ---
@@ -253,27 +411,3 @@ Require `Authorization: Bearer <session-or-api-key>`.
 ## License
 
 [MIT](LICENSE)
-
-
-Top 10 features for a bookmark manager focused on reading lists
-	1.	Frictionless capture (multi-surface)
-	•	Browser extension, mobile share sheet, email-to-inbox, quick-add URL, and “save later” buttons.
-	2.	Reader-friendly viewing
-	•	Clean reader mode, text size/themes, offline reading, highlight/notes, and estimated reading time.
-	3.	Powerful organisation
-	•	Lists/folders, tags, nested tags, smart lists (rules-based), pinning, and drag-and-drop ordering.
-	4.	Fast, accurate search
-	•	Full-text search (page content), filters (tag, domain, date, status), saved searches, and “search within list”.
-	5.	Metadata enrichment
-	•	Automatic title/author/site/icon, preview image, content type detection (article/video/PDF), and duplicates detection.
-	6.	Read-state workflow
-	•	Inbox triage, statuses (Unread/Reading/Read/Archived), reminders, snooze, and progress tracking.
-	7.	Sharing & collaboration
-	•	Shareable lists (public/private), invite collaborators, role-based permissions (view/comment/edit), and list comments.
-	8.	Content integrity & portability
-	•	Link checking, snapshots/archiving, export/import (CSV/JSON/HTML/Netscape bookmarks), and open API.
-	9.	Cross-device sync & reliability
-	•	Real-time sync, offline-first behaviour, conflict resolution, and robust backups/version history.
-	10.	Security & privacy controls
-
-	•	End-to-end or at-rest encryption options, private-by-default sharing, SSO (for teams), audit logs, and data retention controls.
