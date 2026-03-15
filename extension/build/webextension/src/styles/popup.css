@@ -1,0 +1,66 @@
+body {
+  width: 320px;
+  min-height: 320px;
+  display: grid;
+  align-items: stretch;
+  padding: 1rem;
+}
+
+.popup-shell {
+  display: grid;
+  gap: 1rem;
+  padding: 1.2rem;
+  border: 1px solid var(--border);
+  border-radius: 18px;
+  background: var(--surface);
+  box-shadow: var(--shadow);
+  backdrop-filter: blur(18px);
+}
+
+.popup-shell__header {
+  display: grid;
+  gap: 0.35rem;
+}
+
+.popup-shell__eyebrow {
+  margin: 0;
+  font-size: 0.72rem;
+  font-weight: 700;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: #bfdbfe;
+}
+
+.popup-shell__header h1 {
+  font-size: 1.4rem;
+  line-height: 1.1;
+}
+
+.popup-shell__header p {
+  line-height: 1.5;
+}
+
+.popup-shell__action {
+  width: 100%;
+  min-height: 52px;
+  font-size: 1rem;
+}
+
+.spinner {
+  display: none;
+  width: 18px;
+  height: 18px;
+  border: 2px solid rgba(255,255,255,0.3);
+  border-radius: 50%;
+  border-top-color: #fff;
+  animation: spin 1s linear infinite;
+}
+
+.text-link {
+  justify-self: center;
+  font-size: 0.9rem;
+}
+
+@keyframes spin {
+  to { transform: rotate(360deg); }
+}
