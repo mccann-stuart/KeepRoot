@@ -563,26 +563,43 @@ async function syncTags(env: StorageEnv, userId: string, bookmarkId: string, tag
 }
 
 async function syncImages(env: StorageEnv, bookmarkId: string, images: BookmarkImagePayload[], createdAt: string): Promise<void> {
-	await env.KEEPROOT_DB.prepare('DELETE FROM bookmark_images WHERE bookmark_id = ?').bind(bookmarkId).run();
+	// ⚡ Bolt: Execute image ingestion processing in parallel using Promise.all and D1 batching to significantly reduce I/O latency
+	const processedImages = await Promise.all(
+		images
+			.filter((image) => Boolean(image.dataBase64))
+			.map(async (image) => {
+				const bytes = base64ToUint8Array(image.dataBase64 as string);
+				const imageHash = await sha256Hex(bytes);
+				const variant = normalizeVariant(image.variant);
+				const key = variant === 'original' ? `images/${imageHash}` : `thumbs/${imageHash}/${variant}`;
+				return { image, bytes, imageHash, key };
+			})
+	);
 
-	for (const image of images) {
-		if (!image.dataBase64) {
-			continue;
+	const batchStatements = [
+		env.KEEPROOT_DB.prepare('DELETE FROM bookmark_images WHERE bookmark_id = ?').bind(bookmarkId),
+	];
+	const uploadPromises: Promise<void>[] = [];
+	const seenKeys = new Set<string>();
+
+	for (const { image, bytes, imageHash, key } of processedImages) {
+		if (!seenKeys.has(key)) {
+			seenKeys.add(key);
+			uploadPromises.push(putIfMissing(env.KEEPROOT_CONTENT, key, bytes, image.contentType ?? 'application/octet-stream'));
+
+			batchStatements.push(
+				env.KEEPROOT_DB.prepare(
+					`INSERT OR REPLACE INTO bookmark_images (bookmark_id, image_hash, r2_key, width, height, type, created_at)
+					VALUES (?, ?, ?, ?, ?, ?, ?)`,
+				).bind(bookmarkId, imageHash, key, image.width ?? null, image.height ?? null, image.contentType ?? null, createdAt)
+			);
 		}
-
-		const bytes = base64ToUint8Array(image.dataBase64);
-		const imageHash = await sha256Hex(bytes);
-		const variant = normalizeVariant(image.variant);
-		const key = variant === 'original' ? `images/${imageHash}` : `thumbs/${imageHash}/${variant}`;
-		await putIfMissing(env.KEEPROOT_CONTENT, key, bytes, image.contentType ?? 'application/octet-stream');
-
-		await env.KEEPROOT_DB.prepare(
-			`INSERT OR REPLACE INTO bookmark_images (bookmark_id, image_hash, r2_key, width, height, type, created_at)
-			VALUES (?, ?, ?, ?, ?, ?, ?)`,
-		)
-			.bind(bookmarkId, imageHash, key, image.width ?? null, image.height ?? null, image.contentType ?? null, createdAt)
-			.run();
 	}
+
+	await Promise.all([
+		...uploadPromises,
+		env.KEEPROOT_DB.batch(batchStatements),
+	]);
 }
 
 async function getContentDocument(env: StorageEnv, contentRow: BookmarkContentRow | null): Promise<StoredContentDocument | null> {
