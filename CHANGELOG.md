@@ -1,5 +1,22 @@
 # Changelog
 
+## Week ending 2026-03-20
+
+### Highlights
+
+- Tightened backend security and request handling with a stricter CORS policy, broader `POST /bookmarks` coverage, and passkey support for extension origins.
+- Fixed dashboard and bookmark behavior by correcting stats, unread state, and smart list filters while continuing Safari app and extension packaging work.
+- Improved bookmark write performance by parallelizing image ingestion and batching D1 work for sync-heavy saves.
+
+### Key PRs
+
+- [#28](https://github.com/mccann-stuart/KeepRoot/pull/28) Optimize image ingestion with `Promise.all` and D1 batching
+- [#24](https://github.com/mccann-stuart/KeepRoot/pull/24) Fix overly permissive CORS policy
+- [#22](https://github.com/mccann-stuart/KeepRoot/pull/22) Add tests for `POST /bookmarks` missing content and success cases
+- [#21](https://github.com/mccann-stuart/KeepRoot/pull/21) Fix dashboard stats, bookmark unread status, and smart list filters
+
+Safari packaging and extension-origin passkey support appear in local history as direct commits on `main`, so this entry only links merged PRs that are visible in repo history.
+
 ## Week ending 2026-03-13
 
 ### Highlights
