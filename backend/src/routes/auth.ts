@@ -24,12 +24,12 @@ export async function handleAuthRoute(context: RouteContext): Promise<Response |
 			const { username } = await parseJson<{ username?: string }>(context.request);
 			const normalizedUsername = username?.trim();
 			if (!normalizedUsername) {
-				return errorResponse('Username required', 400);
+				return errorResponse(context.request, 'Username required', 400);
 			}
 
 			const existingUser = await getUserByUsername(context.env, normalizedUsername);
 			if (existingUser) {
-				return errorResponse('User already exists', 400);
+				return errorResponse(context.request, 'User already exists', 400);
 			}
 
 			const { generateRegistrationOptions } = await loadWebAuthn();
@@ -53,10 +53,10 @@ export async function handleAuthRoute(context: RouteContext): Promise<Response |
 				username: normalizedUsername,
 			});
 
-			return jsonResponse(options);
+			return jsonResponse(context.request, options);
 		} catch (error) {
 			console.error(error);
-			return errorResponse('Invalid request', 400);
+			return errorResponse(context.request, 'Invalid request', 400);
 		}
 	}
 
@@ -65,12 +65,12 @@ export async function handleAuthRoute(context: RouteContext): Promise<Response |
 			const body = await parseJson<{ response: any; username?: string }>(context.request);
 			const normalizedUsername = body.username?.trim();
 			if (!normalizedUsername || !body.response) {
-				return errorResponse('Invalid registration payload', 400);
+				return errorResponse(context.request, 'Invalid registration payload', 400);
 			}
 
 			const challenge = await getValidAuthChallenge(context.env, normalizedUsername, 'registration');
 			if (!challenge?.user_id) {
-				return errorResponse('Session expired', 400);
+				return errorResponse(context.request, 'Session expired', 400);
 			}
 
 			const { verifyRegistrationResponse } = await loadWebAuthn();
@@ -84,16 +84,16 @@ export async function handleAuthRoute(context: RouteContext): Promise<Response |
 				});
 			} catch (error) {
 				console.error(error);
-				return errorResponse('Verification failed', 400);
+				return errorResponse(context.request, 'Verification failed', 400);
 			}
 
 			if (!verification.verified || !verification.registrationInfo) {
-				return errorResponse('Verification failed', 400);
+				return errorResponse(context.request, 'Verification failed', 400);
 			}
 
 			const existingUser = await getUserByUsername(context.env, normalizedUsername);
 			if (existingUser) {
-				return errorResponse('User already exists', 400);
+				return errorResponse(context.request, 'User already exists', 400);
 			}
 
 			const { credential, credentialBackedUp, credentialDeviceType } = verification.registrationInfo;
@@ -112,10 +112,10 @@ export async function handleAuthRoute(context: RouteContext): Promise<Response |
 				username: normalizedUsername,
 			});
 
-			return jsonResponse({ token, verified: true });
+			return jsonResponse(context.request, { token, verified: true });
 		} catch (error) {
 			console.error(error);
-			return errorResponse('Unable to verify registration', 500);
+			return errorResponse(context.request, 'Unable to verify registration', 500);
 		}
 	}
 
@@ -124,12 +124,12 @@ export async function handleAuthRoute(context: RouteContext): Promise<Response |
 			const { username } = await parseJson<{ username?: string }>(context.request);
 			const normalizedUsername = username?.trim();
 			if (!normalizedUsername) {
-				return errorResponse('Username required', 400);
+				return errorResponse(context.request, 'Username required', 400);
 			}
 
 			const user = await getUserByUsername(context.env, normalizedUsername);
 			if (!user) {
-				return errorResponse('User not found', 404);
+				return errorResponse(context.request, 'User not found', 404);
 			}
 
 			const { generateAuthenticationOptions } = await loadWebAuthn();
@@ -150,10 +150,10 @@ export async function handleAuthRoute(context: RouteContext): Promise<Response |
 				username: normalizedUsername,
 			});
 
-			return jsonResponse(options);
+			return jsonResponse(context.request, options);
 		} catch (error) {
 			console.error(error);
-			return errorResponse('Invalid request', 400);
+			return errorResponse(context.request, 'Invalid request', 400);
 		}
 	}
 
@@ -162,23 +162,23 @@ export async function handleAuthRoute(context: RouteContext): Promise<Response |
 			const body = await parseJson<{ response: any; username?: string }>(context.request);
 			const normalizedUsername = body.username?.trim();
 			if (!normalizedUsername || !body.response) {
-				return errorResponse('Invalid authentication payload', 400);
+				return errorResponse(context.request, 'Invalid authentication payload', 400);
 			}
 
 			const challenge = await getValidAuthChallenge(context.env, normalizedUsername, 'authentication');
 			if (!challenge) {
-				return errorResponse('Session expired', 400);
+				return errorResponse(context.request, 'Session expired', 400);
 			}
 
 			const user = await getUserByUsername(context.env, normalizedUsername);
 			if (!user) {
-				return errorResponse('User not found', 404);
+				return errorResponse(context.request, 'User not found', 404);
 			}
 
 			const authenticators = await getUserCredentials(context.env, normalizedUsername);
 			const authenticator = authenticators.find((credential) => credential.credentialId === body.response.rawId);
 			if (!authenticator) {
-				return errorResponse('Authenticator not registered', 400);
+				return errorResponse(context.request, 'Authenticator not registered', 400);
 			}
 
 			const { verifyAuthenticationResponse } = await loadWebAuthn();
@@ -198,11 +198,11 @@ export async function handleAuthRoute(context: RouteContext): Promise<Response |
 				});
 			} catch (error) {
 				console.error(error);
-				return errorResponse('Verification failed', 400);
+				return errorResponse(context.request, 'Verification failed', 400);
 			}
 
 			if (!verification.verified || !verification.authenticationInfo) {
-				return errorResponse('Verification failed', 400);
+				return errorResponse(context.request, 'Verification failed', 400);
 			}
 
 			await updateCredentialCounter(context.env, normalizedUsername, authenticator.credentialId, verification.authenticationInfo.newCounter);
@@ -213,10 +213,10 @@ export async function handleAuthRoute(context: RouteContext): Promise<Response |
 				username: normalizedUsername,
 			});
 
-			return jsonResponse({ token, verified: true });
+			return jsonResponse(context.request, { token, verified: true });
 		} catch (error) {
 			console.error(error);
-			return errorResponse('Unable to verify authentication', 500);
+			return errorResponse(context.request, 'Unable to verify authentication', 500);
 		}
 	}
 
