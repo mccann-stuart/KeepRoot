@@ -574,26 +574,34 @@ async function syncTags(env: StorageEnv, userId: string, bookmarkId: string, tag
 }
 
 async function syncImages(env: StorageEnv, bookmarkId: string, images: BookmarkImagePayload[], createdAt: string): Promise<void> {
-	await env.KEEPROOT_DB.prepare('DELETE FROM bookmark_images WHERE bookmark_id = ?').bind(bookmarkId).run();
+	const deleteStatement = env.KEEPROOT_DB.prepare('DELETE FROM bookmark_images WHERE bookmark_id = ?').bind(bookmarkId);
 
-	for (const image of images) {
+	// Process all valid images concurrently to reduce I/O latency
+	const uploadPromises = images.map(async (image) => {
 		if (!image.dataBase64) {
-			continue;
+			return null;
 		}
 
 		const bytes = base64ToUint8Array(image.dataBase64);
 		const imageHash = await sha256Hex(bytes);
 		const variant = normalizeVariant(image.variant);
 		const key = variant === 'original' ? `images/${imageHash}` : `thumbs/${imageHash}/${variant}`;
+
+		// Upload to R2
 		await putIfMissing(env.KEEPROOT_CONTENT, key, bytes, image.contentType ?? 'application/octet-stream');
 
-		await env.KEEPROOT_DB.prepare(
+		// Return prepared statement for D1 batch insertion
+		return env.KEEPROOT_DB.prepare(
 			`INSERT OR REPLACE INTO bookmark_images (bookmark_id, image_hash, r2_key, width, height, type, created_at)
 			VALUES (?, ?, ?, ?, ?, ?, ?)`,
-		)
-			.bind(bookmarkId, imageHash, key, image.width ?? null, image.height ?? null, image.contentType ?? null, createdAt)
-			.run();
-	}
+		).bind(bookmarkId, imageHash, key, image.width ?? null, image.height ?? null, image.contentType ?? null, createdAt);
+	});
+
+	const preparedStatements = await Promise.all(uploadPromises);
+	const insertStatements = preparedStatements.filter((stmt): stmt is Exclude<typeof stmt, null> => stmt !== null);
+
+	// Batch D1 operations into a single roundtrip to prevent N+1 query latency
+	await env.KEEPROOT_DB.batch([deleteStatement, ...insertStatements]);
 }
 
 async function getContentDocument(env: StorageEnv, contentRow: BookmarkContentRow | null): Promise<StoredContentDocument | null> {
