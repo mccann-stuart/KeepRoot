@@ -7,3 +7,8 @@
 **Vulnerability:** Internal error details (such as stack traces or specific error messages from the WebAuthn library) were exposed to API consumers in the catch blocks of the authentication endpoints (`/auth/*`).
 **Learning:** This occurred because the code returned `error.message` directly in the HTTP response body for 400 and 500 status codes, instead of logging the detailed error internally. Exposing internal error messages can provide attackers with valuable insights into the backend systems, libraries, and application logic.
 **Prevention:** Always catch and log detailed error information internally via `console.error` while returning generic, safe error messages (like "Internal Server Error" or "Verification failed") to the client. This follows the defense-in-depth principle by failing securely and not leaking sensitive data.
+
+## 2024-03-24 - [Overly Permissive CORS Configuration]
+**Vulnerability:** The backend previously used a static `corsHeaders` object with `Access-Control-Allow-Origin: *`. This means any website could potentially make requests to the API on behalf of an authenticated user (if tokens were passed) or access the API indiscriminately, violating the principle of least privilege.
+**Learning:** This occurred because static headers were easily applied globally without considering the origin of the request. Global wildcard CORS is highly risky for APIs that handle sensitive user data (like bookmarks and auth).
+**Prevention:** Implement a dynamic `applyCorsHeaders` function that checks the `Origin` header of the incoming request. Only allow specific, trusted origins (like the main application domains and specific browser extension protocols) to be reflected in the `Access-Control-Allow-Origin` response header.

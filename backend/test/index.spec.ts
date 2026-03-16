@@ -189,13 +189,14 @@ describe('KeepRoot Worker', () => {
 	it('responds with 200 and CORS headers for OPTIONS request', async () => {
 		const request = new Request('http://example.com/bookmarks', {
 			method: 'OPTIONS',
+			headers: { Origin: 'http://example.com' },
 		});
 		const ctx = createExecutionContext();
 		const response = await worker.fetch(request, env, ctx);
 		await waitOnExecutionContext(ctx);
 
 		expect(response.status).toBe(200);
-		expect(response.headers.get('Access-Control-Allow-Origin')).toBe('*');
+		expect(response.headers.get('Access-Control-Allow-Origin')).toBe('http://example.com');
 		expect(response.headers.get('Access-Control-Allow-Methods')).toBe('GET, POST, PATCH, DELETE, OPTIONS');
 		expect(response.headers.get('Access-Control-Allow-Headers')).toBe('Content-Type, Authorization');
 

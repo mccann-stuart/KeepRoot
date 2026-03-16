@@ -37,7 +37,7 @@ export default {
 			const authUser = token ? await authenticateBearerToken(env, token) : null;
 
 			if (!authUser) {
-				return errorResponse('Unauthorized', 401);
+				return errorResponse(request, 'Unauthorized', 401);
 			}
 
 			try {
@@ -46,12 +46,12 @@ export default {
 				return createKeepRootMcpHandler(env, authUser)(request, env, ctx);
 			} catch (error) {
 				console.error(error);
-				return errorResponse('Internal Server Error', 500);
+				return errorResponse(request, 'Internal Server Error', 500);
 			}
 		}
 
 		if (!isProtectedApiPath(context.pathname)) {
-			return errorResponse('Not found', 404);
+			return errorResponse(request, 'Not found', 404);
 		}
 
 		const authHeader = request.headers.get('Authorization');
@@ -59,7 +59,7 @@ export default {
 		const authUser = token ? await authenticateBearerToken(env, token) : null;
 
 		if (!authUser) {
-			return errorResponse('Unauthorized', 401);
+			return errorResponse(request, 'Unauthorized', 401);
 		}
 
 		try {
@@ -72,10 +72,10 @@ export default {
 				?? await handleBookmarkRoute(protectedContext)
 				?? await handleListRoute(protectedContext)
 				?? await handleSmartListRoute(protectedContext)
-				?? errorResponse('Not found', 404);
+				?? errorResponse(request, 'Not found', 404);
 		} catch (error) {
 			console.error(error);
-			return errorResponse('Internal Server Error', 500);
+			return errorResponse(request, 'Internal Server Error', 500);
 		}
 	},
 };
