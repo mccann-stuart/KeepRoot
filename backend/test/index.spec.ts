@@ -373,6 +373,192 @@ describe('KeepRoot Worker', () => {
 		expect(response.status).toBe(200);
 	});
 
+	it('protects and serves MCP dashboard account and stats routes', async () => {
+		const unauthorizedCtx = createExecutionContext();
+		const unauthorizedResponse = await worker.fetch(new Request('http://example.com/account'), env, unauthorizedCtx);
+		await waitOnExecutionContext(unauthorizedCtx);
+
+		expect(unauthorizedResponse.status).toBe(401);
+		expect(await unauthorizedResponse.json()).toEqual({ error: 'Unauthorized' });
+
+		const accountCtx = createExecutionContext();
+		const accountResponse = await worker.fetch(new Request('http://example.com/account', {
+			headers: {
+				Authorization: `Bearer ${API_KEY}`,
+			},
+		}), env, accountCtx);
+		await waitOnExecutionContext(accountCtx);
+
+		expect(accountResponse.status).toBe(200);
+		const account = await accountResponse.json() as any;
+		expect(account.account.username).toBe(TEST_USERNAME);
+		expect(account.tokenType).toBe('api_key');
+
+		const statsCtx = createExecutionContext();
+		const statsResponse = await worker.fetch(new Request('http://example.com/stats', {
+			headers: {
+				Authorization: `Bearer ${API_KEY}`,
+			},
+		}), env, statsCtx);
+		await waitOnExecutionContext(statsCtx);
+
+		expect(statsResponse.status).toBe(200);
+		const stats = await statsResponse.json() as any;
+		expect(stats.items.total).toBe(0);
+		expect(stats.sources.total).toBe(0);
+	});
+
+	it('manages MCP sources through authenticated REST routes', async () => {
+		(env as { MCP_EMAIL_DOMAIN?: string }).MCP_EMAIL_DOMAIN = 'mail.keeproot.test';
+		mockTextFetch({
+			'https://feeds.example.com/root.xml': {
+				body: `<?xml version="1.0" encoding="UTF-8"?>
+					<rss version="2.0">
+						<channel>
+							<title>KeepRoot Feed</title>
+							<item>
+								<title>Feed Story</title>
+								<link>https://feeds.example.com/posts/1</link>
+								<description>Fresh story from a synced source.</description>
+							</item>
+						</channel>
+					</rss>`,
+				contentType: 'application/rss+xml; charset=utf-8',
+			},
+		});
+
+		const emailCtx = createExecutionContext();
+		const emailResponse = await worker.fetch(new Request('http://example.com/sources', {
+			method: 'POST',
+			headers: {
+				Authorization: `Bearer ${API_KEY}`,
+				'Content-Type': 'application/json',
+			},
+			body: JSON.stringify({
+				identifier: 'weekly-digest',
+				kind: 'email',
+				name: 'Digest Inbox',
+				syncNow: false,
+			}),
+		}), env, emailCtx);
+		await waitOnExecutionContext(emailCtx);
+
+		expect(emailResponse.status).toBe(201);
+		const emailSource = await emailResponse.json() as any;
+		expect(emailSource.kind).toBe('email');
+		expect(emailSource.emailAlias).toContain('@mail.keeproot.test');
+
+		const rssCtx = createExecutionContext();
+		const rssResponse = await worker.fetch(new Request('http://example.com/sources', {
+			method: 'POST',
+			headers: {
+				Authorization: `Bearer ${API_KEY}`,
+				'Content-Type': 'application/json',
+			},
+			body: JSON.stringify({
+				identifier: 'https://feeds.example.com/root.xml',
+				kind: 'rss',
+				name: 'Root Feed',
+			}),
+		}), env, rssCtx);
+		await waitOnExecutionContext(rssCtx);
+
+		expect(rssResponse.status).toBe(201);
+		const rssSource = await rssResponse.json() as any;
+		expect(rssSource.pollUrl).toBe('https://feeds.example.com/root.xml');
+
+		const listCtx = createExecutionContext();
+		const listResponse = await worker.fetch(new Request('http://example.com/sources', {
+			headers: {
+				Authorization: `Bearer ${API_KEY}`,
+			},
+		}), env, listCtx);
+		await waitOnExecutionContext(listCtx);
+
+		expect(listResponse.status).toBe(200);
+		const listed = await listResponse.json() as any;
+		expect(listed.sources).toHaveLength(2);
+
+		const statsCtx = createExecutionContext();
+		const statsResponse = await worker.fetch(new Request('http://example.com/stats', {
+			headers: {
+				Authorization: `Bearer ${API_KEY}`,
+			},
+		}), env, statsCtx);
+		await waitOnExecutionContext(statsCtx);
+
+		expect(statsResponse.status).toBe(200);
+		const stats = await statsResponse.json() as any;
+		expect(stats.sources.total).toBe(2);
+		expect(stats.sources.byKind.email).toBe(1);
+		expect(stats.sources.byKind.rss).toBe(1);
+		expect(stats.inbox.pending).toBe(1);
+
+		const deleteCtx = createExecutionContext();
+		const deleteResponse = await worker.fetch(new Request(`http://example.com/sources/${rssSource.id}`, {
+			method: 'DELETE',
+			headers: {
+				Authorization: `Bearer ${API_KEY}`,
+			},
+		}), env, deleteCtx);
+		await waitOnExecutionContext(deleteCtx);
+
+		expect(deleteResponse.status).toBe(200);
+		expect(await deleteResponse.json()).toEqual({ removed: true });
+
+		const afterCtx = createExecutionContext();
+		const afterResponse = await worker.fetch(new Request('http://example.com/sources', {
+			headers: {
+				Authorization: `Bearer ${API_KEY}`,
+			},
+		}), env, afterCtx);
+		await waitOnExecutionContext(afterCtx);
+
+		const afterRemoval = await afterResponse.json() as any;
+		expect(afterRemoval.sources).toHaveLength(1);
+		expect(afterRemoval.sources[0].kind).toBe('email');
+	});
+
+	it('validates REST source creation for feature-gated email and X bridge requirements', async () => {
+		const emailCtx = createExecutionContext();
+		const emailResponse = await worker.fetch(new Request('http://example.com/sources', {
+			method: 'POST',
+			headers: {
+				Authorization: `Bearer ${API_KEY}`,
+				'Content-Type': 'application/json',
+			},
+			body: JSON.stringify({
+				identifier: 'weekly-digest',
+				kind: 'email',
+			}),
+		}), env, emailCtx);
+		await waitOnExecutionContext(emailCtx);
+
+		expect(emailResponse.status).toBe(400);
+		expect(await emailResponse.json()).toEqual({
+			error: 'Email sources require MCP_EMAIL_DOMAIN to be configured',
+		});
+
+		const xCtx = createExecutionContext();
+		const xResponse = await worker.fetch(new Request('http://example.com/sources', {
+			method: 'POST',
+			headers: {
+				Authorization: `Bearer ${API_KEY}`,
+				'Content-Type': 'application/json',
+			},
+			body: JSON.stringify({
+				identifier: 'https://x.com/keeproot',
+				kind: 'x',
+			}),
+		}), env, xCtx);
+		await waitOnExecutionContext(xCtx);
+
+		expect(xResponse.status).toBe(400);
+		expect(await xResponse.json()).toEqual({
+			error: 'X sources require an operator-provided RSS bridge URL',
+		});
+	});
+
 	it('responds with 400 Bad Request if bookmark content is missing', async () => {
 		const ctx = createExecutionContext();
 		const createReq = new Request('http://example.com/bookmarks', {

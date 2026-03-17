@@ -1,4 +1,5 @@
-import type { ApiKeyRecord, BookmarkDetail, BookmarkSummary, ListSummary, SmartListSummary } from './state';
+import type { AccountSummary, ApiKeyRecord, BookmarkDetail, BookmarkSummary, ListSummary, SmartListSummary, SourceRecord, UsageStats } from './state';
+import type { SourceKind } from '../../../src/storage/shared';
 
 export class ApiError extends Error {
 	status: number;
@@ -80,6 +81,37 @@ export class KeepRootApi {
 
 	listApiKeys(): Promise<{ keys: ApiKeyRecord[] }> {
 		return this.request('/api-keys');
+	}
+
+	getAccount(): Promise<AccountSummary> {
+		return this.request('/account');
+	}
+
+	getStats(): Promise<UsageStats> {
+		return this.request('/stats');
+	}
+
+	listSources(): Promise<{ nextCursor: string | null; sources: SourceRecord[] }> {
+		return this.request('/sources');
+	}
+
+	createSource(body: {
+		bridgeUrl?: string;
+		identifier: string;
+		kind: SourceKind;
+		name?: string;
+		syncNow?: boolean;
+	}): Promise<SourceRecord> {
+		return this.request('/sources', {
+			bodyJson: body,
+			method: 'POST',
+		});
+	}
+
+	deleteSource(id: string): Promise<{ removed: boolean }> {
+		return this.request(`/sources/${id}`, {
+			method: 'DELETE',
+		});
 	}
 
 	createApiKey(name: string): Promise<{ metadata: ApiKeyRecord; secret: string }> {

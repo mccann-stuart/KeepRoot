@@ -70,8 +70,12 @@ export async function parseJson<T>(request: Request): Promise<T> {
 }
 
 export function isProtectedApiPath(pathname: string): boolean {
-	return pathname === '/api-keys'
+	return pathname === '/account'
+		|| pathname === '/stats'
+		|| pathname === '/api-keys'
 		|| pathname.startsWith('/api-keys/')
+		|| pathname === '/sources'
+		|| pathname.startsWith('/sources/')
 		|| pathname === '/bookmarks'
 		|| pathname.startsWith('/bookmarks/')
 		|| pathname === '/lists'

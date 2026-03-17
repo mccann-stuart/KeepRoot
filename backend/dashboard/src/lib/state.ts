@@ -1,4 +1,6 @@
-export type ViewName = 'content' | 'empty' | 'inbox' | 'settings' | 'setup';
+import type { SourceKind } from '../../../src/storage/shared';
+
+export type ViewName = 'content' | 'empty' | 'inbox' | 'mcp' | 'settings' | 'setup';
 export type FilterType = 'all' | 'inbox' | 'list' | 'smartlist' | 'tag';
 
 export interface Preferences {
@@ -42,7 +44,76 @@ export interface ApiKeyRecord {
 	name: string;
 }
 
+export interface AccountFeatures extends Record<string, boolean | null | number | string | undefined> {
+	email?: boolean;
+	rss?: boolean;
+	x?: boolean;
+	youtube?: boolean;
+}
+
+export interface AccountSummary {
+	account: {
+		createdAt?: string | null;
+		displayName?: string | null;
+		plan: string;
+		updatedAt?: string | null;
+		userId: string;
+		username: string;
+	};
+	features: AccountFeatures;
+	limits: Record<string, unknown>;
+	tokenType: 'api_key' | 'session';
+}
+
+export interface SourceRecord {
+	createdAt?: string;
+	emailAlias?: string;
+	id: string;
+	kind: SourceKind;
+	lastError?: string;
+	lastPolledAt?: string;
+	lastSuccessAt?: string;
+	name: string;
+	normalizedIdentifier: string;
+	pollUrl?: string;
+	status: string;
+	updatedAt?: string;
+}
+
+export interface ToolUsageRecord {
+	count: number;
+	status: string;
+	toolName: string;
+}
+
+export interface SourceHealthRecord {
+	id: string;
+	kind: string;
+	lastError?: string;
+	lastPolledAt?: string;
+	lastSuccessAt?: string;
+	name: string;
+	status: string;
+}
+
+export interface UsageStats {
+	inbox: {
+		pending: number;
+	};
+	items: {
+		byStatus: Record<string, number>;
+		total: number;
+	};
+	recentToolUsage: ToolUsageRecord[];
+	sourceHealth: SourceHealthRecord[];
+	sources: {
+		byKind: Record<string, number>;
+		total: number;
+	};
+}
+
 export interface AppState {
+	account: AccountSummary | null;
 	apiKeys: ApiKeyRecord[];
 	bookmarks: BookmarkSummary[];
 	currentBookmarkId: string | null;
@@ -54,11 +125,14 @@ export interface AppState {
 	preferences: Preferences;
 	secret: string | null;
 	smartLists: SmartListSummary[];
+	sources: SourceRecord[];
 	tags: string[];
+	usageStats: UsageStats | null;
 }
 
 export function createAppState(preferences: Preferences): AppState {
 	return {
+		account: null,
 		apiKeys: [],
 		bookmarks: [],
 		currentBookmarkId: null,
@@ -70,7 +144,9 @@ export function createAppState(preferences: Preferences): AppState {
 		preferences,
 		secret: null,
 		smartLists: [],
+		sources: [],
 		tags: [],
+		usageStats: null,
 	};
 }
 

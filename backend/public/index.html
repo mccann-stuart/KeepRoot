@@ -73,6 +73,7 @@
 				<section class="sidebar-group">
 					<h2>Manage</h2>
 					<button id="setup-btn" type="button" class="nav-link">API Keys</button>
+					<button id="nav-mcp" type="button" class="nav-link">MCP Setup</button>
 				</section>
 			</nav>
 
@@ -218,6 +219,131 @@
 							<h3>Existing Keys</h3>
 						</header>
 						<div id="api-keys-list" class="stack-list"></div>
+					</section>
+				</div>
+			</section>
+
+			<section id="mcp-view" class="view is-hidden">
+				<div class="stack-layout">
+					<header class="panel-header">
+						<p class="eyebrow">Remote MCP</p>
+						<h2>MCP Setup</h2>
+						<p>Connect KeepRoot to remote MCP clients, review account capabilities, and manage the content sources that feed your archive.</p>
+						<div class="button-row">
+							<button id="open-api-keys-from-mcp-btn" type="button" class="btn btn-secondary btn-compact">Manage API Keys</button>
+						</div>
+					</header>
+
+					<section class="panel">
+						<header class="panel-header panel-header--tight">
+							<h3>Connection</h3>
+							<p>Use the remote MCP endpoint below and authenticate with a KeepRoot API key from Manage &gt; API Keys.</p>
+						</header>
+						<div class="mcp-connection-grid">
+							<article class="mcp-code-card">
+								<div class="mcp-code-card__header">
+									<h4>Endpoint</h4>
+									<button type="button" class="btn btn-secondary btn-compact" data-copy-target="mcp-endpoint-value">Copy</button>
+								</div>
+								<label class="field">
+									<span>Server URL</span>
+									<input id="mcp-endpoint-value" type="text" readonly>
+								</label>
+								<p class="muted-copy">Send `Authorization: Bearer &lt;API_KEY&gt;` with the request. The MCP screen never reveals an existing secret.</p>
+							</article>
+
+							<div id="mcp-preset-panel" class="mcp-preset-grid">
+								<article class="mcp-code-card">
+									<div class="mcp-code-card__header">
+										<div>
+											<h4>Claude Code</h4>
+											<p class="muted-copy">Remote HTTP connection with a custom Bearer header.</p>
+										</div>
+										<button type="button" class="btn btn-secondary btn-compact" data-copy-target="mcp-preset-claude-value">Copy</button>
+									</div>
+									<label class="field">
+										<span>Command</span>
+										<textarea id="mcp-preset-claude-value" class="code-field" rows="4" readonly></textarea>
+									</label>
+								</article>
+
+								<article class="mcp-code-card">
+									<div class="mcp-code-card__header">
+										<div>
+											<h4>OpenAI</h4>
+											<p class="muted-copy">Responses API MCP tool config. ChatGPT Developer Mode can also import remote servers from Settings &gt; Connectors.</p>
+										</div>
+										<button type="button" class="btn btn-secondary btn-compact" data-copy-target="mcp-preset-openai-value">Copy</button>
+									</div>
+									<label class="field">
+										<span>JSON</span>
+										<textarea id="mcp-preset-openai-value" class="code-field" rows="9" readonly></textarea>
+									</label>
+								</article>
+							</div>
+						</div>
+					</section>
+
+					<section class="panel">
+						<header class="panel-header panel-header--tight">
+							<h3>Account and Status</h3>
+							<p>Review what this deployment supports before wiring clients and sources against it.</p>
+						</header>
+						<div id="mcp-account-summary" class="stack-list"></div>
+						<div id="mcp-feature-list" class="tag-list"></div>
+						<div id="mcp-stats-grid" class="stats stats--wide"></div>
+						<div class="mcp-status-columns">
+							<section>
+								<h4>Recent Tool Usage</h4>
+								<div id="mcp-tool-usage-list" class="stack-list"></div>
+							</section>
+							<section>
+								<h4>Source Health</h4>
+								<div id="mcp-source-health-list" class="stack-list"></div>
+							</section>
+						</div>
+					</section>
+
+					<section class="mcp-source-layout">
+						<section class="panel">
+							<header class="panel-header panel-header--tight">
+								<h3>Add Source</h3>
+								<p>Create an RSS, YouTube, X, or email source. Unsupported kinds remain visible but disabled from account capabilities.</p>
+							</header>
+							<form id="mcp-source-form" class="stack-form">
+								<label class="field">
+									<span>Source Type</span>
+									<select id="mcp-source-kind"></select>
+								</label>
+								<p id="mcp-source-kind-help" class="muted-copy"></p>
+
+								<label class="field">
+									<span id="mcp-source-identifier-label">Identifier</span>
+									<input id="mcp-source-identifier" type="text" required>
+								</label>
+								<p id="mcp-source-identifier-help" class="muted-copy"></p>
+
+								<label class="field">
+									<span>Name</span>
+									<input id="mcp-source-name" type="text" placeholder="Optional display name">
+								</label>
+
+								<label id="mcp-source-bridge-field" class="field is-hidden">
+									<span>RSS Bridge URL</span>
+									<input id="mcp-source-bridge-url" type="url" placeholder="https://feeds.example.com/account.xml">
+								</label>
+
+								<button id="mcp-source-submit" type="submit" class="btn btn-primary">Add Source</button>
+							</form>
+						</section>
+
+						<section class="panel">
+							<header class="panel-header panel-header--tight">
+								<h3>Configured Sources</h3>
+								<p>KeepRoot will soft-remove a source instead of deleting its historical records.</p>
+							</header>
+							<div id="mcp-sources-list" class="stack-list"></div>
+						</section>
 					</section>
 				</div>
 			</section>

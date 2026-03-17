@@ -4,8 +4,9 @@ import { ApiError, KeepRootApi } from './lib/api';
 import { getDom } from './lib/dom';
 import { collectTags, filterBookmarks } from './lib/filters';
 import { renderMarkdown } from './lib/markdown';
+import { buildMcpPresets, getDefaultSourceKind, getMcpEndpoint, getSourceKindOptions, getSourceSummaryLine } from './lib/mcp';
 import { registerServiceWorker } from './lib/service-worker';
-import { buildDataSnapshot, createAppState, getBookmarkId, type ApiKeyRecord, type BookmarkDetail, type BookmarkSummary, type HighlightRecord, type SmartListSummary, type ViewName } from './lib/state';
+import { buildDataSnapshot, createAppState, getBookmarkId, type AccountFeatures, type ApiKeyRecord, type BookmarkDetail, type BookmarkSummary, type HighlightRecord, type SmartListSummary, type SourceHealthRecord, type SourceRecord, type ToolUsageRecord, type ViewName } from './lib/state';
 import { clearSessionToken, loadHighlights, loadPreferences, loadSessionToken, saveHighlights, savePreference, saveSessionToken } from './lib/storage';
 
 const dom = getDom();
@@ -79,6 +80,7 @@ function updateNavigationState() {
 	dom.navInbox.classList.toggle('nav-link--active', state.currentView === 'inbox' && state.filterType === 'inbox');
 	dom.navAll.classList.toggle('nav-link--active', state.currentView === 'inbox' && state.filterType === 'all');
 	dom.setupBtn.classList.toggle('nav-link--active', state.currentView === 'setup');
+	dom.navMcp.classList.toggle('nav-link--active', state.currentView === 'mcp');
 	dom.openSettingsBtn.classList.toggle('nav-link--active', state.currentView === 'settings');
 
 	document.querySelectorAll<HTMLElement>('.sidebar-item').forEach((element) => {
@@ -101,6 +103,7 @@ function switchView(viewName: ViewName, filterType = state.filterType, filterId 
 	dom.inboxView.classList.toggle('is-hidden', viewName !== 'inbox');
 	dom.contentView.classList.toggle('is-hidden', viewName !== 'content');
 	dom.setupView.classList.toggle('is-hidden', viewName !== 'setup');
+	dom.mcpView.classList.toggle('is-hidden', viewName !== 'mcp');
 	dom.settingsView.classList.toggle('is-hidden', viewName !== 'settings');
 
 	if (viewName === 'inbox') {
@@ -123,6 +126,13 @@ function switchView(viewName: ViewName, filterType = state.filterType, filterId 
 	} else if (viewName === 'setup') {
 		dom.currentViewTitle.textContent = 'API Keys';
 		void fetchApiKeys();
+	} else if (viewName === 'mcp') {
+		dom.currentViewTitle.textContent = 'MCP Setup';
+		renderMcpConnection();
+		renderSourceKindOptions(state.account?.features ?? null);
+		renderMcpStatus();
+		renderSources(state.sources);
+		void fetchMcpData();
 	} else if (viewName === 'settings') {
 		dom.currentViewTitle.textContent = 'Settings';
 	} else if (viewName === 'content') {
@@ -310,6 +320,215 @@ function renderApiKeys(keys: ApiKeyRecord[]) {
 	}
 }
 
+function formatTimestamp(value?: string | null): string {
+	if (!value) {
+		return '—';
+	}
+	return new Date(value).toLocaleString();
+}
+
+function getEnabledFeatures(features: AccountFeatures | null): string[] {
+	if (!features) {
+		return [];
+	}
+
+	return Object.entries(features)
+		.filter(([, enabled]) => enabled === true)
+		.map(([feature]) => feature);
+}
+
+function renderMcpConnection() {
+	const endpoint = getMcpEndpoint(window.location.origin);
+	const presets = buildMcpPresets(window.location.origin);
+
+	dom.mcpConnectionValue.value = endpoint;
+	dom.mcpPresetClaudeValue.value = presets.find((preset) => preset.id === 'claude-code')?.value ?? '';
+	dom.mcpPresetOpenAiValue.value = presets.find((preset) => preset.id === 'openai')?.value ?? '';
+}
+
+function renderSourceKindOptions(features: AccountFeatures | null) {
+	const options = getSourceKindOptions(features);
+	const selectedKind = getDefaultSourceKind(features, dom.mcpSourceKind.value);
+
+	dom.mcpSourceKind.innerHTML = '';
+	for (const option of options) {
+		const element = document.createElement('option');
+		element.value = option.kind;
+		element.textContent = option.disabled ? `${option.label} (Unavailable)` : option.label;
+		element.disabled = option.disabled;
+		element.selected = option.kind === selectedKind;
+		dom.mcpSourceKind.appendChild(element);
+	}
+
+	updateSourceKindHelp(features);
+}
+
+function updateSourceKindHelp(features: AccountFeatures | null) {
+	const option = getSourceKindOptions(features).find((entry) => entry.kind === dom.mcpSourceKind.value)
+		?? getSourceKindOptions(features).find((entry) => !entry.disabled);
+
+	if (!option) {
+		dom.mcpSourceKind.disabled = true;
+		dom.mcpSourceIdentifier.disabled = true;
+		dom.mcpSourceName.disabled = true;
+		dom.mcpSourceBridgeUrl.disabled = true;
+		dom.mcpSourceSubmit.disabled = true;
+		dom.mcpSourceKindHelp.textContent = 'No source types are currently available for this account.';
+		dom.mcpSourceIdentifierLabel.textContent = 'Identifier';
+		dom.mcpSourceIdentifierHelp.textContent = '';
+		dom.mcpSourceBridgeField.classList.add('is-hidden');
+		return;
+	}
+
+	dom.mcpSourceKind.value = option.kind;
+	dom.mcpSourceKind.disabled = false;
+	dom.mcpSourceIdentifier.disabled = false;
+	dom.mcpSourceName.disabled = false;
+	dom.mcpSourceSubmit.disabled = false;
+	dom.mcpSourceKindHelp.textContent = option.description;
+	dom.mcpSourceIdentifierLabel.textContent = option.identifierLabel;
+	dom.mcpSourceIdentifierHelp.textContent = option.identifierHelp;
+	dom.mcpSourceBridgeField.classList.toggle('is-hidden', !option.requiresBridgeUrl);
+	dom.mcpSourceBridgeUrl.disabled = !option.requiresBridgeUrl;
+	if (!option.requiresBridgeUrl) {
+		dom.mcpSourceBridgeUrl.value = '';
+	}
+}
+
+function renderMcpStatus() {
+	const account = state.account;
+	const stats = state.usageStats;
+	const enabledFeatures = getEnabledFeatures(account?.features ?? null);
+
+	dom.mcpAccountSummary.innerHTML = '';
+	dom.mcpFeatureList.innerHTML = '';
+	dom.mcpStatsGrid.innerHTML = '';
+	dom.mcpToolUsageList.innerHTML = '';
+	dom.mcpSourceHealthList.innerHTML = '';
+
+	if (!account) {
+		dom.mcpAccountSummary.innerHTML = '<article class="stack-item"><p class="muted-copy">Loading account capabilities…</p></article>';
+		dom.mcpToolUsageList.innerHTML = '<p class="muted-copy">Loading recent MCP activity…</p>';
+		dom.mcpSourceHealthList.innerHTML = '<p class="muted-copy">Loading source health…</p>';
+		return;
+	}
+
+	dom.mcpAccountSummary.innerHTML = `
+		<article class="stack-item stack-item--split">
+			<div>
+				<h3>${account.account.displayName ?? account.account.username}</h3>
+				<p class="muted-copy">@${account.account.username}</p>
+			</div>
+			<div class="mcp-meta">
+				<span class="pill">Plan: ${account.account.plan}</span>
+				<span class="pill">Auth: ${account.tokenType}</span>
+			</div>
+		</article>
+	`;
+
+	if (!enabledFeatures.length) {
+		dom.mcpFeatureList.innerHTML = '<span class="muted-copy">No source capabilities exposed.</span>';
+	} else {
+		for (const feature of enabledFeatures) {
+			const pill = document.createElement('span');
+			pill.className = 'tag-pill';
+			pill.textContent = feature;
+			dom.mcpFeatureList.appendChild(pill);
+		}
+	}
+
+	const statCards = [
+		{ label: 'Items', value: String(stats?.items.total ?? 0) },
+		{ label: 'Sources', value: String(stats?.sources.total ?? 0) },
+		{ label: 'Inbox Pending', value: String(stats?.inbox.pending ?? 0) },
+		{ label: 'Source Kinds', value: String(Object.keys(stats?.sources.byKind ?? {}).length) },
+	];
+	for (const stat of statCards) {
+		const card = document.createElement('article');
+		card.className = 'stat-card';
+		card.innerHTML = `<span>${stat.label}</span><strong>${stat.value}</strong>`;
+		dom.mcpStatsGrid.appendChild(card);
+	}
+
+	renderToolUsage(stats?.recentToolUsage ?? []);
+	renderSourceHealth(stats?.sourceHealth ?? []);
+}
+
+function renderToolUsage(entries: ToolUsageRecord[]) {
+	dom.mcpToolUsageList.innerHTML = '';
+
+	if (!entries.length) {
+		dom.mcpToolUsageList.innerHTML = '<p class="muted-copy">No MCP tool activity recorded in the last 7 days.</p>';
+		return;
+	}
+
+	for (const entry of entries) {
+		const item = document.createElement('article');
+		item.className = 'stack-item stack-item--split';
+		item.innerHTML = `
+			<div>
+				<h3>${entry.toolName}</h3>
+				<p class="muted-copy">${entry.count} calls</p>
+			</div>
+			<span class="pill">${entry.status}</span>
+		`;
+		dom.mcpToolUsageList.appendChild(item);
+	}
+}
+
+function renderSourceHealth(entries: SourceHealthRecord[]) {
+	dom.mcpSourceHealthList.innerHTML = '';
+
+	if (!entries.length) {
+		dom.mcpSourceHealthList.innerHTML = '<p class="muted-copy">No source runs recorded yet.</p>';
+		return;
+	}
+
+	for (const entry of entries) {
+		const item = document.createElement('article');
+		item.className = 'stack-item stack-item--split';
+		item.innerHTML = `
+			<div>
+				<h3>${entry.name}</h3>
+				<p class="muted-copy">${entry.kind} · Last success ${formatTimestamp(entry.lastSuccessAt)}</p>
+				${entry.lastError ? `<p class="muted-copy">${entry.lastError}</p>` : ''}
+			</div>
+			<span class="pill">${entry.status}</span>
+		`;
+		dom.mcpSourceHealthList.appendChild(item);
+	}
+}
+
+function renderSources(sources: SourceRecord[]) {
+	dom.mcpSourcesList.innerHTML = '';
+
+	if (!sources.length) {
+		dom.mcpSourcesList.innerHTML = '<p class="muted-copy">No sources configured yet.</p>';
+		return;
+	}
+
+	for (const source of sources) {
+		const item = document.createElement('article');
+		item.className = 'stack-item stack-item--split';
+		item.dataset.sourceId = source.id;
+		item.innerHTML = `
+			<div class="mcp-source-item">
+				<div>
+					<h3>${source.name}</h3>
+					<p class="muted-copy">${source.kind} · ${getSourceSummaryLine(source)}</p>
+				</div>
+				<div class="mcp-source-meta">
+					<span class="pill">${source.status}</span>
+					<span class="muted-copy">Last success ${formatTimestamp(source.lastSuccessAt)}</span>
+					${source.lastError ? `<p class="muted-copy">${source.lastError}</p>` : ''}
+				</div>
+			</div>
+			<button type="button" data-action="delete-source" data-source-id="${source.id}" class="btn btn-danger btn-compact">Remove</button>
+		`;
+		dom.mcpSourcesList.appendChild(item);
+	}
+}
+
 function renderReaderStats(bookmark: BookmarkDetail) {
 	const wordCount = Number(bookmark.metadata?.wordCount ?? 0);
 	const readingTime = Math.max(1, Math.ceil(wordCount / 200));
@@ -379,6 +598,65 @@ async function fetchApiKeys() {
 	} catch (error) {
 		dom.apiKeysList.innerHTML = '<p class="muted-copy">Failed to load API keys.</p>';
 		showToast(error instanceof Error ? error.message : 'Failed to load API keys', 'error');
+	}
+}
+
+async function fetchAccount() {
+	const account = await api.getAccount();
+	state.account = account;
+	renderSourceKindOptions(account.features);
+	return account;
+}
+
+async function fetchStats() {
+	const stats = await api.getStats();
+	state.usageStats = stats;
+	return stats;
+}
+
+async function fetchSources() {
+	const response = await api.listSources();
+	state.sources = response.sources ?? [];
+	return state.sources;
+}
+
+async function fetchMcpData() {
+	try {
+		const [accountResult, statsResult, sourcesResult] = await Promise.allSettled([
+			fetchAccount(),
+			fetchStats(),
+			fetchSources(),
+		]);
+
+		if (accountResult.status === 'rejected' && statsResult.status === 'rejected' && sourcesResult.status === 'rejected') {
+			throw accountResult.reason;
+		}
+
+		if (accountResult.status === 'rejected') {
+			showToast(accountResult.reason instanceof Error ? accountResult.reason.message : 'Failed to load account', 'error');
+		}
+
+		if (statsResult.status === 'rejected') {
+			showToast(statsResult.reason instanceof Error ? statsResult.reason.message : 'Failed to load stats', 'error');
+		}
+
+		if (sourcesResult.status === 'rejected') {
+			showToast(sourcesResult.reason instanceof Error ? sourcesResult.reason.message : 'Failed to load sources', 'error');
+		}
+
+		renderMcpStatus();
+		renderSources(state.sources);
+	} catch (error) {
+		if (error instanceof ApiError && error.status === 401) {
+			logout();
+			return;
+		}
+
+		dom.mcpAccountSummary.innerHTML = '<article class="stack-item"><p class="muted-copy">Failed to load MCP account data.</p></article>';
+		dom.mcpToolUsageList.innerHTML = '<p class="muted-copy">Failed to load recent MCP activity.</p>';
+		dom.mcpSourceHealthList.innerHTML = '<p class="muted-copy">Failed to load source health.</p>';
+		dom.mcpSourcesList.innerHTML = '<p class="muted-copy">Failed to load sources.</p>';
+		showToast(error instanceof Error ? error.message : 'Failed to load MCP setup data', 'error');
 	}
 }
 
@@ -468,6 +746,9 @@ function openDialog(dialog: HTMLDialogElement) {
 
 function logout() {
 	clearSessionToken();
+	state.account = null;
+	state.sources = [];
+	state.usageStats = null;
 	state.secret = null;
 	state.currentBookmarkId = null;
 	stopPolling();
@@ -532,7 +813,9 @@ function bindEvents() {
 	dom.navInbox.addEventListener('click', () => switchView('inbox', 'inbox', null));
 	dom.navAll.addEventListener('click', () => switchView('inbox', 'all', null));
 	dom.setupBtn.addEventListener('click', () => switchView('setup'));
+	dom.navMcp.addEventListener('click', () => switchView('mcp'));
 	dom.openSettingsBtn.addEventListener('click', () => switchView('settings'));
+	dom.mcpOpenApiKeysBtn.addEventListener('click', () => switchView('setup'));
 	dom.logoutBtn.addEventListener('click', logout);
 
 	dom.passkeyForm.addEventListener('submit', async (event) => {
@@ -742,6 +1025,76 @@ function bindEvents() {
 			showToast('API key deleted', 'success');
 		} catch (error) {
 			showToast(error instanceof Error ? error.message : 'Failed to delete API key', 'error');
+		}
+	});
+
+	dom.mcpPresetPanel.addEventListener('click', async (event) => {
+		const button = (event.target as Element).closest<HTMLButtonElement>('[data-copy-target]');
+		if (!button?.dataset.copyTarget) {
+			return;
+		}
+
+		const target = document.getElementById(button.dataset.copyTarget) as HTMLInputElement | HTMLTextAreaElement | null;
+		if (!target) {
+			return;
+		}
+
+		await navigator.clipboard.writeText(target.value);
+		showToast('MCP config copied to clipboard', 'success');
+	});
+
+	document.querySelectorAll<HTMLButtonElement>('[data-copy-target="mcp-endpoint-value"]').forEach((button) => {
+		button.addEventListener('click', async () => {
+			await navigator.clipboard.writeText(dom.mcpConnectionValue.value);
+			showToast('MCP endpoint copied to clipboard', 'success');
+		});
+	});
+
+	dom.mcpSourceKind.addEventListener('change', () => updateSourceKindHelp(state.account?.features ?? null));
+
+	dom.mcpSourceForm.addEventListener('submit', async (event) => {
+		event.preventDefault();
+		const identifier = dom.mcpSourceIdentifier.value.trim();
+		const kind = dom.mcpSourceKind.value as SourceRecord['kind'];
+		if (!identifier) {
+			showToast('Enter a source identifier first', 'error');
+			return;
+		}
+
+		try {
+			dom.mcpSourceSubmit.disabled = true;
+			dom.mcpSourceSubmit.textContent = 'Adding…';
+			await api.createSource({
+				bridgeUrl: dom.mcpSourceBridgeField.classList.contains('is-hidden') ? undefined : dom.mcpSourceBridgeUrl.value.trim() || undefined,
+				identifier,
+				kind,
+				name: dom.mcpSourceName.value.trim() || undefined,
+			});
+			dom.mcpSourceIdentifier.value = '';
+			dom.mcpSourceName.value = '';
+			dom.mcpSourceBridgeUrl.value = '';
+			await fetchMcpData();
+			showToast('Source added', 'success');
+		} catch (error) {
+			showToast(error instanceof Error ? error.message : 'Failed to add source', 'error');
+		} finally {
+			dom.mcpSourceSubmit.disabled = false;
+			dom.mcpSourceSubmit.textContent = 'Add Source';
+		}
+	});
+
+	dom.mcpSourcesList.addEventListener('click', async (event) => {
+		const button = (event.target as Element).closest<HTMLButtonElement>('[data-action="delete-source"]');
+		if (!button?.dataset.sourceId || !window.confirm('Remove this source? Existing saved items will stay in KeepRoot.')) {
+			return;
+		}
+
+		try {
+			await api.deleteSource(button.dataset.sourceId);
+			await fetchMcpData();
+			showToast('Source removed', 'success');
+		} catch (error) {
+			showToast(error instanceof Error ? error.message : 'Failed to remove source', 'error');
 		}
 	});
 

@@ -6,11 +6,14 @@ import { buildKeepRootMcpServer } from './mcp/server';
 import { authenticateBearerToken, ensureOrganizationSchema, listActivePollableSources, type StorageEnv } from './storage';
 import { createRouteContext, errorResponse, isProtectedApiPath, type ProtectedRouteContext } from './http';
 import { handleAuthRoute } from './routes/auth';
+import { handleAccountRoute } from './routes/account';
 import { handleApiKeyRoute } from './routes/api-keys';
 import { handleBookmarkRoute } from './routes/bookmarks';
 import { handleListRoute } from './routes/lists';
 import { handlePublicRoute } from './routes/public';
 import { handleSmartListRoute } from './routes/smart-lists';
+import { handleSourceRoute } from './routes/sources';
+import { handleStatsRoute } from './routes/stats';
 
 export interface Env extends StorageEnv {}
 
@@ -105,7 +108,10 @@ export default {
 
 							const protectedContext = createProtectedContext(context, authUser);
 
-							response = await handleApiKeyRoute(protectedContext)
+							response = await handleAccountRoute(protectedContext)
+								?? await handleStatsRoute(protectedContext)
+								?? await handleSourceRoute(protectedContext)
+								?? await handleApiKeyRoute(protectedContext)
 								?? await handleBookmarkRoute(protectedContext)
 								?? await handleListRoute(protectedContext)
 								?? await handleSmartListRoute(protectedContext)
