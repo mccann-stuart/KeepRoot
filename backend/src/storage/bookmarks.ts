@@ -304,8 +304,9 @@ function rewriteHtmlImageUrls(html: string, rewriteMap: Map<string, string>): st
 
 function base64FromBytes(bytes: Uint8Array): string {
 	let binary = '';
-	for (const byte of bytes) {
-		binary += String.fromCharCode(byte);
+	const chunkSize = 8192;
+	for (let i = 0; i < bytes.length; i += chunkSize) {
+		binary += String.fromCharCode.apply(null, bytes.subarray(i, i + chunkSize) as unknown as number[]);
 	}
 	return btoa(binary);
 }

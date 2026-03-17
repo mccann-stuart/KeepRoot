@@ -118,8 +118,9 @@ export interface BookmarkPatchPayload {
 export function bufferToBase64URL(buffer: ArrayBuffer | Uint8Array): string {
 	const bytes = buffer instanceof Uint8Array ? buffer : new Uint8Array(buffer);
 	let binary = '';
-	for (const byte of bytes) {
-		binary += String.fromCharCode(byte);
+	const chunkSize = 8192;
+	for (let i = 0; i < bytes.length; i += chunkSize) {
+		binary += String.fromCharCode.apply(null, bytes.subarray(i, i + chunkSize) as unknown as number[]);
 	}
 	return btoa(binary).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/g, '');
 }
@@ -204,8 +205,17 @@ export function compactObject<T extends Record<string, unknown>>(value: T): T {
 	return Object.fromEntries(Object.entries(value).filter(([, entry]) => entry !== null && entry !== undefined && entry !== '')) as T;
 }
 
+const byteToHex: string[] = [];
+for (let n = 0; n <= 255; ++n) {
+	byteToHex.push(n.toString(16).padStart(2, '0'));
+}
+
 export function hexFromBytes(bytes: Uint8Array): string {
-	return Array.from(bytes, (byte) => byte.toString(16).padStart(2, '0')).join('');
+	let hex = '';
+	for (let i = 0; i < bytes.length; i++) {
+		hex += byteToHex[bytes[i]];
+	}
+	return hex;
 }
 
 export async function sha256Hex(value: string | ArrayBuffer | ArrayBufferView): Promise<string> {
