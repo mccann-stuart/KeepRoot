@@ -1,6 +1,10 @@
-import { authenticateBearerToken, ensureMcpSchema, ensureOrganizationSchema, type StorageEnv } from './storage';
+import { createMcpHandler } from 'agents/mcp';
+import { ingestEmailMessage } from './ingest/email';
+import { processIngestJob, type IngestJob } from './ingest/jobs';
+import { syncAllActiveSources } from './ingest/source-sync';
+import { buildKeepRootMcpServer } from './mcp/server';
+import { authenticateBearerToken, ensureOrganizationSchema, listActivePollableSources, type StorageEnv } from './storage';
 import { createRouteContext, errorResponse, isProtectedApiPath, type ProtectedRouteContext } from './http';
-import { createKeepRootMcpHandler } from './mcp/server';
 import { handleAuthRoute } from './routes/auth';
 import { handleApiKeyRoute } from './routes/api-keys';
 import { handleBookmarkRoute } from './routes/bookmarks';
@@ -17,19 +21,37 @@ function createProtectedContext(context: ReturnType<typeof createRouteContext>, 
 	};
 }
 
+function applyCorsHeaders(response: Response, request: Request): Response {
+	const origin = request.headers.get('Origin');
+	const url = new URL(request.url);
+	let allowedOrigin = url.origin;
+
+	if (origin && (
+		origin === url.origin ||
+		origin.startsWith('chrome-extension://') ||
+		origin.startsWith('moz-extension://') ||
+		origin.startsWith('safari-web-extension://')
+	)) {
+		allowedOrigin = origin;
+	}
+
+	const headers = new Headers(response.headers);
+	headers.set('Access-Control-Allow-Origin', allowedOrigin);
+	headers.set('Access-Control-Allow-Methods', 'GET, POST, PATCH, DELETE, OPTIONS');
+	headers.set('Access-Control-Allow-Headers', 'Content-Type, Authorization');
+	headers.set('Vary', 'Origin');
+
+	return new Response(response.body, {
+		status: response.status,
+		statusText: response.statusText,
+		headers,
+	});
+}
+
 export default {
 	async fetch(request: Request, env: Env, ctx: ExecutionContext): Promise<Response> {
 		const context = createRouteContext(request, env);
-
-		const publicResponse = await handlePublicRoute(context);
-		if (publicResponse) {
-			return publicResponse;
-		}
-
-		const authResponse = await handleAuthRoute(context);
-		if (authResponse) {
-			return authResponse;
-		}
+		let response: Response;
 
 		if (context.pathname === '/mcp') {
 			const authHeader = request.headers.get('Authorization');
@@ -37,45 +59,98 @@ export default {
 			const authUser = token ? await authenticateBearerToken(env, token) : null;
 
 			if (!authUser) {
-				return errorResponse(request, 'Unauthorized', 401);
+				response = errorResponse('Unauthorized', 401);
+			} else {
+				try {
+					await ensureOrganizationSchema(env);
+					const server = buildKeepRootMcpServer(env, authUser);
+					const handler = createMcpHandler(server, {
+						authContext: {
+							props: {
+								tokenType: authUser.tokenType,
+								userId: authUser.userId,
+								username: authUser.username,
+							},
+						},
+						enableJsonResponse: true,
+						route: '/mcp',
+						sessionIdGenerator: undefined,
+					});
+					response = await handler(request, env, ctx);
+				} catch (error) {
+					console.error(error);
+					response = errorResponse('Internal Server Error', 500);
+				}
 			}
+		} else {
+			const publicResponse = await handlePublicRoute(context);
+			if (publicResponse) {
+				response = publicResponse;
+			} else {
+				const authResponse = await handleAuthRoute(context);
+				if (authResponse) {
+					response = authResponse;
+				} else if (!isProtectedApiPath(context.pathname)) {
+					response = errorResponse('Not found', 404);
+				} else {
+					const authHeader = request.headers.get('Authorization');
+					const token = authHeader?.startsWith('Bearer ') ? authHeader.slice(7) : null;
+					const authUser = token ? await authenticateBearerToken(env, token) : null;
 
-			try {
-				await ensureOrganizationSchema(env);
-				await ensureMcpSchema(env);
-				return createKeepRootMcpHandler(env, authUser)(request, env, ctx);
-			} catch (error) {
-				console.error(error);
-				return errorResponse(request, 'Internal Server Error', 500);
+					if (!authUser) {
+						response = errorResponse('Unauthorized', 401);
+					} else {
+						try {
+							await ensureOrganizationSchema(env);
+
+							const protectedContext = createProtectedContext(context, authUser);
+
+							response = await handleApiKeyRoute(protectedContext)
+								?? await handleBookmarkRoute(protectedContext)
+								?? await handleListRoute(protectedContext)
+								?? await handleSmartListRoute(protectedContext)
+								?? errorResponse('Not found', 404);
+						} catch (error) {
+							console.error(error);
+							response = errorResponse('Internal Server Error', 500);
+						}
+					}
+				}
 			}
 		}
 
-		if (!isProtectedApiPath(context.pathname)) {
-			return errorResponse(request, 'Not found', 404);
+		return applyCorsHeaders(response, request);
+	},
+
+	async scheduled(_controller: ScheduledController, env: Env): Promise<void> {
+		await ensureOrganizationSchema(env);
+		if (env.INGEST_QUEUE) {
+			const sources = await listActivePollableSources(env);
+			await Promise.all(
+				sources.map((source) => env.INGEST_QUEUE!.send({
+					kind: 'sync_source',
+					payload: {
+						id: source.id,
+						kind: source.kind,
+						pollUrl: source.pollUrl,
+						userId: source.userId,
+					},
+				})),
+			);
+			return;
 		}
+		await syncAllActiveSources(env);
+	},
 
-		const authHeader = request.headers.get('Authorization');
-		const token = authHeader?.startsWith('Bearer ') ? authHeader.slice(7) : null;
-		const authUser = token ? await authenticateBearerToken(env, token) : null;
-
-		if (!authUser) {
-			return errorResponse(request, 'Unauthorized', 401);
+	async queue(batch: MessageBatch<IngestJob>, env: Env): Promise<void> {
+		await ensureOrganizationSchema(env);
+		for (const message of batch.messages) {
+			await processIngestJob(env, message.body);
 		}
+	},
 
-		try {
-			await ensureOrganizationSchema(env);
-			await ensureMcpSchema(env);
-
-			const protectedContext = createProtectedContext(context, authUser);
-
-			return await handleApiKeyRoute(protectedContext)
-				?? await handleBookmarkRoute(protectedContext)
-				?? await handleListRoute(protectedContext)
-				?? await handleSmartListRoute(protectedContext)
-				?? errorResponse(request, 'Not found', 404);
-		} catch (error) {
-			console.error(error);
-			return errorResponse(request, 'Internal Server Error', 500);
-		}
+	async email(message: ForwardableEmailMessage, env: Env): Promise<void> {
+		await ensureOrganizationSchema(env);
+		await ingestEmailMessage(env, message);
 	},
 };

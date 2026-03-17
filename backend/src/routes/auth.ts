@@ -18,6 +18,17 @@ async function loadWebAuthn() {
 	return import('@simplewebauthn/server');
 }
 
+function getExpectedOrigins(context: RouteContext): string[] {
+	const requestOrigin = context.request.headers.get('Origin');
+	const expectedOrigins = [context.origin];
+
+	if (requestOrigin && /^(chrome-extension|moz-extension|safari-web-extension):\/\//.test(requestOrigin)) {
+		expectedOrigins.push(requestOrigin);
+	}
+
+	return expectedOrigins;
+}
+
 export async function handleAuthRoute(context: RouteContext): Promise<Response | undefined> {
 	if (context.request.method === 'POST' && context.pathname === '/auth/generate-registration') {
 		try {
@@ -73,12 +84,13 @@ export async function handleAuthRoute(context: RouteContext): Promise<Response |
 				return errorResponse(context.request, 'Session expired', 400);
 			}
 
+			const expectedOrigins = getExpectedOrigins(context);
 			const { verifyRegistrationResponse } = await loadWebAuthn();
 			let verification: VerifiedRegistrationResponse;
 			try {
 				verification = await verifyRegistrationResponse({
 					expectedChallenge: challenge.challenge,
-					expectedOrigin: context.origin,
+					expectedOrigin: expectedOrigins,
 					expectedRPID: context.rpID,
 					response: body.response,
 				});
@@ -181,6 +193,7 @@ export async function handleAuthRoute(context: RouteContext): Promise<Response |
 				return errorResponse(context.request, 'Authenticator not registered', 400);
 			}
 
+			const expectedOrigins = getExpectedOrigins(context);
 			const { verifyAuthenticationResponse } = await loadWebAuthn();
 			let verification: VerifiedAuthenticationResponse;
 			try {
@@ -192,7 +205,7 @@ export async function handleAuthRoute(context: RouteContext): Promise<Response |
 						transports: authenticator.transports as AuthenticatorTransportFuture[] | undefined,
 					},
 					expectedChallenge: challenge.challenge,
-					expectedOrigin: context.origin,
+					expectedOrigin: expectedOrigins,
 					expectedRPID: context.rpID,
 					response: body.response,
 				});

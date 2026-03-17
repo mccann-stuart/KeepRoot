@@ -14,10 +14,15 @@ export const encoder = new TextEncoder();
 
 export interface StorageEnv {
 	ASSETS?: Fetcher;
+	AI?: Ai;
+	BROWSER?: Fetcher;
 	EMAIL_SOURCE_DOMAIN?: string;
 	ENABLE_X_SOURCES?: string;
+	INGEST_QUEUE?: Queue<unknown>;
 	KEEPROOT_DB: D1Database;
 	KEEPROOT_CONTENT: R2Bucket;
+	KEEPROOT_VECTOR_INDEX?: Vectorize;
+	MCP_EMAIL_DOMAIN?: string;
 	X_SOURCE_BRIDGE_BASE_URL?: string;
 }
 
@@ -115,6 +120,34 @@ export interface BookmarkPatchPayload {
 	title?: string;
 }
 
+export type SourceKind = 'rss' | 'youtube' | 'x' | 'email';
+
+export interface PaginationInput {
+	cursor?: string | null;
+	limit?: number;
+}
+
+export interface ItemListOptions extends PaginationInput {
+	domain?: string;
+	includeContent?: boolean;
+	includeHtml?: boolean;
+	isRead?: boolean;
+	listId?: string | null;
+	pinned?: boolean;
+	sourceId?: string | null;
+	status?: string | string[];
+	tags?: string[];
+}
+
+export interface ItemSearchOptions extends ItemListOptions {
+	query?: string;
+}
+
+export interface SourceListOptions extends PaginationInput {
+	kind?: SourceKind;
+	status?: string;
+}
+
 export function bufferToBase64URL(buffer: ArrayBuffer | Uint8Array): string {
 	const bytes = buffer instanceof Uint8Array ? buffer : new Uint8Array(buffer);
 	let binary = '';
@@ -205,17 +238,8 @@ export function compactObject<T extends Record<string, unknown>>(value: T): T {
 	return Object.fromEntries(Object.entries(value).filter(([, entry]) => entry !== null && entry !== undefined && entry !== '')) as T;
 }
 
-const byteToHex: string[] = [];
-for (let n = 0; n <= 255; ++n) {
-	byteToHex.push(n.toString(16).padStart(2, '0'));
-}
-
 export function hexFromBytes(bytes: Uint8Array): string {
-	let hex = '';
-	for (let i = 0; i < bytes.length; i++) {
-		hex += byteToHex[bytes[i]];
-	}
-	return hex;
+	return Array.from(bytes, (byte) => byte.toString(16).padStart(2, '0')).join('');
 }
 
 export async function sha256Hex(value: string | ArrayBuffer | ArrayBufferView): Promise<string> {

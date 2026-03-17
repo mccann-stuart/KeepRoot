@@ -8,9 +8,9 @@ export default defineWorkersConfig({
 				inline: [
 					/@simplewebauthn\/server/,
 					/@peculiar\/.*/,
-					/tslib/
-				]
-			}
+					/tslib/,
+				],
+			},
 		},
 		poolOptions: {
 			workers: {

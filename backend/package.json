@@ -28,6 +28,7 @@
 		"wrangler": "^4.72.0"
 	},
 	"dependencies": {
+		"@cloudflare/workers-oauth-provider": "^0.3.0",
 		"@modelcontextprotocol/sdk": "^1.27.1",
 		"@mozilla/readability": "^0.6.0",
 		"@simplewebauthn/browser": "^13.3.0",

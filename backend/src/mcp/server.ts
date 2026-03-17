@@ -1,172 +1,217 @@
-import { createMcpHandler } from 'agents/mcp';
 import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { z } from 'zod';
-import { getAccountProfile, getAccountStats, listInboxEntries, listSources, markInboxEntryDone, recordToolUsage, removeSource, saveItem, searchItems, updateItem, listItems, getItem, addSource, type AuthenticatedUser, type StorageEnv } from '../storage';
+import { addSource, listSources, removeSource } from '../storage/sources';
+import { getUsageStats, recordToolEvent } from '../storage/stats';
+import { getWhoAmI } from '../storage/account';
+import { listInbox, markInboxDone } from '../storage/inbox';
+import { getItem, listItems, searchItems, updateItem } from '../storage/items';
+import { saveItemFromUrl } from '../ingest/save-url';
+import { syncSource } from '../ingest/source-sync';
+import type { AuthenticatedUser, SourceKind, StorageEnv } from '../storage/shared';
+import type { IngestJob } from '../ingest/jobs';
 
-function jsonToolResult(data: Record<string, unknown>) {
+type ToolHandler<TArgs> = (args: TArgs) => Promise<Record<string, unknown>>;
+type ToolSchema<TArgs extends Record<string, unknown>> = z.ZodType<TArgs>;
+
+function formatToolResult(payload: Record<string, unknown>) {
 	return {
 		content: [
 			{
-				text: JSON.stringify(data),
 				type: 'text' as const,
+				text: JSON.stringify(payload, null, 2),
 			},
 		],
-		structuredContent: data,
+		structuredContent: payload,
 	};
 }
 
-function normalizeCommonFilters(input: {
-	created_after?: string;
-	created_before?: string;
-	cursor?: string;
-	domain?: string;
-	is_read?: boolean;
-	limit?: number;
-	list_id?: string | null;
-	pinned?: boolean;
-	source_id?: string;
-	status?: string;
-	tags?: string[];
-}) {
-	return {
-		createdAfter: input.created_after,
-		createdBefore: input.created_before,
-		cursor: input.cursor,
-		domain: input.domain,
-		isRead: input.is_read,
-		limit: input.limit,
-		listId: input.list_id,
-		pinned: input.pinned,
-		sourceId: input.source_id,
-		status: input.status,
-		tags: input.tags,
-	};
+function normalizeErrorMessage(error: unknown): string {
+	return error instanceof Error ? error.message : String(error);
 }
 
-function createServer(env: StorageEnv, authUser: AuthenticatedUser): McpServer {
+async function maybeQueueSourceSync(
+	env: StorageEnv,
+	source: Record<string, unknown>,
+): Promise<void> {
+	const pollUrl = typeof source.pollUrl === 'string' ? source.pollUrl : null;
+	const kind = typeof source.kind === 'string' ? source.kind as SourceKind : null;
+	const id = typeof source.id === 'string' ? source.id : null;
+	const userId = typeof (source as { userId?: unknown }).userId === 'string' ? (source as { userId: string }).userId : null;
+
+	if (!id || !kind || !pollUrl || !userId) {
+		return;
+	}
+
+	if (env.INGEST_QUEUE) {
+		const job: IngestJob = {
+			kind: 'sync_source',
+			payload: {
+				id,
+				kind,
+				pollUrl,
+				userId,
+			},
+		};
+		await env.INGEST_QUEUE.send(job);
+		return;
+	}
+
+	await syncSource(env, {
+		id,
+		kind,
+		pollUrl,
+		userId,
+	});
+}
+
+export function buildKeepRootMcpServer(env: StorageEnv, user: AuthenticatedUser): McpServer {
 	const server = new McpServer({
-		name: 'keeproot',
+		name: 'keeproot-mcp',
 		version: '1.0.0',
 	});
 
-	async function runTrackedTool(toolName: string, fn: () => Promise<Record<string, unknown>>) {
-		const startedAt = Date.now();
-		try {
-			const result = await fn();
-			await recordToolUsage(env, authUser.userId, {
-				latencyMs: Date.now() - startedAt,
-				status: 'success',
-				toolName,
-			});
-			return jsonToolResult(result);
-		} catch (error) {
-			await recordToolUsage(env, authUser.userId, {
-				latencyMs: Date.now() - startedAt,
-				status: 'failure',
-				toolName,
-			});
-			throw error;
-		}
+	function registerTool<TArgs extends Record<string, unknown>>(
+		name: string,
+		description: string,
+		inputSchema: ToolSchema<TArgs>,
+		handler: ToolHandler<TArgs>,
+	): void {
+		server.registerTool(name, {
+			description,
+			inputSchema,
+		}, async (args) => {
+			const startedAt = Date.now();
+			try {
+				const result = await handler(args);
+				await recordToolEvent(env, {
+					durationMs: Date.now() - startedAt,
+					status: 'success',
+					toolName: name,
+					userId: user.userId,
+				});
+				return formatToolResult(result);
+			} catch (error) {
+				await recordToolEvent(env, {
+					durationMs: Date.now() - startedAt,
+					errorText: normalizeErrorMessage(error),
+					status: 'error',
+					toolName: name,
+					userId: user.userId,
+				});
+				throw error;
+			}
+		});
 	}
 
-	server.registerTool(
+	registerTool(
 		'save_item',
-		{
-			description: 'Save a new item from a URL, extract content, and place it in the inbox.',
-			inputSchema: z.object({
-				notes: z.string().trim().optional(),
-				status: z.string().trim().optional(),
-				tags: z.array(z.string().trim()).optional(),
-				title: z.string().trim().optional(),
-				url: z.string().url(),
-			}),
+		'Save a new item from a URL.',
+		z.object({
+			notes: z.string().optional(),
+			status: z.string().optional(),
+			tags: z.array(z.string()).optional(),
+			title: z.string().optional(),
+			url: z.string().url(),
+			waitForProcessing: z.boolean().default(true).optional(),
+		}),
+		async (args) => {
+			if (args.waitForProcessing === false && env.INGEST_QUEUE) {
+				const job: IngestJob = {
+					kind: 'save_url',
+					payload: {
+						notes: args.notes,
+						status: args.status,
+						tags: args.tags,
+						title: args.title,
+						url: args.url,
+						userId: user.userId,
+						username: user.username,
+					},
+				};
+				await env.INGEST_QUEUE.send(job);
+				return {
+					processingState: 'queued',
+					url: args.url,
+				};
+			}
+
+			return saveItemFromUrl(env, user, {
+				notes: args.notes,
+				status: args.status,
+				tags: args.tags,
+				title: args.title,
+				url: args.url,
+			});
 		},
-		async (args) => runTrackedTool('save_item', () => saveItem(env, authUser, args)),
 	);
 
-	server.registerTool(
+	registerTool(
 		'search_items',
-		{
-			description: 'Search your saved items by keyword and filters.',
-			inputSchema: z.object({
-				created_after: z.string().datetime().optional(),
-				created_before: z.string().datetime().optional(),
-				domain: z.string().trim().optional(),
-				is_read: z.boolean().optional(),
-				limit: z.number().int().min(1).max(50).optional(),
-				list_id: z.string().trim().nullable().optional(),
-				mode: z.enum(['hybrid', 'keyword', 'semantic']).optional(),
-				pinned: z.boolean().optional(),
-				query: z.string().trim().optional(),
-				source_id: z.string().trim().optional(),
-				status: z.string().trim().optional(),
-				tags: z.array(z.string().trim()).optional(),
-			}),
-		},
-		async (args) => runTrackedTool('search_items', () => searchItems(env, authUser.userId, {
-			...normalizeCommonFilters(args),
-			mode: args.mode,
-			query: args.query,
-		})),
+		'Search items by keyword and semantic similarity.',
+		z.object({
+			domain: z.string().optional(),
+			isRead: z.boolean().optional(),
+			limit: z.number().int().min(1).max(50).default(10).optional(),
+			listId: z.string().nullable().optional(),
+			pinned: z.boolean().optional(),
+			query: z.string().min(1),
+			sourceId: z.string().nullable().optional(),
+			status: z.union([z.string(), z.array(z.string())]).optional(),
+			tags: z.array(z.string()).optional(),
+		}),
+		async (args) => searchItems(env, user.userId, args),
 	);
 
-	server.registerTool(
+	registerTool(
 		'list_items',
-		{
-			description: 'List your saved items with cursor pagination and filters.',
-			inputSchema: z.object({
-				created_after: z.string().datetime().optional(),
-				created_before: z.string().datetime().optional(),
-				cursor: z.string().optional(),
-				domain: z.string().trim().optional(),
-				is_read: z.boolean().optional(),
-				limit: z.number().int().min(1).max(100).optional(),
-				list_id: z.string().trim().nullable().optional(),
-				pinned: z.boolean().optional(),
-				source_id: z.string().trim().optional(),
-				status: z.string().trim().optional(),
-				tags: z.array(z.string().trim()).optional(),
-			}),
-		},
-		async (args) => runTrackedTool('list_items', () => listItems(env, authUser.userId, normalizeCommonFilters(args))),
+		'List saved items with optional filters.',
+		z.object({
+			cursor: z.string().nullable().optional(),
+			domain: z.string().optional(),
+			isRead: z.boolean().optional(),
+			limit: z.number().int().min(1).max(100).default(20).optional(),
+			listId: z.string().nullable().optional(),
+			pinned: z.boolean().optional(),
+			sourceId: z.string().nullable().optional(),
+			status: z.union([z.string(), z.array(z.string())]).optional(),
+			tags: z.array(z.string()).optional(),
+		}),
+		async (args) => listItems(env, user.userId, args),
 	);
 
-	server.registerTool(
+	registerTool(
 		'get_item',
-		{
-			description: 'Fetch a single item by id with optional content.',
-			inputSchema: z.object({
-				include_content: z.boolean().optional(),
-				include_html: z.boolean().optional(),
-				item_id: z.string().trim(),
-			}),
-		},
-		async (args) => runTrackedTool('get_item', async () => {
-			const item = await getItem(env, authUser.userId, args.item_id, {
-				includeContent: args.include_content,
-				includeHtml: args.include_html,
+		'Get a single item by id with optional content.',
+		z.object({
+			id: z.string(),
+			includeContent: z.boolean().default(false).optional(),
+			includeHtml: z.boolean().default(false).optional(),
+		}),
+		async (args) => {
+			const item = await getItem(env, user.userId, args.id, {
+				includeContent: args.includeContent,
+				includeHtml: args.includeHtml,
 			});
 			if (!item) {
 				throw new Error('Item not found');
 			}
-			return { item };
-		}),
+
+			return item;
+		},
 	);
 
-	server.registerTool(
+	registerTool(
 		'update_item',
-		{
-			description: 'Update an item title, notes, tags, or status.',
-			inputSchema: z.object({
-				item_id: z.string().trim(),
-				notes: z.string().trim().nullable().optional(),
-				status: z.string().trim().optional(),
-				tags: z.array(z.string().trim()).optional(),
-				title: z.string().trim().optional(),
-			}),
-		},
-		async (args) => runTrackedTool('update_item', async () => {
-			const item = await updateItem(env, authUser.userId, args.item_id, {
+		'Update title, notes, tags, or status of an item.',
+		z.object({
+			id: z.string(),
+			notes: z.string().nullable().optional(),
+			status: z.string().optional(),
+			tags: z.array(z.string()).optional(),
+			title: z.string().optional(),
+		}),
+		async (args) => {
+			const item = await updateItem(env, user.userId, args.id, {
 				notes: args.notes,
 				status: args.status,
 				tags: args.tags,
@@ -175,117 +220,114 @@ function createServer(env: StorageEnv, authUser: AuthenticatedUser): McpServer {
 			if (!item) {
 				throw new Error('Item not found');
 			}
-			return { item };
-		}),
+
+			return item;
+		},
 	);
 
-	server.registerTool(
+	registerTool(
 		'whoami',
-		{
-			description: 'Return the current account identity, plan, limits, and enabled source capabilities.',
-			inputSchema: z.object({}),
-		},
-		async () => runTrackedTool('whoami', async () => ({
-			account: await getAccountProfile(env, authUser),
-		})),
+		'Get the current account and plan details.',
+		z.object({}),
+		async () => getWhoAmI(env, user),
 	);
 
-	server.registerTool(
+	registerTool(
 		'list_sources',
-		{
-			description: 'List the content sources configured for this account.',
-			inputSchema: z.object({
-				include_disabled: z.boolean().optional(),
-			}),
-		},
-		async (args) => runTrackedTool('list_sources', async () => ({
-			sources: await listSources(env, authUser.userId, { includeDisabled: args.include_disabled }),
-		})),
+		'List configured content sources and subscriptions.',
+		z.object({
+			cursor: z.string().nullable().optional(),
+			kind: z.enum(['rss', 'youtube', 'x', 'email']).optional(),
+			limit: z.number().int().min(1).max(100).default(20).optional(),
+			status: z.string().optional(),
+		}),
+		async (args) => listSources(env, user.userId, args),
 	);
 
-	server.registerTool(
+	registerTool(
 		'add_source',
-		{
-			description: 'Add a content source such as RSS, YouTube, X, or email.',
-			inputSchema: z.object({
-				identifier: z.string().trim().optional(),
-				kind: z.enum(['rss', 'youtube', 'x', 'email']),
-				name: z.string().trim().optional(),
-			}),
+		'Add a content source like RSS, YouTube, X, or email.',
+		z.object({
+			config: z.record(z.string(), z.unknown()).optional(),
+			identifier: z.string().min(1),
+			kind: z.enum(['rss', 'youtube', 'x', 'email']),
+			name: z.string().optional(),
+			syncNow: z.boolean().default(true).optional(),
+		}),
+		async (args) => {
+			const source = await addSource(env, {
+				config: args.config,
+				identifier: args.identifier,
+				kind: args.kind,
+				name: args.name,
+				userId: user.userId,
+			}) as Record<string, unknown>;
+
+			if (args.syncNow !== false) {
+				await maybeQueueSourceSync(env, {
+					...source,
+					userId: user.userId,
+				});
+			}
+
+			return source;
 		},
-		async (args) => runTrackedTool('add_source', async () => ({
-			source: await addSource(env, authUser.userId, args),
-		})),
 	);
 
-	server.registerTool(
+	registerTool(
 		'remove_source',
-		{
-			description: 'Disable a configured content source.',
-			inputSchema: z.object({
-				source_id: z.string().trim(),
-			}),
-		},
-		async (args) => runTrackedTool('remove_source', async () => {
-			const source = await removeSource(env, authUser.userId, args.source_id);
-			if (!source) {
+		'Remove a source.',
+		z.object({
+			id: z.string(),
+		}),
+		async (args) => {
+			const removed = await removeSource(env, user.userId, args.id);
+			if (!removed) {
 				throw new Error('Source not found');
 			}
-			return { source };
-		}),
+
+			return {
+				id: args.id,
+				removed: true,
+			};
+		},
 	);
 
-	server.registerTool(
+	registerTool(
 		'get_stats',
-		{
-			description: 'Return account usage, inbox, source, and tool usage stats.',
-			inputSchema: z.object({}),
-		},
-		async () => runTrackedTool('get_stats', async () => ({
-			stats: await getAccountStats(env, authUser.userId),
-		})),
+		'Get usage stats for the current account.',
+		z.object({}),
+		async () => getUsageStats(env, user.userId),
 	);
 
-	server.registerTool(
+	registerTool(
 		'list_inbox',
-		{
-			description: 'List pending inbox entries and their linked items.',
-			inputSchema: z.object({
-				limit: z.number().int().min(1).max(100).optional(),
-				source_id: z.string().trim().optional(),
-			}),
-		},
-		async (args) => runTrackedTool('list_inbox', async () => ({
-			entries: await listInboxEntries(env, authUser.userId, {
-				limit: args.limit,
-				sourceId: args.source_id,
-			}),
-		})),
+		'List unprocessed inbox items.',
+		z.object({
+			cursor: z.string().nullable().optional(),
+			limit: z.number().int().min(1).max(100).default(20).optional(),
+		}),
+		async (args) => listInbox(env, user.userId, args),
 	);
 
-	server.registerTool(
+	registerTool(
 		'mark_done',
-		{
-			description: 'Mark an inbox entry as processed without deleting its underlying item.',
-			inputSchema: z.object({
-				inbox_entry_id: z.string().trim(),
-			}),
-		},
-		async (args) => runTrackedTool('mark_done', async () => {
-			const entry = await markInboxEntryDone(env, authUser.userId, args.inbox_entry_id);
-			if (!entry) {
+		'Mark an inbox item as processed.',
+		z.object({
+			id: z.string(),
+		}),
+		async (args) => {
+			const updated = await markInboxDone(env, user.userId, args.id);
+			if (!updated) {
 				throw new Error('Inbox entry not found');
 			}
-			return { entry };
-		}),
+
+			return {
+				id: args.id,
+				state: 'done',
+			};
+		},
 	);
 
 	return server;
-}
-
-export function createKeepRootMcpHandler(env: StorageEnv, authUser: AuthenticatedUser) {
-	return createMcpHandler(createServer(env, authUser) as never, {
-		enableJsonResponse: true,
-		route: '/mcp',
-	});
 }
