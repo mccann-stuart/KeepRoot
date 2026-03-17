@@ -56,19 +56,21 @@ export function applyCorsHeaders(request: Request, headers: Headers): Headers {
 	const origin = request.headers.get('Origin');
 	if (origin) {
 		const requestUrl = new URL(request.url);
-		if (
-			origin === requestUrl.origin
-			|| origin.startsWith('chrome-extension://')
-			|| origin.startsWith('moz-extension://')
-			|| origin.startsWith('safari-web-extension://')
-			|| origin.startsWith('http://localhost')
-			|| origin.startsWith('https://keeproot.com')
-			|| origin.startsWith('https://www.keeproot.com')
-		) {
-			headers.set('Access-Control-Allow-Origin', origin);
+		try {
+			const originUrl = new URL(origin);
+			if (
+				origin === requestUrl.origin
+				|| originUrl.protocol === 'chrome-extension:'
+				|| originUrl.protocol === 'moz-extension:'
+				|| originUrl.protocol === 'safari-web-extension:'
+				|| (originUrl.protocol === 'http:' && originUrl.hostname === 'localhost')
+				|| (originUrl.protocol === 'https:' && (originUrl.hostname === 'keeproot.com' || originUrl.hostname === 'www.keeproot.com'))
+			) {
+				headers.set('Access-Control-Allow-Origin', origin);
+			}
+		} catch {
+			// Ignore invalid origin formats
 		}
-	} else {
-		headers.set('Access-Control-Allow-Origin', '*');
 	}
 
 	return headers;
