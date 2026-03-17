@@ -1,0 +1,249 @@
+import { readFileSync } from 'node:fs';
+import path from 'node:path';
+import { fileURLToPath } from 'node:url';
+import { beforeEach, describe, expect, it, vi } from 'vitest';
+
+const __dirname = path.dirname(fileURLToPath(import.meta.url));
+const dashboardHtml = readFileSync(path.resolve(__dirname, '../../public/index.html'), 'utf8');
+const bodyMarkup = dashboardHtml.match(/<body[^>]*>([\s\S]*)<\/body>/i)?.[1] ?? dashboardHtml;
+
+function createStorageMock(): Storage {
+	const store = new Map<string, string>();
+	return {
+		clear() {
+			store.clear();
+		},
+		getItem(key: string) {
+			return store.has(key) ? store.get(key)! : null;
+		},
+		key(index: number) {
+			return [...store.keys()][index] ?? null;
+		},
+		get length() {
+			return store.size;
+		},
+		removeItem(key: string) {
+			store.delete(key);
+		},
+		setItem(key: string, value: string) {
+			store.set(key, value);
+		},
+	};
+}
+
+function jsonResponse(body: unknown, status = 200): Response {
+	return new Response(JSON.stringify(body), {
+		headers: {
+			'Content-Type': 'application/json',
+		},
+		status,
+	});
+}
+
+async function flush(): Promise<void> {
+	await Promise.resolve();
+	await new Promise((resolve) => setTimeout(resolve, 0));
+}
+
+async function bootDashboard(options?: {
+	account?: Record<string, unknown>;
+	apiKeys?: Array<Record<string, unknown>>;
+	sources?: Array<Record<string, unknown>>;
+	stats?: Record<string, unknown>;
+}): Promise<{ fetchSpy: ReturnType<typeof vi.fn> }> {
+	vi.resetModules();
+	document.body.innerHTML = bodyMarkup;
+	Object.defineProperty(window, 'localStorage', {
+		configurable: true,
+		value: createStorageMock(),
+	});
+	window.localStorage.setItem('keeproot_secret', 'session-secret');
+	window.history.replaceState({}, '', '/dashboard');
+
+	Object.defineProperty(window, 'matchMedia', {
+		configurable: true,
+		value: vi.fn().mockReturnValue({
+			addEventListener: vi.fn(),
+			matches: false,
+			removeEventListener: vi.fn(),
+		}),
+	});
+	Object.defineProperty(globalThis, 'navigator', {
+		configurable: true,
+		value: {
+			...navigator,
+			clipboard: {
+				writeText: vi.fn().mockResolvedValue(undefined),
+			},
+			serviceWorker: {
+				register: vi.fn().mockResolvedValue(undefined),
+			},
+		},
+	});
+	Object.defineProperty(window, 'confirm', {
+		configurable: true,
+		value: vi.fn().mockReturnValue(true),
+	});
+	Object.defineProperty(HTMLDialogElement.prototype, 'showModal', {
+		configurable: true,
+		value() {},
+	});
+	Object.defineProperty(HTMLDialogElement.prototype, 'close', {
+		configurable: true,
+		value() {},
+	});
+
+	const fetchSpy = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+		const url = typeof input === 'string' ? input : input instanceof URL ? input.toString() : input.url;
+		const method = init?.method ?? 'GET';
+
+		if (url.endsWith('/bookmarks') && method === 'GET') {
+			return jsonResponse({ keys: [] });
+		}
+
+		if (url.endsWith('/lists') && method === 'GET') {
+			return jsonResponse({ lists: [] });
+		}
+
+		if (url.endsWith('/smart-lists') && method === 'GET') {
+			return jsonResponse({ lists: [] });
+		}
+
+		if (url.endsWith('/account') && method === 'GET') {
+			return jsonResponse(options?.account ?? {
+				account: {
+					displayName: 'Test User',
+					plan: 'self_hosted',
+					userId: 'user-1',
+					username: 'tester',
+				},
+				features: {
+					email: true,
+					rss: true,
+					x: true,
+					youtube: true,
+				},
+				limits: {},
+				tokenType: 'api_key',
+			});
+		}
+
+		if (url.endsWith('/stats') && method === 'GET') {
+			return jsonResponse(options?.stats ?? {
+				inbox: { pending: 2 },
+				items: { byStatus: { unread: 2 }, total: 2 },
+				recentToolUsage: [{ count: 3, status: 'success', toolName: 'list_items' }],
+				sourceHealth: [{ id: 'source-1', kind: 'rss', lastSuccessAt: '2026-03-16T10:00:00.000Z', name: 'Root Feed', status: 'active' }],
+				sources: { byKind: { rss: 1 }, total: 1 },
+			});
+		}
+
+		if (url.endsWith('/sources') && method === 'GET') {
+			return jsonResponse({
+				nextCursor: null,
+				sources: options?.sources ?? [{
+					emailAlias: 'save+abc@mail.keeproot.test',
+					id: 'source-1',
+					kind: 'email',
+					name: 'Digest Inbox',
+					normalizedIdentifier: 'weekly-digest',
+					status: 'active',
+				}],
+			});
+		}
+
+		if (url.endsWith('/api-keys') && method === 'GET') {
+			return jsonResponse({ keys: options?.apiKeys ?? [] });
+		}
+
+		throw new Error(`Unhandled fetch: ${method} ${url}`);
+	});
+
+	vi.stubGlobal('fetch', fetchSpy);
+
+	await import('../src/main');
+	await flush();
+	await flush();
+	return { fetchSpy };
+}
+
+describe('dashboard MCP setup view', () => {
+	beforeEach(() => {
+		vi.restoreAllMocks();
+	});
+
+	it('renders the MCP setup view with origin-derived preset values', async () => {
+		await bootDashboard();
+
+		const navMcp = document.getElementById('nav-mcp') as HTMLButtonElement;
+		navMcp.click();
+		await flush();
+		await flush();
+		const expectedEndpoint = `${window.location.origin}/mcp`;
+
+		expect((document.getElementById('current-view-title') as HTMLElement).textContent).toBe('MCP Setup');
+		expect(navMcp.classList.contains('nav-link--active')).toBe(true);
+		expect((document.getElementById('mcp-view') as HTMLElement).classList.contains('is-hidden')).toBe(false);
+		expect((document.getElementById('mcp-endpoint-value') as HTMLInputElement).value).toBe(expectedEndpoint);
+
+		const claudeValue = (document.getElementById('mcp-preset-claude-value') as HTMLTextAreaElement).value;
+		const openAiValue = (document.getElementById('mcp-preset-openai-value') as HTMLTextAreaElement).value;
+		expect(claudeValue).toContain(`claude mcp add --transport http keeproot ${expectedEndpoint}`);
+		expect(claudeValue).toContain('<API_KEY>');
+		expect(openAiValue).toContain(`"server_url": "${expectedEndpoint}"`);
+		expect(openAiValue).toContain('"require_approval": "always"');
+		expect(openAiValue).toContain('<API_KEY>');
+		expect(openAiValue).not.toContain('session-secret');
+
+		(document.getElementById('open-api-keys-from-mcp-btn') as HTMLButtonElement).click();
+		await flush();
+		expect((document.getElementById('current-view-title') as HTMLElement).textContent).toBe('API Keys');
+	});
+
+	it('disables unsupported source kinds and updates bridge-url UI for X sources', async () => {
+		await bootDashboard({
+			account: {
+				account: {
+					displayName: 'Test User',
+					plan: 'self_hosted',
+					userId: 'user-1',
+					username: 'tester',
+				},
+				features: {
+					email: false,
+					rss: true,
+					x: true,
+					youtube: true,
+				},
+				limits: {},
+				tokenType: 'api_key',
+			},
+			sources: [{
+				id: 'source-1',
+				kind: 'rss',
+				lastSuccessAt: '2026-03-16T10:00:00.000Z',
+				name: 'Root Feed',
+				normalizedIdentifier: 'https://feeds.example.com/root.xml',
+				status: 'active',
+			}],
+		});
+
+		(document.getElementById('nav-mcp') as HTMLButtonElement).click();
+		await flush();
+		await flush();
+
+		const sourceKind = document.getElementById('mcp-source-kind') as HTMLSelectElement;
+		const emailOption = [...sourceKind.options].find((option) => option.value === 'email');
+		const xOption = [...sourceKind.options].find((option) => option.value === 'x');
+		expect(emailOption?.disabled).toBe(true);
+		expect(xOption?.disabled).toBe(false);
+
+		sourceKind.value = 'x';
+		sourceKind.dispatchEvent(new Event('change', { bubbles: true }));
+
+		expect((document.getElementById('mcp-source-identifier-label') as HTMLElement).textContent).toBe('Profile Identifier');
+		expect((document.getElementById('mcp-source-bridge-field') as HTMLElement).classList.contains('is-hidden')).toBe(false);
+		expect((document.getElementById('mcp-sources-list') as HTMLElement).textContent).toContain('Root Feed');
+		expect((document.getElementById('mcp-sources-list') as HTMLElement).textContent).toContain('Remove');
+	});
+});

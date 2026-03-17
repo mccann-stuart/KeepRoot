@@ -1,14 +1,13 @@
 import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { z } from 'zod';
+import { maybeQueueSourceSync } from './source-sync';
 import { addSource, listSources, removeSource } from '../storage/sources';
 import { getUsageStats, recordToolEvent } from '../storage/stats';
 import { getWhoAmI } from '../storage/account';
 import { listInbox, markInboxDone } from '../storage/inbox';
 import { getItem, listItems, searchItems, updateItem } from '../storage/items';
 import { saveItemFromUrl } from '../ingest/save-url';
-import { syncSource } from '../ingest/source-sync';
-import type { AuthenticatedUser, SourceKind, StorageEnv } from '../storage/shared';
-import type { IngestJob } from '../ingest/jobs';
+import type { AuthenticatedUser, StorageEnv } from '../storage/shared';
 
 type ToolHandler<TArgs> = (args: TArgs) => Promise<Record<string, unknown>>;
 type ToolSchema<TArgs extends Record<string, unknown>> = z.ZodType<TArgs>;
@@ -27,41 +26,6 @@ function formatToolResult(payload: Record<string, unknown>) {
 
 function normalizeErrorMessage(error: unknown): string {
 	return error instanceof Error ? error.message : String(error);
-}
-
-async function maybeQueueSourceSync(
-	env: StorageEnv,
-	source: Record<string, unknown>,
-): Promise<void> {
-	const pollUrl = typeof source.pollUrl === 'string' ? source.pollUrl : null;
-	const kind = typeof source.kind === 'string' ? source.kind as SourceKind : null;
-	const id = typeof source.id === 'string' ? source.id : null;
-	const userId = typeof (source as { userId?: unknown }).userId === 'string' ? (source as { userId: string }).userId : null;
-
-	if (!id || !kind || !pollUrl || !userId) {
-		return;
-	}
-
-	if (env.INGEST_QUEUE) {
-		const job: IngestJob = {
-			kind: 'sync_source',
-			payload: {
-				id,
-				kind,
-				pollUrl,
-				userId,
-			},
-		};
-		await env.INGEST_QUEUE.send(job);
-		return;
-	}
-
-	await syncSource(env, {
-		id,
-		kind,
-		pollUrl,
-		userId,
-	});
 }
 
 export function buildKeepRootMcpServer(env: StorageEnv, user: AuthenticatedUser): McpServer {
