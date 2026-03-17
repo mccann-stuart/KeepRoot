@@ -8,19 +8,14 @@ export default defineWorkersConfig({
 				inline: [
 					/@simplewebauthn\/server/,
 					/@peculiar\/.*/,
-					/tslib/
-				]
-			}
+					/tslib/,
+				],
+			},
 		},
 		poolOptions: {
 			workers: {
 				wrangler: { configPath: './wrangler.jsonc' },
 			},
 		},
-		server: {
-			deps: {
-				inline: ['@simplewebauthn/server', 'tslib', 'tsyringe']
-			}
-		}
 	},
 });

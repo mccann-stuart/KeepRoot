@@ -16,11 +16,14 @@ export interface StorageEnv {
 	ASSETS?: Fetcher;
 	AI?: Ai;
 	BROWSER?: Fetcher;
+	EMAIL_SOURCE_DOMAIN?: string;
+	ENABLE_X_SOURCES?: string;
 	INGEST_QUEUE?: Queue<unknown>;
 	KEEPROOT_DB: D1Database;
 	KEEPROOT_CONTENT: R2Bucket;
 	KEEPROOT_VECTOR_INDEX?: Vectorize;
 	MCP_EMAIL_DOMAIN?: string;
+	X_SOURCE_BRIDGE_BASE_URL?: string;
 }
 
 export type D1ColumnInfo = {
@@ -148,8 +151,9 @@ export interface SourceListOptions extends PaginationInput {
 export function bufferToBase64URL(buffer: ArrayBuffer | Uint8Array): string {
 	const bytes = buffer instanceof Uint8Array ? buffer : new Uint8Array(buffer);
 	let binary = '';
-	for (const byte of bytes) {
-		binary += String.fromCharCode(byte);
+	const chunkSize = 8192;
+	for (let i = 0; i < bytes.length; i += chunkSize) {
+		binary += String.fromCharCode.apply(null, bytes.subarray(i, i + chunkSize) as unknown as number[]);
 	}
 	return btoa(binary).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/g, '');
 }

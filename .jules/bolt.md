@@ -5,3 +5,7 @@
 ## 2025-05-18 - Cloudflare D1 Batch Inserts & Fire-And-Forget Promises
 **Learning:** In Cloudflare Workers, unawaited "fire-and-forget" promises (e.g., updating a `last_used_at` DB row without `await`) will be aggressively aborted as soon as the HTTP response is sent unless passed to `ctx.waitUntil()`. Furthermore, loops executing D1 prepared statements sequentially result in severe N+1 HTTP roundtrips.
 **Action:** Always use `D1Database.batch()` to combine multiple `DELETE`/`INSERT` queries into a single roundtrip. When batching `INSERT`s from array inputs, ensure the array is deduplicated beforehand to avoid unique constraint violations within the same transaction batch. Never use unawaited promises for side effects without `ctx.waitUntil()`.
+
+## 2025-05-18 - Concurrent R2 Uploads
+**Learning:** Performing multiple sequential R2 uploads (like saving multiple images for a bookmark) significantly increases I/O latency in Cloudflare Workers because each upload represents a network roundtrip that pauses execution.
+**Action:** Always process multiple independent R2 operations concurrently using `Promise.all()` to ensure they happen in parallel, vastly reducing the total request latency. Similarly, batch any resulting D1 updates into a single roundtrip via `D1Database.batch()`.
