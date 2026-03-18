@@ -22,8 +22,19 @@ function getExpectedOrigins(context: RouteContext): string[] {
 	const requestOrigin = context.request.headers.get('Origin');
 	const expectedOrigins = [context.origin];
 
-	if (requestOrigin && /^(chrome-extension|moz-extension|safari-web-extension):\/\//.test(requestOrigin)) {
-		expectedOrigins.push(requestOrigin);
+	if (requestOrigin) {
+		try {
+			const originUrl = new URL(requestOrigin);
+			if (
+				originUrl.protocol === 'chrome-extension:' ||
+				originUrl.protocol === 'moz-extension:' ||
+				originUrl.protocol === 'safari-web-extension:'
+			) {
+				expectedOrigins.push(requestOrigin);
+			}
+		} catch {
+			// Invalid origin URL
+		}
 	}
 
 	return expectedOrigins;

@@ -59,14 +59,19 @@ export function applyCorsHeaders(request: Request, headers: Headers): Headers {
 	}
 
 	const requestUrl = new URL(request.url);
-	if (
-		origin === requestUrl.origin
-		|| origin.startsWith('chrome-extension://')
-		|| origin.startsWith('moz-extension://')
-		|| origin.startsWith('safari-web-extension://')
-	) {
-		headers.set('Access-Control-Allow-Origin', origin);
-		headers.set('Vary', 'Origin');
+	try {
+		const originUrl = new URL(origin);
+		if (
+			origin === requestUrl.origin ||
+			originUrl.protocol === 'chrome-extension:' ||
+			originUrl.protocol === 'moz-extension:' ||
+			originUrl.protocol === 'safari-web-extension:'
+		) {
+			headers.set('Access-Control-Allow-Origin', origin);
+			headers.set('Vary', 'Origin');
+		}
+	} catch {
+		// Invalid origin URL
 	}
 
 	return headers;
