@@ -29,13 +29,20 @@ function applyCorsHeaders(response: Response, request: Request): Response {
 	const url = new URL(request.url);
 	let allowedOrigin = url.origin;
 
-	if (origin && (
-		origin === url.origin ||
-		origin.startsWith('chrome-extension://') ||
-		origin.startsWith('moz-extension://') ||
-		origin.startsWith('safari-web-extension://')
-	)) {
-		allowedOrigin = origin;
+	if (origin) {
+		try {
+			const originUrl = new URL(origin);
+			if (
+				origin === url.origin ||
+				originUrl.protocol === 'chrome-extension:' ||
+				originUrl.protocol === 'moz-extension:' ||
+				originUrl.protocol === 'safari-web-extension:'
+			) {
+				allowedOrigin = origin;
+			}
+		} catch {
+			// Invalid origin URL
+		}
 	}
 
 	const headers = new Headers(response.headers);
