@@ -3,7 +3,7 @@ import { ingestEmailMessage } from './ingest/email';
 import { processIngestJob, type IngestJob } from './ingest/jobs';
 import { syncAllActiveSources } from './ingest/source-sync';
 import { buildKeepRootMcpServer } from './mcp/server';
-import { authenticateBearerToken, ensureOrganizationSchema, listActivePollableSources, type StorageEnv } from './storage';
+import { assertOrganizationSchemaReady, authenticateBearerToken, listActivePollableSources, SchemaCompatibilityError, type StorageEnv } from './storage';
 import { createRouteContext, errorResponse, isProtectedApiPath, type ProtectedRouteContext } from './http';
 import { handleAuthRoute } from './routes/auth';
 import { handleAccountRoute } from './routes/account';
@@ -58,6 +58,14 @@ function applyCorsHeaders(response: Response, request: Request): Response {
 	});
 }
 
+function handleFetchError(error: unknown): Response {
+	console.error(error);
+	if (error instanceof SchemaCompatibilityError) {
+		return errorResponse(error.message, 503);
+	}
+	return errorResponse('Internal Server Error', 500);
+}
+
 export default {
 	async fetch(request: Request, env: Env, ctx: ExecutionContext): Promise<Response> {
 		const context = createRouteContext(request, env);
@@ -72,7 +80,7 @@ export default {
 				response = errorResponse('Unauthorized', 401);
 			} else {
 				try {
-					await ensureOrganizationSchema(env);
+					await assertOrganizationSchemaReady(env);
 					const server = buildKeepRootMcpServer(env, authUser);
 					const handler = createMcpHandler(server, {
 						authContext: {
@@ -88,8 +96,7 @@ export default {
 					});
 					response = await handler(request, env, ctx);
 				} catch (error) {
-					console.error(error);
-					response = errorResponse('Internal Server Error', 500);
+					response = handleFetchError(error);
 				}
 			}
 		} else {
@@ -111,7 +118,7 @@ export default {
 						response = errorResponse('Unauthorized', 401);
 					} else {
 						try {
-							await ensureOrganizationSchema(env);
+							await assertOrganizationSchemaReady(env);
 
 							const protectedContext = createProtectedContext(context, authUser);
 
@@ -124,8 +131,7 @@ export default {
 								?? await handleSmartListRoute(protectedContext)
 								?? errorResponse('Not found', 404);
 						} catch (error) {
-							console.error(error);
-							response = errorResponse('Internal Server Error', 500);
+							response = handleFetchError(error);
 						}
 					}
 				}
@@ -136,7 +142,7 @@ export default {
 	},
 
 	async scheduled(_controller: ScheduledController, env: Env): Promise<void> {
-		await ensureOrganizationSchema(env);
+		await assertOrganizationSchemaReady(env);
 		if (env.INGEST_QUEUE) {
 			const sources = await listActivePollableSources(env);
 			await Promise.all(
@@ -156,14 +162,14 @@ export default {
 	},
 
 	async queue(batch: MessageBatch<IngestJob>, env: Env): Promise<void> {
-		await ensureOrganizationSchema(env);
+		await assertOrganizationSchemaReady(env);
 		for (const message of batch.messages) {
 			await processIngestJob(env, message.body);
 		}
 	},
 
 	async email(message: ForwardableEmailMessage, env: Env): Promise<void> {
-		await ensureOrganizationSchema(env);
+		await assertOrganizationSchemaReady(env);
 		await ingestEmailMessage(env, message);
 	},
 };

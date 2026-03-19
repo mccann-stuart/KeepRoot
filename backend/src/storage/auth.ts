@@ -36,6 +36,15 @@ interface ChallengeRow {
 	username: string;
 }
 
+interface ApiKeyRow {
+	id: string;
+	last_used_at: string | null;
+	user_id: string;
+	username: string;
+}
+
+const API_KEY_LAST_USED_WRITE_INTERVAL_MS = 60 * 60 * 1000;
+
 export async function getUserByUsername(env: StorageEnv, username: string): Promise<UserRow | null> {
 	return env.KEEPROOT_DB.prepare(
 		'SELECT id, username, created_at FROM users WHERE username = ?',
@@ -196,7 +205,8 @@ export async function createSession(
 
 export async function authenticateBearerToken(env: StorageEnv, token: string): Promise<AuthenticatedUser | null> {
 	const tokenHash = await hashToken(token);
-	const now = new Date().toISOString();
+	const nowMs = Date.now();
+	const now = new Date(nowMs).toISOString();
 	const session = await env.KEEPROOT_DB.prepare(
 		`SELECT user_id, username
 		FROM sessions
@@ -215,23 +225,26 @@ export async function authenticateBearerToken(env: StorageEnv, token: string): P
 	}
 
 	const apiKey = await env.KEEPROOT_DB.prepare(
-		`SELECT id, user_id, username
+		`SELECT id, user_id, username, last_used_at
 		FROM api_keys
 		WHERE secret_hash = ?
 		LIMIT 1`,
 	)
 		.bind(tokenHash)
-		.first<{ id: string; user_id: string; username: string }>();
+		.first<ApiKeyRow>();
 
 	if (!apiKey) {
 		return null;
 	}
 
-	await env.KEEPROOT_DB.prepare(
-		'UPDATE api_keys SET last_used_at = ? WHERE id = ?',
-	)
-		.bind(now, apiKey.id)
-		.run();
+	const lastUsedAtMs = apiKey.last_used_at ? Date.parse(apiKey.last_used_at) : Number.NaN;
+	if (!Number.isFinite(lastUsedAtMs) || (nowMs - lastUsedAtMs) >= API_KEY_LAST_USED_WRITE_INTERVAL_MS) {
+		await env.KEEPROOT_DB.prepare(
+			'UPDATE api_keys SET last_used_at = ? WHERE id = ?',
+		)
+			.bind(now, apiKey.id)
+			.run();
+	}
 
 	return {
 		tokenType: 'api_key',

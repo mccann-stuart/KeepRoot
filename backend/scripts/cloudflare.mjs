@@ -66,6 +66,10 @@ function runNodeScript(relativeScriptPath, args = []) {
 	}
 }
 
+function runMigrationScript(args = []) {
+	runNodeScript('./scripts/d1-migrate.mjs', args);
+}
+
 function ensureRemoteResources() {
 	const config = loadConfig();
 	for (const database of config.d1_databases ?? []) {
@@ -88,18 +92,18 @@ function ensureRemoteResources() {
 switch (command) {
 	case 'provision':
 		ensureRemoteResources();
-		runWrangler(['d1', 'migrations', 'apply', 'KEEPROOT_DB', '--remote']);
+		runMigrationScript(['--remote']);
 		runWrangler(['types']);
 		break;
 	case 'deploy':
 		ensureRemoteResources();
-		runWrangler(['d1', 'migrations', 'apply', 'KEEPROOT_DB', '--remote']);
+		runMigrationScript(['--remote']);
 		runWrangler(['types']);
 		runWrangler(['deploy']);
 		break;
 	case 'dev':
 		runWrangler(['types']);
-		runWrangler(['d1', 'migrations', 'apply', 'KEEPROOT_DB', '--local']);
+		runMigrationScript(['--local']);
 		runWrangler(['dev']);
 		break;
 	case 'types':

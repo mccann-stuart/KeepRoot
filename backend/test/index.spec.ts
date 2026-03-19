@@ -3,6 +3,9 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 import worker from '../src/index';
 import { createUserWithCredential, hashToken, storeAuthChallenge } from '../src/storage';
 import initialSchemaSql from '../migrations/0001_initial.sql?raw';
+import organizationSchemaSql from '../migrations/0002_organization.sql?raw';
+import mcpServerSchemaSql from '../migrations/0003_mcp_server.sql?raw';
+import bookmarkHotPathSchemaSql from '../migrations/0004_bookmark_hot_path.sql?raw';
 
 const API_KEY = 'test-api-key-12345';
 const TEST_USER_ID = 'test-user-id';
@@ -54,14 +57,22 @@ function mockTextFetch(responses: Record<string, { body: string; contentType?: s
 	});
 }
 
-async function execStatements(sql: string): Promise<void> {
+async function execStatements(sql: string, allowExisting = false): Promise<void> {
 	const statements = sql
 		.split(/;\s*\n/g)
 		.map((statement) => statement.trim())
 		.filter(Boolean);
 
 	for (const statement of statements) {
-		await env.KEEPROOT_DB.exec(statement.replace(/\s+/g, ' ').trim());
+		try {
+			await env.KEEPROOT_DB.exec(statement.replace(/\s+/g, ' ').trim());
+		} catch (error) {
+			const message = error instanceof Error ? error.message : String(error);
+			if (allowExisting && /duplicate column name|already exists/i.test(message)) {
+				continue;
+			}
+			throw error;
+		}
 	}
 }
 
@@ -69,12 +80,15 @@ async function tryExec(sql: string): Promise<void> {
 	try {
 		await env.KEEPROOT_DB.exec(sql.replace(/\s+/g, ' ').trim());
 	} catch {
-		// Some organization/MCP tables are created lazily during requests.
+		// Ignore cleanup for optional tables in reset paths.
 	}
 }
 
 async function resetDatabase(): Promise<void> {
-	await execStatements(initialSchemaSql);
+	await execStatements(initialSchemaSql, true);
+	await execStatements(organizationSchemaSql, true);
+	await execStatements(mcpServerSchemaSql, true);
+	await execStatements(bookmarkHotPathSchemaSql, true);
 	await execStatements(`
 		DELETE FROM bookmark_tags;
 		DELETE FROM bookmark_images;
@@ -1103,6 +1117,32 @@ describe('KeepRoot Worker', () => {
 		expect(stats.payload.items.byStatus.archived).toBe(1);
 		expect(stats.payload.inbox.pending).toBe(0);
 		expect(stats.payload.recentToolUsage.length).toBeGreaterThan(0);
+	});
+
+	it('throttles api key last_used_at writes for repeated MCP requests', async () => {
+		const before = await env.KEEPROOT_DB.prepare(
+			'SELECT last_used_at FROM api_keys WHERE id = ?',
+		)
+			.bind('test-api-key-id')
+			.first<{ last_used_at: string | null }>();
+		expect(before?.last_used_at ?? null).toBeNull();
+
+		await mcpRequest('tools/list');
+		const first = await env.KEEPROOT_DB.prepare(
+			'SELECT last_used_at FROM api_keys WHERE id = ?',
+		)
+			.bind('test-api-key-id')
+			.first<{ last_used_at: string | null }>();
+
+		await mcpRequest('tools/list');
+		const second = await env.KEEPROOT_DB.prepare(
+			'SELECT last_used_at FROM api_keys WHERE id = ?',
+		)
+			.bind('test-api-key-id')
+			.first<{ last_used_at: string | null }>();
+
+		expect(first?.last_used_at).toBeTruthy();
+		expect(second?.last_used_at).toBe(first?.last_used_at);
 	});
 
 	it('manages MCP sources, subscriptions, and inbox sync state', async () => {

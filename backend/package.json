@@ -9,13 +9,13 @@
 		"dev": "node ./scripts/cloudflare.mjs dev",
 		"provision": "node ./scripts/cloudflare.mjs provision",
 		"start": "node ./scripts/cloudflare.mjs dev",
-		"test": "npm run build:dashboard && vitest run --config vitest.config.mts && vitest run --config vitest.dashboard.config.mts",
-		"test:dashboard": "npm run build:dashboard && vitest run --config vitest.dashboard.config.mts",
-		"test:worker": "npm run build:dashboard && vitest run --config vitest.config.mts",
+		"test": "node ./scripts/test.mjs all",
+		"test:dashboard": "node ./scripts/test.mjs dashboard",
+		"test:worker": "node ./scripts/test.mjs worker",
 		"watch:dashboard": "node ./scripts/dashboard.mjs watch",
 		"cf-typegen": "node ./scripts/cloudflare.mjs types",
-		"db:migrate:local": "wrangler d1 migrations apply KEEPROOT_DB --local",
-		"db:migrate:remote": "wrangler d1 migrations apply KEEPROOT_DB --remote"
+		"db:migrate:local": "node ./scripts/d1-migrate.mjs --local",
+		"db:migrate:remote": "node ./scripts/d1-migrate.mjs --remote"
 	},
 	"devDependencies": {
 		"@cloudflare/vitest-pool-workers": "^0.12.4",

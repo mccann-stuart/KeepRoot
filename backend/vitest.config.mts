@@ -9,6 +9,10 @@ export default defineWorkersConfig({
 					/@simplewebauthn\/server/,
 					/@peculiar\/.*/,
 					/tslib/,
+					'@simplewebauthn/server',
+					'tsyringe',
+				],
+			}
 				],
 			},
 		},
