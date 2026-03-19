@@ -28,9 +28,9 @@ function parseJsonObject(value: string | null, fallback: Record<string, unknown>
 
 function getDefaultFeatures(env: StorageEnv): Record<string, unknown> {
 	return {
-		email: Boolean(env.MCP_EMAIL_DOMAIN),
+		email: Boolean(env.MCP_EMAIL_DOMAIN || env.EMAIL_SOURCE_DOMAIN),
 		rss: true,
-		x: false,
+		x: env.ENABLE_X_SOURCES === '1' || Boolean(env.X_SOURCE_BRIDGE_BASE_URL),
 		youtube: true,
 	};
 }

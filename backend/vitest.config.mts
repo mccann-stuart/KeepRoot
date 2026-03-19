@@ -13,6 +13,8 @@ export default defineWorkersConfig({
 					'tsyringe',
 				],
 			}
+				],
+			},
 		},
 		poolOptions: {
 			workers: {
