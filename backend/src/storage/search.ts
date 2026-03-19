@@ -413,31 +413,47 @@ export async function searchBookmarkIds(
 		...semanticScores.keys(),
 	]);
 
-	for (const id of candidateIds) {
-		if (bookmarkMeta.has(id)) {
-			continue;
+	// ⚡ Bolt: Batch D1 queries to prevent N+1 overhead when hydating multiple search candidates
+	const missingCandidateIds = [...candidateIds].filter((id) => !bookmarkMeta.has(id));
+	if (missingCandidateIds.length > 0) {
+		const batchSize = 50;
+		for (let i = 0; i < missingCandidateIds.length; i += batchSize) {
+			const batchIds = missingCandidateIds.slice(i, i + batchSize);
+			const placeholders = batchIds.map(() => '?').join(', ');
+
+			const bookmarksQuery = await env.KEEPROOT_DB.prepare(
+				`SELECT id, domain, source_id, status
+				FROM bookmarks
+				WHERE id IN (${placeholders}) AND user_id = ?`,
+			)
+				.bind(...batchIds, userId)
+				.all<{ id: string; domain: string | null; source_id: string | null; status: string }>();
+
+			const tagsQuery = await env.KEEPROOT_DB.prepare(
+				`SELECT bookmark_tags.bookmark_id, tags.name
+				FROM tags
+				INNER JOIN bookmark_tags ON bookmark_tags.tag_id = tags.id
+				WHERE bookmark_tags.bookmark_id IN (${placeholders})`,
+			)
+				.bind(...batchIds)
+				.all<{ bookmark_id: string; name: string }>();
+
+			const tagsByBookmark = new Map<string, string[]>();
+			for (const tagRow of tagsQuery.results) {
+				const existing = tagsByBookmark.get(tagRow.bookmark_id) ?? [];
+				existing.push(tagRow.name);
+				tagsByBookmark.set(tagRow.bookmark_id, existing);
+			}
+
+			for (const bookmark of bookmarksQuery.results) {
+				bookmarkMeta.set(bookmark.id, {
+					domain: bookmark.domain,
+					sourceId: bookmark.source_id,
+					status: bookmark.status,
+					tags: tagsByBookmark.get(bookmark.id)?.sort() ?? [],
+				});
+			}
 		}
-
-		const bookmark = await env.KEEPROOT_DB.prepare(
-			`SELECT domain, source_id, status
-			FROM bookmarks
-			WHERE id = ? AND user_id = ?
-			LIMIT 1`,
-		)
-			.bind(id, userId)
-			.first<{ domain: string | null; source_id: string | null; status: string }>();
-
-		if (!bookmark) {
-			continue;
-		}
-
-		const tags = await loadBookmarkTags(env, id);
-		bookmarkMeta.set(id, {
-			domain: bookmark.domain,
-			sourceId: bookmark.source_id,
-			status: bookmark.status,
-			tags,
-		});
 	}
 
 	const ranked = [...candidateIds]
