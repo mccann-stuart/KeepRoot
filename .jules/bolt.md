@@ -13,3 +13,7 @@
 ## 2025-05-18 - String Creation Overhead in Byte Conversion
 **Learning:** When dealing with large payloads like content hashes or fetched images in Cloudflare Workers, mapping or looping over bytes (`Uint8Array`) one-by-one to create strings via `String.fromCharCode(byte)` or `.toString(16)` incurs severe memory overhead and execution latency from millions of tiny string allocations.
 **Action:** For base64 conversion, process bytes in chunks using `String.fromCharCode.apply(null, chunk)` (e.g., chunk sizes of 8192) to vastly improve latency and reduce heap allocations. For fast byte-to-hex conversion, precompute a static array map of 256 hexadecimal string pairs (`Array.from({length: 256}, ...)`), and concatenate values from the map in a tight `for` loop to avoid dynamic function allocations.
+
+## 2026-03-19 - Batched D1 Queries for Resolving N+1 Problems
+**Learning:** Running sequential D1 queries inside a loop when hydrating multiple results (like fetching metadata and tags for multiple search candidates) creates severe N+1 HTTP roundtrips, massively inflating latency as the number of candidates grows.
+**Action:** Use `IN (?, ?, ...)` SQL queries to batch-fetch records for multiple IDs simultaneously. To avoid exceeding D1 limits (like maximum bound parameters), slice the IDs into smaller batches (e.g., 50 at a time) and process those batches sequentially instead of individual IDs.
