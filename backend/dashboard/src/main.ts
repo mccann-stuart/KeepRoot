@@ -3,7 +3,7 @@ import { loginWithPasskey, registerWithPasskey } from './lib/auth';
 import { ApiError, KeepRootApi } from './lib/api';
 import { getDom } from './lib/dom';
 import { collectTags, filterBookmarks } from './lib/filters';
-import { renderMarkdown } from './lib/markdown';
+import { escapeHtml, renderMarkdown } from './lib/markdown';
 import { buildMcpPresets, getDefaultSourceKind, getMcpEndpoint, getSourceKindOptions, getSourceSummaryLine } from './lib/mcp';
 import { registerServiceWorker } from './lib/service-worker';
 import { buildDataSnapshot, createAppState, getBookmarkId, type AccountFeatures, type ApiKeyRecord, type BookmarkDetail, type BookmarkSummary, type HighlightRecord, type SmartListSummary, type SourceHealthRecord, type SourceRecord, type ToolUsageRecord, type ViewName } from './lib/state';
@@ -416,12 +416,12 @@ function renderMcpStatus() {
 	dom.mcpAccountSummary.innerHTML = `
 		<article class="stack-item stack-item--split">
 			<div>
-				<h3>${account.account.displayName ?? account.account.username}</h3>
-				<p class="muted-copy">@${account.account.username}</p>
+				<h3>${escapeHtml(account.account.displayName ?? account.account.username)}</h3>
+				<p class="muted-copy">@${escapeHtml(account.account.username)}</p>
 			</div>
 			<div class="mcp-meta">
-				<span class="pill">Plan: ${account.account.plan}</span>
-				<span class="pill">Auth: ${account.tokenType}</span>
+				<span class="pill">Plan: ${escapeHtml(account.account.plan)}</span>
+				<span class="pill">Auth: ${escapeHtml(account.tokenType)}</span>
 			</div>
 		</article>
 	`;
@@ -446,7 +446,7 @@ function renderMcpStatus() {
 	for (const stat of statCards) {
 		const card = document.createElement('article');
 		card.className = 'stat-card';
-		card.innerHTML = `<span>${stat.label}</span><strong>${stat.value}</strong>`;
+		card.innerHTML = `<span>${escapeHtml(stat.label)}</span><strong>${escapeHtml(stat.value)}</strong>`;
 		dom.mcpStatsGrid.appendChild(card);
 	}
 
@@ -467,10 +467,10 @@ function renderToolUsage(entries: ToolUsageRecord[]) {
 		item.className = 'stack-item stack-item--split';
 		item.innerHTML = `
 			<div>
-				<h3>${entry.toolName}</h3>
-				<p class="muted-copy">${entry.count} calls</p>
+				<h3>${escapeHtml(entry.toolName)}</h3>
+				<p class="muted-copy">${escapeHtml(String(entry.count))} calls</p>
 			</div>
-			<span class="pill">${entry.status}</span>
+			<span class="pill">${escapeHtml(entry.status)}</span>
 		`;
 		dom.mcpToolUsageList.appendChild(item);
 	}
@@ -489,11 +489,11 @@ function renderSourceHealth(entries: SourceHealthRecord[]) {
 		item.className = 'stack-item stack-item--split';
 		item.innerHTML = `
 			<div>
-				<h3>${entry.name}</h3>
-				<p class="muted-copy">${entry.kind} · Last success ${formatTimestamp(entry.lastSuccessAt)}</p>
-				${entry.lastError ? `<p class="muted-copy">${entry.lastError}</p>` : ''}
+				<h3>${escapeHtml(entry.name)}</h3>
+				<p class="muted-copy">${escapeHtml(entry.kind)} · Last success ${escapeHtml(formatTimestamp(entry.lastSuccessAt))}</p>
+				${entry.lastError ? `<p class="muted-copy">${escapeHtml(entry.lastError)}</p>` : ''}
 			</div>
-			<span class="pill">${entry.status}</span>
+			<span class="pill">${escapeHtml(entry.status)}</span>
 		`;
 		dom.mcpSourceHealthList.appendChild(item);
 	}
@@ -514,16 +514,16 @@ function renderSources(sources: SourceRecord[]) {
 		item.innerHTML = `
 			<div class="mcp-source-item">
 				<div>
-					<h3>${source.name}</h3>
-					<p class="muted-copy">${source.kind} · ${getSourceSummaryLine(source)}</p>
+					<h3>${escapeHtml(source.name)}</h3>
+					<p class="muted-copy">${escapeHtml(source.kind)} · ${escapeHtml(getSourceSummaryLine(source))}</p>
 				</div>
 				<div class="mcp-source-meta">
-					<span class="pill">${source.status}</span>
-					<span class="muted-copy">Last success ${formatTimestamp(source.lastSuccessAt)}</span>
-					${source.lastError ? `<p class="muted-copy">${source.lastError}</p>` : ''}
+					<span class="pill">${escapeHtml(source.status)}</span>
+					<span class="muted-copy">Last success ${escapeHtml(formatTimestamp(source.lastSuccessAt))}</span>
+					${source.lastError ? `<p class="muted-copy">${escapeHtml(source.lastError)}</p>` : ''}
 				</div>
 			</div>
-			<button type="button" data-action="delete-source" data-source-id="${source.id}" class="btn btn-danger btn-compact">Remove</button>
+			<button type="button" data-action="delete-source" data-source-id="${escapeHtml(source.id)}" class="btn btn-danger btn-compact">Remove</button>
 		`;
 		dom.mcpSourcesList.appendChild(item);
 	}
