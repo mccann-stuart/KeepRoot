@@ -12,8 +12,6 @@ export default defineWorkersConfig({
 					'@simplewebauthn/server',
 					'tsyringe',
 				],
-			}
-				],
 			},
 		},
 		poolOptions: {
