@@ -17,3 +17,7 @@
 ## 2026-03-19 - Batched D1 Queries for Resolving N+1 Problems
 **Learning:** Running sequential D1 queries inside a loop when hydrating multiple results (like fetching metadata and tags for multiple search candidates) creates severe N+1 HTTP roundtrips, massively inflating latency as the number of candidates grows.
 **Action:** Use `IN (?, ?, ...)` SQL queries to batch-fetch records for multiple IDs simultaneously. To avoid exceeding D1 limits (like maximum bound parameters), slice the IDs into smaller batches (e.g., 50 at a time) and process those batches sequentially instead of individual IDs.
+
+## 2026-03-19 - Object.entries Array Allocation Overhead
+**Learning:** Using `Object.entries()` followed by array methods like `.filter()` and `Object.fromEntries()` inside frequently called utilities (like `compactObject`) creates multiple intermediate array allocations per call. In Cloudflare Workers with high-traffic payloads (like hydrating search results or lists), this creates excessive Garbage Collection (GC) pressure and slows down response times.
+**Action:** When filtering or mapping object properties for performance-critical functions, use a procedural `for...in` loop instead of `Object.entries()`. Always include an `Object.prototype.hasOwnProperty.call(value, key)` check to ensure only the object's own enumerable properties are processed, mirroring the exact semantics of `Object.entries()`.

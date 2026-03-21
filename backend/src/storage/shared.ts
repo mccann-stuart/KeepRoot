@@ -234,8 +234,19 @@ export function parseStringArray(value: string | null): string[] {
 	}
 }
 
+// ⚡ Bolt: Using a procedural for...in loop prevents intermediate array allocations created by Object.entries() and filter().
+// Impact: Significantly reduces GC pressure and speeds up compacting large objects or numerous rows in Cloudflare Workers.
 export function compactObject<T extends Record<string, unknown>>(value: T): T {
-	return Object.fromEntries(Object.entries(value).filter(([, entry]) => entry !== null && entry !== undefined && entry !== '')) as T;
+	const result: Record<string, unknown> = {};
+	for (const key in value) {
+		if (Object.prototype.hasOwnProperty.call(value, key)) {
+			const entry = value[key];
+			if (entry !== null && entry !== undefined && entry !== '') {
+				result[key] = entry;
+			}
+		}
+	}
+	return result as T;
 }
 
 // ⚡ Bolt: Precomputed lookup array avoids dynamic string allocation and map callbacks on every byte.
