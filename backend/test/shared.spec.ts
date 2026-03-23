@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { bufferToBase64URL, base64URLToUint8Array } from '../src/storage/shared';
+import { bufferToBase64URL, base64URLToUint8Array, compactObject } from '../src/storage/shared';
 
 describe('shared storage utilities', () => {
 	describe('bufferToBase64URL', () => {
@@ -76,6 +76,46 @@ describe('shared storage utilities', () => {
 			const encoded = bufferToBase64URL(data);
 			const decoded = base64URLToUint8Array(encoded);
 			expect(decoded).toEqual(data);
+		});
+	});
+
+	describe('compactObject', () => {
+		it('handles empty objects', () => {
+			expect(compactObject({})).toEqual({});
+		});
+
+		it('leaves valid objects unchanged', () => {
+			const input = { a: 1, b: 'test', c: true };
+			expect(compactObject(input)).toEqual(input);
+		});
+
+		it('filters out null, undefined, and empty string', () => {
+			const input = {
+				a: 1,
+				b: null,
+				c: undefined,
+				d: '',
+				e: 'keep',
+			};
+			expect(compactObject(input)).toEqual({
+				a: 1,
+				e: 'keep',
+			});
+		});
+
+		it('preserves falsy values like 0, false, and NaN', () => {
+			const input = {
+				a: 0,
+				b: false,
+				c: NaN,
+				d: '',
+				e: null,
+			};
+			expect(compactObject(input)).toEqual({
+				a: 0,
+				b: false,
+				c: NaN,
+			});
 		});
 	});
 });
