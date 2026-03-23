@@ -872,22 +872,27 @@ export async function saveBookmark(
 }
 
 export async function listBookmarks(env: StorageEnv, userId: string): Promise<BookmarkListItem[]> {
-	const rawBookmarks = await env.KEEPROOT_DB.prepare(
-		`SELECT id, url, canonical_url, title, site_name, domain, status, notes, source_id, processing_state, search_updated_at, embedding_updated_at, created_at, updated_at, last_fetched_at,
-			content_hash, content_ref, content_type, content_length, excerpt, word_count, lang, list_id, pinned, sort_order, is_read
-		FROM bookmarks
-		WHERE user_id = ?
-		ORDER BY pinned DESC, sort_order ASC, created_at DESC`,
-	)
-		.bind(userId)
-		.all<BookmarkRow>();
+	// ⚡ Bolt: Execute independent queries in parallel using Promise.all to reduce total database roundtrip latency
+	const [rawBookmarks, tagRows] = await Promise.all([
+		env.KEEPROOT_DB.prepare(
+			`SELECT id, url, canonical_url, title, site_name, domain, status, notes, source_id, processing_state, search_updated_at, embedding_updated_at, created_at, updated_at, last_fetched_at,
+				content_hash, content_ref, content_type, content_length, excerpt, word_count, lang, list_id, pinned, sort_order, is_read
+			FROM bookmarks
+			WHERE user_id = ?
+			ORDER BY pinned DESC, sort_order ASC, created_at DESC`,
+		)
+			.bind(userId)
+			.all<BookmarkRow>(),
 
-	const tagRows = await env.KEEPROOT_DB.prepare(
-		`SELECT bookmark_tags.bookmark_id, tags.name
-		 FROM tags
-		 INNER JOIN bookmark_tags ON bookmark_tags.tag_id = tags.id
-		 WHERE tags.user_id = ?`,
-	).bind(userId).all<{ bookmark_id: string; name: string }>();
+		env.KEEPROOT_DB.prepare(
+			`SELECT bookmark_tags.bookmark_id, tags.name
+			 FROM tags
+			 INNER JOIN bookmark_tags ON bookmark_tags.tag_id = tags.id
+			 WHERE tags.user_id = ?`,
+		)
+			.bind(userId)
+			.all<{ bookmark_id: string; name: string }>(),
+	]);
 
 	const tagsByBookmark = new Map<string, string[]>();
 	for (const row of tagRows.results) {
