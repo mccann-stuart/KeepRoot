@@ -421,22 +421,25 @@ export async function searchBookmarkIds(
 			const batchIds = missingCandidateIds.slice(i, i + batchSize);
 			const placeholders = batchIds.map(() => '?').join(', ');
 
-			const bookmarksQuery = await env.KEEPROOT_DB.prepare(
-				`SELECT id, domain, source_id, status
-				FROM bookmarks
-				WHERE id IN (${placeholders}) AND user_id = ?`,
-			)
-				.bind(...batchIds, userId)
-				.all<{ id: string; domain: string | null; source_id: string | null; status: string }>();
+			// ⚡ Bolt: Fetch tags and bookmarks in parallel within each batch to halve the sequential roundtrip latency
+			const [bookmarksQuery, tagsQuery] = await Promise.all([
+				env.KEEPROOT_DB.prepare(
+					`SELECT id, domain, source_id, status
+					FROM bookmarks
+					WHERE id IN (${placeholders}) AND user_id = ?`,
+				)
+					.bind(...batchIds, userId)
+					.all<{ id: string; domain: string | null; source_id: string | null; status: string }>(),
 
-			const tagsQuery = await env.KEEPROOT_DB.prepare(
-				`SELECT bookmark_tags.bookmark_id, tags.name
-				FROM tags
-				INNER JOIN bookmark_tags ON bookmark_tags.tag_id = tags.id
-				WHERE bookmark_tags.bookmark_id IN (${placeholders})`,
-			)
-				.bind(...batchIds)
-				.all<{ bookmark_id: string; name: string }>();
+				env.KEEPROOT_DB.prepare(
+					`SELECT bookmark_tags.bookmark_id, tags.name
+					FROM tags
+					INNER JOIN bookmark_tags ON bookmark_tags.tag_id = tags.id
+					WHERE bookmark_tags.bookmark_id IN (${placeholders})`,
+				)
+					.bind(...batchIds)
+					.all<{ bookmark_id: string; name: string }>(),
+			]);
 
 			const tagsByBookmark = new Map<string, string[]>();
 			for (const tagRow of tagsQuery.results) {
