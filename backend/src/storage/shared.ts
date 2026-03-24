@@ -218,6 +218,8 @@ export function normalizeCanonicalUrl(rawUrl: string): string {
 	return parsedUrl.toString();
 }
 
+// ⚡ Bolt: Using a procedural for loop avoids the function execution context overhead of Array.prototype.filter() callbacks.
+// Impact: Speeds up parsing of large string arrays in Cloudflare Workers.
 export function parseStringArray(value: string | null): string[] {
 	if (!value) {
 		return [];
@@ -228,7 +230,14 @@ export function parseStringArray(value: string | null): string[] {
 		if (!Array.isArray(parsed)) {
 			return [];
 		}
-		return parsed.filter((entry): entry is string => typeof entry === 'string');
+		const result: string[] = [];
+		for (let index = 0; index < parsed.length; index += 1) {
+			const entry = parsed[index];
+			if (typeof entry === 'string') {
+				result.push(entry);
+			}
+		}
+		return result;
 	} catch {
 		return [];
 	}
