@@ -47,7 +47,7 @@ const API_KEY_LAST_USED_WRITE_INTERVAL_MS = 60 * 60 * 1000;
 
 export async function getUserByUsername(env: StorageEnv, username: string): Promise<UserRow | null> {
 	return env.KEEPROOT_DB.prepare(
-		'SELECT id, username, created_at FROM users WHERE username = ?',
+		'SELECT id, username, created_at FROM users WHERE username = ? LIMIT 1',
 	)
 		.bind(username)
 		.first<UserRow>();

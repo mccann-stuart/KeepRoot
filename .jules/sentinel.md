@@ -23,3 +23,8 @@
 **Vulnerability:** A Stored Cross-Site Scripting (XSS) vulnerability existed where user-supplied URLs were assigned directly to anchor `href` attributes in the dashboard without protocol validation. A malicious user could supply a `javascript:alert(1)` payload which would execute when the link was clicked.
 **Learning:** Relying solely on the presence of a URL or hostname extraction does not protect against malicious pseudo-protocols like `javascript:` which are valid URIs but execute code in the browser context.
 **Prevention:** When rendering user-supplied URLs, always parse the URL (e.g., using `new URL()`) and explicitly allow-list safe protocols (like `http:` and `https:`). Wrap the parsing in a `try...catch` block to fail gracefully if the URL string is malformed.
+
+## 2024-05-27 - Security Headers Enhancement
+**Vulnerability:** Missing defense-in-depth HTTP security headers (X-Content-Type-Options, X-Frame-Options, X-XSS-Protection). While not directly exploitable without a specific sink, lacking these headers increases the attack surface (e.g., MIME sniffing, Clickjacking, Reflected XSS).
+**Learning:** The application was setting CORS headers via `applyCorsHeaders` but missing standard security headers in the Cloudflare Worker response.
+**Prevention:** Ensured security headers are appended to all responses in `backend/src/index.ts` within the `applyCorsHeaders` helper (or immediately after setting standard CORS headers). Added `X-Content-Type-Options: nosniff`, `X-Frame-Options: DENY`, and `X-XSS-Protection: 1; mode=block`.
