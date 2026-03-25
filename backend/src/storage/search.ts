@@ -167,18 +167,31 @@ async function generateEmbedding(env: StorageEnv, text: string): Promise<number[
 	}
 }
 
+// ⚡ Bolt: Using procedural for loops avoids intermediate array allocations and function execution context overhead created by .map().filter().
+// Impact: Reduces GC pressure and improves execution speed when hydrating and filtering large numbers of search candidate records.
 function matchesSearchFilters(metadata: {
 	domain: string | null;
 	sourceId: string | null;
 	status: string;
 	tags: string[];
 }, options: ItemSearchOptions): boolean {
-	const normalizedStatuses = Array.isArray(options.status)
-		? options.status.map((status) => status.trim().toLowerCase()).filter(Boolean)
-		: typeof options.status === 'string'
-			? [options.status.trim().toLowerCase()].filter(Boolean)
-			: [];
-	const normalizedTags = (options.tags ?? []).map((tag) => tag.trim().toLowerCase()).filter(Boolean);
+	const normalizedStatuses: string[] = [];
+	if (Array.isArray(options.status)) {
+		for (let i = 0; i < options.status.length; i += 1) {
+			const status = options.status[i].trim().toLowerCase();
+			if (status) normalizedStatuses.push(status);
+		}
+	} else if (typeof options.status === 'string') {
+		const status = options.status.trim().toLowerCase();
+		if (status) normalizedStatuses.push(status);
+	}
+
+	const normalizedTags: string[] = [];
+	const optionsTags = options.tags ?? [];
+	for (let i = 0; i < optionsTags.length; i += 1) {
+		const tag = optionsTags[i].trim().toLowerCase();
+		if (tag) normalizedTags.push(tag);
+	}
 
 	if (normalizedStatuses.length > 0 && !normalizedStatuses.includes(metadata.status.toLowerCase())) {
 		return false;
@@ -190,7 +203,10 @@ function matchesSearchFilters(metadata: {
 		return false;
 	}
 	if (normalizedTags.length > 0) {
-		const itemTags = metadata.tags.map((tag) => tag.toLowerCase());
+		const itemTags: string[] = [];
+		for (let i = 0; i < metadata.tags.length; i += 1) {
+			itemTags.push(metadata.tags[i].toLowerCase());
+		}
 		for (const tag of normalizedTags) {
 			if (!itemTags.includes(tag)) {
 				return false;
@@ -363,7 +379,16 @@ export async function searchBookmarkIds(
 
 				vectorMatches.matches.forEach((match, index) => {
 					const metadata = match.metadata as Record<string, unknown> | undefined;
-					const tags = Array.isArray(metadata?.tags) ? metadata?.tags.filter((tag): tag is string => typeof tag === 'string') : [];
+					const tags: string[] = [];
+					const metadataTags = metadata?.tags;
+					if (Array.isArray(metadataTags)) {
+						for (let i = 0; i < metadataTags.length; i += 1) {
+							const tag = metadataTags[i];
+							if (typeof tag === 'string') {
+								tags.push(tag);
+							}
+						}
+					}
 					const record = {
 						domain: typeof metadata?.domain === 'string' ? metadata.domain : null,
 						sourceId: typeof metadata?.sourceId === 'string' && metadata.sourceId !== '' ? metadata.sourceId : null,
