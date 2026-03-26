@@ -288,6 +288,11 @@ export async function hashToken(token: string): Promise<string> {
 }
 
 export async function getTableColumnNames(env: StorageEnv, tableName: string): Promise<Set<string>> {
+	// PRAGMA statements do not support bound parameters.
+	// We must strictly validate the table name to prevent SQL injection.
+	if (!/^[a-zA-Z0-9_]+$/.test(tableName)) {
+		throw new Error(`Invalid table name: ${tableName}`);
+	}
 	const result = await env.KEEPROOT_DB.prepare(`PRAGMA table_info(${tableName})`).all<D1ColumnInfo>();
 	return new Set(result.results.map((column) => column.name));
 }

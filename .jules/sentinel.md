@@ -28,3 +28,8 @@
 **Vulnerability:** Missing defense-in-depth HTTP security headers (X-Content-Type-Options, X-Frame-Options, X-XSS-Protection). While not directly exploitable without a specific sink, lacking these headers increases the attack surface (e.g., MIME sniffing, Clickjacking, Reflected XSS).
 **Learning:** The application was setting CORS headers via `applyCorsHeaders` but missing standard security headers in the Cloudflare Worker response.
 **Prevention:** Ensured security headers are appended to all responses in `backend/src/index.ts` within the `applyCorsHeaders` helper (or immediately after setting standard CORS headers). Added `X-Content-Type-Options: nosniff`, `X-Frame-Options: DENY`, and `X-XSS-Protection: 1; mode=block`.
+
+## 2026-03-26 - [SQL Injection via PRAGMA table_info]
+**Vulnerability:** A SQL injection vulnerability existed in `getTableColumnNames` where the `tableName` was directly interpolated into a `PRAGMA table_info(${tableName})` statement.
+**Learning:** SQLite `PRAGMA` statements in D1 (and SQLite generally) do not support bound parameters for identifiers like table names. Attempting to use `?` will result in a syntax error or a failed binding, leading developers to use string interpolation, which creates an injection vector if the input is user-controlled.
+**Prevention:** When building dynamic `PRAGMA` queries, always apply strict whitelist validation to the identifier (e.g., using a regex like `/^[a-zA-Z0-9_]+$/`) before constructing the SQL string. This prevents any malicious SQL payloads from being injected into the query.
