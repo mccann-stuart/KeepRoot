@@ -171,7 +171,9 @@ async function normalizeSourceInput(
 		const bridgeUrl = typeof config.bridgeUrl === 'string' ? config.bridgeUrl.trim() : '';
 		const pollUrl = bridgeUrl ? ensureHttpUrl(bridgeUrl) : identifier.includes('feeds.') || identifier.endsWith('.xml') ? ensureHttpUrl(identifier.trim()) : null;
 		if (!pollUrl) {
-			throw new Error('X sources require an operator-provided RSS bridge URL');
+			const error = new Error('X sources require an operator-provided RSS bridge URL');
+			error.name = 'ValidationError';
+			throw error;
 		}
 
 		return {
@@ -186,7 +188,9 @@ async function normalizeSourceInput(
 	}
 
 	if (!env.MCP_EMAIL_DOMAIN) {
-		throw new Error('Email sources require MCP_EMAIL_DOMAIN to be configured');
+		const error = new Error('Email sources require MCP_EMAIL_DOMAIN to be configured');
+		error.name = 'ValidationError';
+		throw error;
 	}
 
 	return {

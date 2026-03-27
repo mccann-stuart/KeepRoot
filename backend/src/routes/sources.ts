@@ -62,7 +62,11 @@ export async function handleSourceRoute(context: ProtectedRouteContext): Promise
 
 			return jsonResponse(source, 201);
 		} catch (error) {
-			return errorResponse(error instanceof Error ? error.message : 'Failed to create source', 400);
+			if (error instanceof Error && error.name === 'ValidationError') {
+				return errorResponse(error.message, 400);
+			}
+			console.error(error);
+			return errorResponse('Failed to create source', 500);
 		}
 	}
 
