@@ -25,3 +25,7 @@
 ## 2026-03-25 - Intermediate Array Allocations from Array Methods
 **Learning:** Using chained array methods like `.map().filter()` inside loops or heavily-called filter functions (like evaluating search candidates against options) creates multiple intermediate array allocations and executes numerous callback functions. In Cloudflare Workers, this execution context overhead and heap churn leads to increased garbage collection pressure and latency, especially as the number of items grows.
 **Action:** Replace chained array methods on critical paths with procedural `for` loops. Accumulate the final result directly into a single target array. When narrowing types from optional properties (e.g., `obj?.tags`), assign the property to a local variable first before checking `Array.isArray()` to satisfy the TypeScript compiler.
+
+## 2026-03-26 - Batched D1 Queries for Concurrent Reads
+**Learning:** Firing multiple concurrent D1 queries with `Promise.all()` (e.g., 7 `SELECT` statements for building a user's stats dashboard) still results in 7 separate HTTP network roundtrips to Cloudflare's D1 API, accumulating network-level latency and creating overhead.
+**Action:** Always use `D1Database.batch()` for reads (like `SELECT`s), not just for mutations. Grouping multiple independent reads into a single `.batch()` call reduces the network roundtrips from N down to exactly 1, drastically reducing the total latency required to fetch multiple datasets.

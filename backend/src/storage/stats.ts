@@ -52,40 +52,42 @@ export async function recordToolEvent(
 }
 
 export async function getUsageStats(env: StorageEnv, userId: string): Promise<Record<string, unknown>> {
+	// ⚡ Bolt: Using D1Database.batch() for multiple reads replaces 7 separate HTTP network roundtrips with a single roundtrip.
+	// Impact: Significantly reduces latency when fetching stats payload.
 	const [
-		totalItems,
-		pendingInbox,
-		totalSources,
-		itemsByStatus,
-		sourcesByKind,
-		toolUsage,
-		sourceHealth,
-	] = await Promise.all([
+		totalItemsResult,
+		pendingInboxResult,
+		totalSourcesResult,
+		itemsByStatusResult,
+		sourcesByKindResult,
+		toolUsageResult,
+		sourceHealthResult,
+	] = await env.KEEPROOT_DB.batch([
 		env.KEEPROOT_DB.prepare(
 			'SELECT COUNT(*) AS count FROM bookmarks WHERE user_id = ?',
-		).bind(userId).first<CountRow>(),
+		).bind(userId),
 		env.KEEPROOT_DB.prepare(
 			`SELECT COUNT(*) AS count
 			FROM inbox_entries
 			WHERE user_id = ? AND state = 'pending'`,
-		).bind(userId).first<CountRow>(),
+		).bind(userId),
 		env.KEEPROOT_DB.prepare(
 			`SELECT COUNT(*) AS count
 			FROM sources
 			WHERE user_id = ? AND status != 'removed'`,
-		).bind(userId).first<CountRow>(),
+		).bind(userId),
 		env.KEEPROOT_DB.prepare(
 			`SELECT status AS kind, COUNT(*) AS count
 			FROM bookmarks
 			WHERE user_id = ?
 			GROUP BY status`,
-		).bind(userId).all<SourceKindCountRow>(),
+		).bind(userId),
 		env.KEEPROOT_DB.prepare(
 			`SELECT kind, COUNT(*) AS count
 			FROM sources
 			WHERE user_id = ? AND status != 'removed'
 			GROUP BY kind`,
-		).bind(userId).all<SourceKindCountRow>(),
+		).bind(userId),
 		env.KEEPROOT_DB.prepare(
 			`SELECT tool_name, status, COUNT(*) AS count
 			FROM tool_events
@@ -93,30 +95,30 @@ export async function getUsageStats(env: StorageEnv, userId: string): Promise<Re
 			GROUP BY tool_name, status
 			ORDER BY count DESC, tool_name ASC
 			LIMIT 25`,
-		).bind(userId).all<ToolUsageRow>(),
+		).bind(userId),
 		env.KEEPROOT_DB.prepare(
 			`SELECT id, kind, name, status, last_polled_at, last_success_at, last_error
 			FROM sources
 			WHERE user_id = ? AND status != 'removed'
 			ORDER BY updated_at DESC
 			LIMIT 10`,
-		).bind(userId).all<SourceHealthRow>(),
+		).bind(userId),
 	]);
 
 	return compactObject({
 		inbox: {
-			pending: pendingInbox?.count ?? 0,
+			pending: (pendingInboxResult.results[0] as CountRow | undefined)?.count ?? 0,
 		},
 		items: {
-			byStatus: Object.fromEntries(itemsByStatus.results.map((row) => [row.kind, row.count])),
-			total: totalItems?.count ?? 0,
+			byStatus: Object.fromEntries((itemsByStatusResult.results as SourceKindCountRow[]).map((row) => [row.kind, row.count])),
+			total: (totalItemsResult.results[0] as CountRow | undefined)?.count ?? 0,
 		},
-		recentToolUsage: toolUsage.results.map((row) => ({
+		recentToolUsage: (toolUsageResult.results as ToolUsageRow[]).map((row) => ({
 			count: row.count,
 			status: row.status,
 			toolName: row.tool_name,
 		})),
-		sourceHealth: sourceHealth.results.map((row) => compactObject({
+		sourceHealth: (sourceHealthResult.results as SourceHealthRow[]).map((row) => compactObject({
 			id: row.id,
 			kind: row.kind,
 			lastError: row.last_error,
@@ -126,8 +128,8 @@ export async function getUsageStats(env: StorageEnv, userId: string): Promise<Re
 			status: row.status,
 		})),
 		sources: {
-			byKind: Object.fromEntries(sourcesByKind.results.map((row) => [row.kind, row.count])),
-			total: totalSources?.count ?? 0,
+			byKind: Object.fromEntries((sourcesByKindResult.results as SourceKindCountRow[]).map((row) => [row.kind, row.count])),
+			total: (totalSourcesResult.results[0] as CountRow | undefined)?.count ?? 0,
 		},
 	});
 }
