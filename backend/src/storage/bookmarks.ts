@@ -872,8 +872,9 @@ export async function saveBookmark(
 }
 
 export async function listBookmarks(env: StorageEnv, userId: string): Promise<BookmarkListItem[]> {
-	// ⚡ Bolt: Execute independent queries in parallel using Promise.all to reduce total database roundtrip latency
-	const [rawBookmarks, tagRows] = await Promise.all([
+	// ⚡ Bolt: Using D1Database.batch() for multiple reads replaces multiple separate HTTP network roundtrips with a single roundtrip.
+	// Impact: Significantly reduces latency when fetching list of bookmarks and tags.
+	const [rawBookmarks, tagRows] = await env.KEEPROOT_DB.batch<BookmarkRow | { bookmark_id: string; name: string }>([
 		env.KEEPROOT_DB.prepare(
 			`SELECT id, url, canonical_url, title, site_name, domain, status, notes, source_id, processing_state, search_updated_at, embedding_updated_at, created_at, updated_at, last_fetched_at,
 				content_hash, content_ref, content_type, content_length, excerpt, word_count, lang, list_id, pinned, sort_order, is_read
@@ -881,8 +882,7 @@ export async function listBookmarks(env: StorageEnv, userId: string): Promise<Bo
 			WHERE user_id = ?
 			ORDER BY pinned DESC, sort_order ASC, created_at DESC`,
 		)
-			.bind(userId)
-			.all<BookmarkRow>(),
+			.bind(userId),
 
 		env.KEEPROOT_DB.prepare(
 			`SELECT bookmark_tags.bookmark_id, tags.name
@@ -890,9 +890,8 @@ export async function listBookmarks(env: StorageEnv, userId: string): Promise<Bo
 			 INNER JOIN bookmark_tags ON bookmark_tags.tag_id = tags.id
 			 WHERE tags.user_id = ?`,
 		)
-			.bind(userId)
-			.all<{ bookmark_id: string; name: string }>(),
-	]);
+			.bind(userId),
+	]) as [D1Result<BookmarkRow>, D1Result<{ bookmark_id: string; name: string }>];
 
 	const tagsByBookmark = new Map<string, string[]>();
 	for (const row of tagRows.results) {
