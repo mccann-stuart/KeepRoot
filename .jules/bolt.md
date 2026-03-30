@@ -29,3 +29,7 @@
 ## 2026-03-26 - Batched D1 Queries for Concurrent Reads
 **Learning:** Firing multiple concurrent D1 queries with `Promise.all()` (e.g., 7 `SELECT` statements for building a user's stats dashboard) still results in 7 separate HTTP network roundtrips to Cloudflare's D1 API, accumulating network-level latency and creating overhead.
 **Action:** Always use `D1Database.batch()` for reads (like `SELECT`s), not just for mutations. Grouping multiple independent reads into a single `.batch()` call reduces the network roundtrips from N down to exactly 1, drastically reducing the total latency required to fetch multiple datasets.
+
+## 2026-03-27 - Iterator Array Allocations from Spread Operations
+**Learning:** Spreading iterators into arrays (e.g., `[...searchParams.entries()]`) immediately followed by an array `.filter()` creates multiple intermediate array allocations and executes a callback function for each iteration. When normalizing URLs with numerous tracking parameters, this memory pressure adds latency in Cloudflare Workers.
+**Action:** Iterate directly over the iterator with a procedural `for...of` loop (e.g., `for (const [key, value] of searchParams.entries())`). This avoids the spread allocation, the `.filter()` function execution overhead, and intermediate array creation, resulting in a single direct iteration.

@@ -177,8 +177,17 @@ export function base64ToUint8Array(value: string): Uint8Array {
 	return bytes;
 }
 
+// ⚡ Bolt: Using a procedural for...of loop avoids the function execution context overhead and intermediate array allocations created by [...searchParams.entries()].filter().
+// Impact: Reduces GC pressure and improves execution speed when normalizing URLs with many query parameters.
 function stripTrackingParams(searchParams: URLSearchParams): URLSearchParams {
-	const entries = [...searchParams.entries()].filter(([key]) => !key.toLowerCase().startsWith('utm_') && !TRACKING_QUERY_KEYS.has(key.toLowerCase()));
+	const entries: [string, string][] = [];
+	for (const [key, value] of searchParams.entries()) {
+		const lowerKey = key.toLowerCase();
+		if (!lowerKey.startsWith('utm_') && !TRACKING_QUERY_KEYS.has(lowerKey)) {
+			entries.push([key, value]);
+		}
+	}
+
 	entries.sort((left, right) => {
 		if (left[0] === right[0]) {
 			return left[1].localeCompare(right[1]);
@@ -187,8 +196,8 @@ function stripTrackingParams(searchParams: URLSearchParams): URLSearchParams {
 	});
 
 	const nextParams = new URLSearchParams();
-	for (const [key, value] of entries) {
-		nextParams.append(key, value);
+	for (let i = 0; i < entries.length; i += 1) {
+		nextParams.append(entries[i][0], entries[i][1]);
 	}
 	return nextParams;
 }
