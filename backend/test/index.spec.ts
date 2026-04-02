@@ -348,8 +348,9 @@ describe('KeepRoot Worker', () => {
 				Origin: 'chrome-extension://abcdef',
 			},
 		});
+		const envWithAllowedExt = { ...env, ALLOWED_EXTENSION_IDS: '["abcdef"]' };
 		const ctx = createExecutionContext();
-		const response = await worker.fetch(request, env, ctx);
+		const response = await worker.fetch(request, envWithAllowedExt, ctx);
 		await waitOnExecutionContext(ctx);
 
 		expect(response.status).toBe(200);

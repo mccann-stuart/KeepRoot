@@ -14,8 +14,11 @@ import { handlePublicRoute } from './routes/public';
 import { handleSmartListRoute } from './routes/smart-lists';
 import { handleSourceRoute } from './routes/sources';
 import { handleStatsRoute } from './routes/stats';
+import { parseStringArray } from './storage/shared';
 
-export interface Env extends StorageEnv {}
+export interface Env extends StorageEnv {
+	ALLOWED_EXTENSION_IDS?: string;
+}
 
 function createProtectedContext(context: ReturnType<typeof createRouteContext>, authUser: NonNullable<Awaited<ReturnType<typeof authenticateBearerToken>>>): ProtectedRouteContext {
 	return {
@@ -24,7 +27,7 @@ function createProtectedContext(context: ReturnType<typeof createRouteContext>, 
 	};
 }
 
-function applyCorsHeaders(response: Response, request: Request): Response {
+function applyCorsHeaders(response: Response, request: Request, env: Env): Response {
 	const origin = request.headers.get('Origin');
 	const url = new URL(request.url);
 	let allowedOrigin = url.origin;
@@ -32,13 +35,17 @@ function applyCorsHeaders(response: Response, request: Request): Response {
 	if (origin) {
 		try {
 			const originUrl = new URL(origin);
-			if (
-				origin === url.origin ||
+			if (origin === url.origin) {
+				allowedOrigin = origin;
+			} else if (
 				originUrl.protocol === 'chrome-extension:' ||
 				originUrl.protocol === 'moz-extension:' ||
 				originUrl.protocol === 'safari-web-extension:'
 			) {
-				allowedOrigin = origin;
+				const allowedIds = parseStringArray(env.ALLOWED_EXTENSION_IDS ?? null);
+				if (allowedIds.includes(originUrl.hostname)) {
+					allowedOrigin = origin;
+				}
 			}
 		} catch {
 			// Invalid origin URL
@@ -143,7 +150,7 @@ export default {
 			}
 		}
 
-		return applyCorsHeaders(response, request);
+		return applyCorsHeaders(response, request, env);
 	},
 
 	async scheduled(_controller: ScheduledController, env: Env): Promise<void> {
