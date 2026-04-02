@@ -1,7 +1,7 @@
 import { XMLParser } from 'fast-xml-parser';
 import { saveItemContent } from '../storage/items';
 import { listActivePollableSources, markSourcePollingResult } from '../storage/sources';
-import type { SourceKind, StorageEnv } from '../storage/shared';
+import { validateSafeUrl, type SourceKind, type StorageEnv } from '../storage/shared';
 
 interface FeedEntry {
 	publishedAt?: string;
@@ -119,6 +119,7 @@ export async function syncSource(
 		userId: string;
 	},
 ): Promise<{ discoveredCount: number; savedCount: number }> {
+	validateSafeUrl(source.pollUrl);
 	const response = await fetch(source.pollUrl, {
 		headers: {
 			Accept: 'application/rss+xml, application/atom+xml, application/xml, text/xml;q=0.9, */*;q=0.5',

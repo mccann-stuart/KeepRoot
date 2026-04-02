@@ -3,7 +3,7 @@ import { ingestEmailMessage } from './ingest/email';
 import { processIngestJob, type IngestJob } from './ingest/jobs';
 import { syncAllActiveSources } from './ingest/source-sync';
 import { buildKeepRootMcpServer } from './mcp/server';
-import { assertOrganizationSchemaReady, authenticateBearerToken, listActivePollableSources, SchemaCompatibilityError, type StorageEnv } from './storage';
+import { assertOrganizationSchemaReady, authenticateBearerToken, listActivePollableSources, SchemaCompatibilityError, type StorageEnv, parseStringArray } from './storage';
 import { createRouteContext, errorResponse, isProtectedApiPath, type ProtectedRouteContext } from './http';
 import { handleAuthRoute } from './routes/auth';
 import { handleAccountRoute } from './routes/account';
@@ -24,7 +24,7 @@ function createProtectedContext(context: ReturnType<typeof createRouteContext>, 
 	};
 }
 
-function applyCorsHeaders(response: Response, request: Request): Response {
+function applyCorsHeaders(response: Response, request: Request, env: Env): Response {
 	const origin = request.headers.get('Origin');
 	const url = new URL(request.url);
 	let allowedOrigin = url.origin;
@@ -32,12 +32,21 @@ function applyCorsHeaders(response: Response, request: Request): Response {
 	if (origin) {
 		try {
 			const originUrl = new URL(origin);
-			if (
-				origin === url.origin ||
+			let isAllowed = origin === url.origin;
+
+			if (!isAllowed && (
 				originUrl.protocol === 'chrome-extension:' ||
 				originUrl.protocol === 'moz-extension:' ||
 				originUrl.protocol === 'safari-web-extension:'
-			) {
+			)) {
+				const allowedIds = parseStringArray(env.ALLOWED_EXTENSION_IDS ?? null);
+				const extensionId = originUrl.hostname;
+				if (allowedIds.includes(extensionId)) {
+					isAllowed = true;
+				}
+			}
+
+			if (isAllowed) {
 				allowedOrigin = origin;
 			}
 		} catch {
@@ -120,7 +129,7 @@ export default {
 					const authUser = token ? await authenticateBearerToken(env, token) : null;
 
 					if (!authUser) {
-						response = errorResponse('Unauthorized', 401);
+						response = errorResponse(request, 'Unauthorized', 401, env);
 					} else {
 						try {
 							await assertOrganizationSchemaReady(env);
@@ -134,7 +143,7 @@ export default {
 								?? await handleBookmarkRoute(protectedContext)
 								?? await handleListRoute(protectedContext)
 								?? await handleSmartListRoute(protectedContext)
-								?? errorResponse('Not found', 404);
+								?? errorResponse(request, 'Not found', 404, env);
 						} catch (error) {
 							response = handleFetchError(error);
 						}
@@ -143,7 +152,7 @@ export default {
 			}
 		}
 
-		return applyCorsHeaders(response, request);
+		return applyCorsHeaders(response, request, env);
 	},
 
 	async scheduled(_controller: ScheduledController, env: Env): Promise<void> {

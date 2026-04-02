@@ -1,4 +1,4 @@
-import type { AuthenticatedUser, StorageEnv } from './storage';
+import { parseStringArray, type AuthenticatedUser, type StorageEnv } from './storage';
 
 export const corsHeaders = {
 	'Access-Control-Allow-Methods': 'GET, POST, PATCH, DELETE, OPTIONS',
@@ -48,7 +48,7 @@ export function createRouteContext<Env extends StorageEnv>(request: Request, env
 	};
 }
 
-export function applyCorsHeaders(request: Request, headers: Headers): Headers {
+export function applyCorsHeaders(request: Request, headers: Headers, env?: StorageEnv): Headers {
 	for (const [key, value] of Object.entries(corsHeaders)) {
 		headers.set(key, value);
 	}
@@ -61,12 +61,22 @@ export function applyCorsHeaders(request: Request, headers: Headers): Headers {
 	const requestUrl = new URL(request.url);
 	try {
 		const originUrl = new URL(origin);
-		if (
-			origin === requestUrl.origin ||
+		let isAllowed = origin === requestUrl.origin;
+
+		if (!isAllowed && (
 			originUrl.protocol === 'chrome-extension:' ||
 			originUrl.protocol === 'moz-extension:' ||
 			originUrl.protocol === 'safari-web-extension:'
-		) {
+		)) {
+			// @ts-ignore - ALLOWED_EXTENSION_IDS is expected in env
+			const allowedIds = parseStringArray(env?.ALLOWED_EXTENSION_IDS ?? null);
+			const extensionId = originUrl.hostname;
+			if (allowedIds.includes(extensionId)) {
+				isAllowed = true;
+			}
+		}
+
+		if (isAllowed) {
 			headers.set('Access-Control-Allow-Origin', origin);
 			headers.set('Vary', 'Origin');
 		}
@@ -78,12 +88,13 @@ export function applyCorsHeaders(request: Request, headers: Headers): Headers {
 }
 
 export function jsonResponse(body: unknown, status?: number, headers?: HeadersInit): Response;
-export function jsonResponse(request: Request, body: unknown, status?: number, headers?: HeadersInit): Response;
+export function jsonResponse(request: Request, body: unknown, status?: number, headers?: HeadersInit, env?: StorageEnv): Response;
 export function jsonResponse(
 	requestOrBody: Request | unknown,
 	bodyOrStatus?: unknown,
 	statusOrHeaders?: number | HeadersInit,
 	headers?: HeadersInit,
+	env?: StorageEnv,
 ): Response {
 	const request = requestOrBody instanceof Request ? requestOrBody : null;
 	const body = request ? bodyOrStatus : requestOrBody;
@@ -94,7 +105,7 @@ export function jsonResponse(
 			: 200;
 	const initHeaders = request ? (typeof statusOrHeaders === 'number' ? headers : statusOrHeaders) : statusOrHeaders;
 	const responseHeaders = request
-		? applyCorsHeaders(request, new Headers(initHeaders))
+		? applyCorsHeaders(request, new Headers(initHeaders), env)
 		: new Headers(initHeaders);
 	responseHeaders.set('Content-Type', 'application/json');
 	return new Response(JSON.stringify(body), {
@@ -104,13 +115,14 @@ export function jsonResponse(
 }
 
 export function textResponse(body: string, contentType: string, status?: number, headers?: HeadersInit): Response;
-export function textResponse(request: Request, body: string, contentType: string, status?: number, headers?: HeadersInit): Response;
+export function textResponse(request: Request, body: string, contentType: string, status?: number, headers?: HeadersInit, env?: StorageEnv): Response;
 export function textResponse(
 	requestOrBody: Request | string,
 	bodyOrContentType: string,
 	contentTypeOrStatus?: string | number,
 	statusOrHeaders?: number | HeadersInit,
 	headers?: HeadersInit,
+	env?: StorageEnv,
 ): Response {
 	const request = requestOrBody instanceof Request ? requestOrBody : null;
 	const body = request ? bodyOrContentType : requestOrBody;
@@ -122,7 +134,7 @@ export function textResponse(
 		? (typeof statusOrHeaders === 'number' ? headers : statusOrHeaders)
 		: statusOrHeaders;
 	const responseHeaders = request
-		? applyCorsHeaders(request, new Headers(initHeaders))
+		? applyCorsHeaders(request, new Headers(initHeaders), env)
 		: new Headers(initHeaders);
 	responseHeaders.set('Content-Type', contentType);
 	return new Response(body, {
@@ -132,10 +144,10 @@ export function textResponse(
 }
 
 export function errorResponse(message: string, status: number): Response;
-export function errorResponse(request: Request, message: string, status: number): Response;
-export function errorResponse(requestOrMessage: Request | string, messageOrStatus: string | number, maybeStatus?: number): Response {
+export function errorResponse(request: Request, message: string, status: number, env?: StorageEnv): Response;
+export function errorResponse(requestOrMessage: Request | string, messageOrStatus: string | number, maybeStatus?: number, env?: StorageEnv): Response {
 	if (requestOrMessage instanceof Request) {
-		return jsonResponse(requestOrMessage, { error: messageOrStatus }, maybeStatus ?? 500);
+		return jsonResponse(requestOrMessage, { error: messageOrStatus }, maybeStatus ?? 500, undefined, env);
 	}
 
 	return jsonResponse({ error: requestOrMessage }, Number(messageOrStatus));

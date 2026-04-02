@@ -1,4 +1,4 @@
-import { compactObject, type PaginationInput, type SourceKind, type SourceListOptions, type StorageEnv } from './shared';
+import { compactObject, validateSafeUrl, type PaginationInput, type SourceKind, type SourceListOptions, type StorageEnv } from './shared';
 
 interface SourceRow {
 	config_json: string;
@@ -120,6 +120,7 @@ async function resolveYouTubePollUrl(identifier: string): Promise<{ normalizedId
 	}
 
 	try {
+		validateSafeUrl(normalizedUrl);
 		const response = await fetch(normalizedUrl);
 		if (response.ok) {
 			const html = await response.text();

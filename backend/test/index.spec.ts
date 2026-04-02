@@ -269,7 +269,8 @@ describe('KeepRoot Worker', () => {
 			username: 'passkey-registration-user',
 		});
 
-		const request = new Request('http://example.com/auth/verify-registration', {
+		const ctx = createExecutionContext();
+		const response = await worker.fetch(new Request('http://example.com/auth/verify-registration', {
 			method: 'POST',
 			headers: {
 				'Content-Type': 'application/json',
@@ -281,9 +282,7 @@ describe('KeepRoot Worker', () => {
 				},
 				username: 'passkey-registration-user',
 			}),
-		});
-		const ctx = createExecutionContext();
-		const response = await worker.fetch(request, env, ctx);
+		}), { ...env, ALLOWED_EXTENSION_IDS: '["keeproot"]' } as any, ctx);
 		await waitOnExecutionContext(ctx);
 
 		expect(response.status).toBe(200);
@@ -316,7 +315,8 @@ describe('KeepRoot Worker', () => {
 			verified: true,
 		});
 
-		const request = new Request('http://example.com/auth/verify-authentication', {
+		const ctx = createExecutionContext();
+		const response = await worker.fetch(new Request('http://example.com/auth/verify-authentication', {
 			method: 'POST',
 			headers: {
 				'Content-Type': 'application/json',
@@ -328,9 +328,7 @@ describe('KeepRoot Worker', () => {
 				},
 				username: 'passkey-auth-user',
 			}),
-		});
-		const ctx = createExecutionContext();
-		const response = await worker.fetch(request, env, ctx);
+		}), { ...env, ALLOWED_EXTENSION_IDS: '["keeproot"]' } as any, ctx);
 		await waitOnExecutionContext(ctx);
 
 		expect(response.status).toBe(200);
@@ -342,14 +340,13 @@ describe('KeepRoot Worker', () => {
 	});
 
 	it('responds with 200 and CORS headers for OPTIONS request', async () => {
-		const request = new Request('http://example.com/bookmarks', {
+		const ctx = createExecutionContext();
+		const response = await worker.fetch(new Request('http://example.com/bookmarks', {
 			method: 'OPTIONS',
 			headers: {
 				Origin: 'chrome-extension://abcdef',
 			},
-		});
-		const ctx = createExecutionContext();
-		const response = await worker.fetch(request, env, ctx);
+		}), { ...env, ALLOWED_EXTENSION_IDS: '["abcdef"]' } as any, ctx);
 		await waitOnExecutionContext(ctx);
 
 		expect(response.status).toBe(200);

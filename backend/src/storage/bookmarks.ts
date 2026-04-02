@@ -5,6 +5,7 @@ import {
 	encoder,
 	normalizeCanonicalUrl,
 	sha256Hex,
+	validateSafeUrl,
 	type BookmarkImagePayload,
 	type BookmarkListItem,
 	type BookmarkPatchPayload,
@@ -349,6 +350,7 @@ async function fetchImageAsPayload(imageUrl: string, pageUrl: string): Promise<B
 		return parseDataUrl(absoluteUrl);
 	}
 
+	validateSafeUrl(absoluteUrl);
 	const response = await fetch(absoluteUrl);
 	if (!response.ok) {
 		return null;

@@ -8,6 +8,7 @@ import {
 	getUserByUsername,
 	getUserCredentials,
 	getValidAuthChallenge,
+	parseStringArray,
 	storeAuthChallenge,
 	updateCredentialCounter,
 } from '../storage';
@@ -25,11 +26,22 @@ function getExpectedOrigins(context: RouteContext): string[] {
 	if (requestOrigin) {
 		try {
 			const originUrl = new URL(requestOrigin);
-			if (
+			let isAllowed = requestOrigin === context.origin;
+
+			if (!isAllowed && (
 				originUrl.protocol === 'chrome-extension:' ||
 				originUrl.protocol === 'moz-extension:' ||
 				originUrl.protocol === 'safari-web-extension:'
-			) {
+			)) {
+				// @ts-ignore - ALLOWED_EXTENSION_IDS is expected in env
+				const allowedIds = parseStringArray(context.env.ALLOWED_EXTENSION_IDS ?? null);
+				const extensionId = originUrl.hostname;
+				if (allowedIds.includes(extensionId)) {
+					isAllowed = true;
+				}
+			}
+
+			if (isAllowed) {
 				expectedOrigins.push(requestOrigin);
 			}
 		} catch {

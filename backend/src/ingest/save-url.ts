@@ -2,7 +2,7 @@ import { Readability } from '@mozilla/readability';
 import { DOMParser } from 'linkedom';
 import TurndownService from 'turndown';
 import { saveItemContent } from '../storage/items';
-import type { AuthenticatedUser, BookmarkPayload, StorageEnv } from '../storage/shared';
+import { validateSafeUrl, type AuthenticatedUser, type BookmarkPayload, type StorageEnv } from '../storage/shared';
 
 interface ExtractedContent {
 	htmlData?: string;
@@ -163,13 +163,22 @@ export async function saveItemFromUrl(
 		url: string;
 	},
 ): Promise<Record<string, unknown>> {
+	validateSafeUrl(input.url);
 	const response = await fetch(input.url, {
 		headers: {
 			Accept: 'text/html,application/pdf,text/plain;q=0.9,*/*;q=0.8',
 			'User-Agent': 'KeepRoot/1.0 (+https://keeproot.local)',
 		},
-		redirect: 'follow',
+		redirect: 'manual',
 	});
+
+	if (response.status >= 300 && response.status < 400) {
+		const location = response.headers.get('location');
+		if (location) {
+			const nextUrl = new URL(location, input.url).toString();
+			return saveItemFromUrl(env, user, { ...input, url: nextUrl });
+		}
+	}
 
 	if (!response.ok) {
 		throw new Error(`Failed to fetch URL (${response.status})`);

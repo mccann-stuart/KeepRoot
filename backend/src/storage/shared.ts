@@ -306,6 +306,72 @@ export async function getTableColumnNames(env: StorageEnv, tableName: string): P
 	return new Set(result.results.map((column) => column.name));
 }
 
+export function validateSafeUrl(url: string): void {
+	let parsed: URL;
+	try {
+		parsed = new URL(url);
+	} catch {
+		const error = new Error('Invalid URL');
+		error.name = 'ValidationError';
+		throw error;
+	}
+
+	if (parsed.protocol !== 'http:' && parsed.protocol !== 'https:') {
+		const error = new Error('Only http and https protocols are allowed');
+		error.name = 'ValidationError';
+		throw error;
+	}
+
+	let hostname = parsed.hostname.toLowerCase();
+
+	// Normalize potential IPv4 representations (e.g. shorthand, octal, hex)
+	// by checking if the browser/runtime parses it as a standard IPv4 address.
+	if (hostname.startsWith('[::ffff:')) {
+		const mapped = hostname.slice(8, -1);
+		if (/^(\d{1,3})\.(\d{1,3})\.(\d{1,3})\.(\d{1,3})$/.test(mapped)) {
+			hostname = mapped;
+		}
+	}
+
+	if (
+		hostname === 'localhost' ||
+		hostname === '127.0.0.1' ||
+		hostname === '[::1]' ||
+		hostname === '0.0.0.0' ||
+		hostname.endsWith('.local') ||
+		hostname.endsWith('.internal')
+	) {
+		const error = new Error('Access to local network is restricted');
+		error.name = 'ValidationError';
+		throw error;
+	}
+
+	const ipv4Pattern = /^(\d{1,3})\.(\d{1,3})\.(\d{1,3})\.(\d{1,3})$/;
+	const match = hostname.match(ipv4Pattern);
+	if (match) {
+		const octets = match.slice(1).map(Number);
+		if (
+			octets.some((o) => o > 255) ||
+			octets[0] === 10 ||
+			(octets[0] === 172 && octets[1] >= 16 && octets[1] <= 31) ||
+			(octets[0] === 192 && octets[1] === 168) ||
+			(octets[0] === 169 && octets[1] === 254) ||
+			octets[0] === 127 ||
+			octets[0] === 0
+		) {
+			const error = new Error('Access to private IP ranges is restricted');
+			error.name = 'ValidationError';
+			throw error;
+		}
+	}
+
+	if (hostname.startsWith('[fc') || hostname.startsWith('[fe')) {
+		const error = new Error('Access to private IPv6 ranges is restricted');
+		error.name = 'ValidationError';
+		throw error;
+	}
+}
+
 export async function runSchemaStatement(env: StorageEnv, sql: string): Promise<void> {
 	try {
 		await env.KEEPROOT_DB.exec(sql.replace(/\s+/g, ' ').trim());
