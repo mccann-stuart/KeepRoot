@@ -57,6 +57,13 @@ function mockTextFetch(responses: Record<string, { body: string; contentType?: s
 	});
 }
 
+function envWithAllowedExtensionIds(...ids: string[]): typeof env & { ALLOWED_EXTENSION_IDS: string } {
+	return {
+		...env,
+		ALLOWED_EXTENSION_IDS: JSON.stringify(ids),
+	};
+}
+
 async function execStatements(sql: string, allowExisting = false): Promise<void> {
 	const statements = sql
 		.split(/;\s*\n/g)
@@ -283,7 +290,7 @@ describe('KeepRoot Worker', () => {
 			}),
 		});
 		const ctx = createExecutionContext();
-		const response = await worker.fetch(request, env, ctx);
+		const response = await worker.fetch(request, envWithAllowedExtensionIds('keeproot'), ctx);
 		await waitOnExecutionContext(ctx);
 
 		expect(response.status).toBe(200);
@@ -292,6 +299,39 @@ describe('KeepRoot Worker', () => {
 			'http://example.com',
 			'chrome-extension://keeproot',
 		]);
+	});
+
+	it('rejects unapproved browser extension origins during passkey registration verification', async () => {
+		verifyRegistrationResponseMock.mockImplementation(async ({ expectedOrigin }) => {
+			expect(expectedOrigin).toEqual(['http://example.com']);
+			throw new Error('Unexpected origin');
+		});
+		await storeAuthChallenge(env, {
+			challenge: 'registration-challenge',
+			type: 'registration',
+			userId: 'registration-user-id',
+			username: 'passkey-registration-user',
+		});
+
+		const request = new Request('http://example.com/auth/verify-registration', {
+			method: 'POST',
+			headers: {
+				'Content-Type': 'application/json',
+				Origin: 'chrome-extension://not-allowed',
+			},
+			body: JSON.stringify({
+				response: {
+					rawId: 'registration-credential',
+				},
+				username: 'passkey-registration-user',
+			}),
+		});
+		const ctx = createExecutionContext();
+		const response = await worker.fetch(request, envWithAllowedExtensionIds('keeproot'), ctx);
+		await waitOnExecutionContext(ctx);
+
+		expect(response.status).toBe(400);
+		expect(await response.json()).toEqual({ error: 'Verification failed' });
 	});
 
 	it('accepts browser extension origins during passkey authentication verification', async () => {
@@ -330,7 +370,7 @@ describe('KeepRoot Worker', () => {
 			}),
 		});
 		const ctx = createExecutionContext();
-		const response = await worker.fetch(request, env, ctx);
+		const response = await worker.fetch(request, envWithAllowedExtensionIds('keeproot'), ctx);
 		await waitOnExecutionContext(ctx);
 
 		expect(response.status).toBe(200);
@@ -349,7 +389,7 @@ describe('KeepRoot Worker', () => {
 			},
 		});
 		const ctx = createExecutionContext();
-		const response = await worker.fetch(request, env, ctx);
+		const response = await worker.fetch(request, envWithAllowedExtensionIds('abcdef'), ctx);
 		await waitOnExecutionContext(ctx);
 
 		expect(response.status).toBe(200);
@@ -359,6 +399,21 @@ describe('KeepRoot Worker', () => {
 
 		const text = await response.text();
 		expect(text).toBe('');
+	});
+
+	it('falls back to the request origin for unapproved extension origins', async () => {
+		const request = new Request('http://example.com/bookmarks', {
+			method: 'OPTIONS',
+			headers: {
+				Origin: 'chrome-extension://abcdef',
+			},
+		});
+		const ctx = createExecutionContext();
+		const response = await worker.fetch(request, envWithAllowedExtensionIds('trusted-extension'), ctx);
+		await waitOnExecutionContext(ctx);
+
+		expect(response.status).toBe(200);
+		expect(response.headers.get('Access-Control-Allow-Origin')).toBe('http://example.com');
 	});
 
 	it('returns the request origin as the allowed origin if the origin is not allowed', async () => {

@@ -15,6 +15,7 @@ export const encoder = new TextEncoder();
 export interface StorageEnv {
 	ASSETS?: Fetcher;
 	AI?: Ai;
+	ALLOWED_EXTENSION_IDS?: string;
 	BROWSER?: Fetcher;
 	EMAIL_SOURCE_DOMAIN?: string;
 	ENABLE_X_SOURCES?: string;

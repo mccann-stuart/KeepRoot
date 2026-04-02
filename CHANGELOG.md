@@ -1,5 +1,24 @@
 # Changelog
 
+## Week ending 2026-03-27
+
+### Highlights
+
+- Expanded the MCP administration surface by integrating MCP server work, extension-origin passkeys, and a new Manage dashboard for source setup and control.
+- Hardened backend and dashboard security with successive CORS fixes and escaped MCP dashboard rendering to close origin-validation and XSS issues.
+- Improved storage and search performance with concurrent bookmark-image writes, faster byte/base64 helpers, batched D1 lookups in bookmark search, and added shared-storage test coverage.
+
+### Key PRs
+
+- [#35](https://github.com/mccann-stuart/KeepRoot/pull/35) Add MCP setup control panel under Manage
+- [#30](https://github.com/mccann-stuart/KeepRoot/pull/30) Integrate MCP server work and extension-origin passkeys
+- [#39](https://github.com/mccann-stuart/KeepRoot/pull/39) Fix XSS vulnerabilities in dashboard MCP UI
+- [#34](https://github.com/mccann-stuart/KeepRoot/pull/34) Fix CORS bypass via insecure origin string matching
+- [#40](https://github.com/mccann-stuart/KeepRoot/pull/40) Batch D1 queries in `searchBookmarkIds` to fix N+1 latency
+- [#38](https://github.com/mccann-stuart/KeepRoot/pull/38) Add unit tests for shared storage utilities
+
+Additional CORS hardening, bookmark-image write optimizations, and byte-encoding speedups also landed this week in merged PRs, but the list above keeps the changelog focused on the most representative repo-visible links.
+
 ## Week ending 2026-03-20
 
 ### Highlights
