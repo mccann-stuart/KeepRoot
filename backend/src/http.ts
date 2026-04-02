@@ -1,4 +1,4 @@
-import type { AuthenticatedUser, StorageEnv } from './storage';
+import { parseStringArray, type AuthenticatedUser, type StorageEnv } from './storage';
 
 export const corsHeaders = {
 	'Access-Control-Allow-Methods': 'GET, POST, PATCH, DELETE, OPTIONS',
@@ -17,6 +17,12 @@ export interface RouteContext<Env extends StorageEnv = StorageEnv> {
 export interface ProtectedRouteContext<Env extends StorageEnv = StorageEnv> extends RouteContext<Env> {
 	authUser: AuthenticatedUser;
 }
+
+const EXTENSION_ORIGIN_PROTOCOLS = new Set([
+	'chrome-extension:',
+	'moz-extension:',
+	'safari-web-extension:',
+]);
 
 export function normalizePathname(pathname: string): string {
 	let normalizedPathname = pathname.replace(/\/{2,}/g, '/');
@@ -48,30 +54,43 @@ export function createRouteContext<Env extends StorageEnv>(request: Request, env
 	};
 }
 
-export function applyCorsHeaders(request: Request, headers: Headers): Headers {
+export function isAllowedRequestOrigin(origin: string, requestUrlOrigin: string, env?: StorageEnv): boolean {
+	if (origin === requestUrlOrigin) {
+		return true;
+	}
+
+	try {
+		const originUrl = new URL(origin);
+		if (!EXTENSION_ORIGIN_PROTOCOLS.has(originUrl.protocol)) {
+			return false;
+		}
+
+		const allowedIds = parseStringArray(env?.ALLOWED_EXTENSION_IDS ?? null);
+		return allowedIds.includes(originUrl.hostname);
+	} catch {
+		return false;
+	}
+}
+
+export function resolveCorsOrigin(request: Request, env?: StorageEnv): string | null {
+	const origin = request.headers.get('Origin');
+	if (!origin) {
+		return null;
+	}
+
+	const requestUrlOrigin = new URL(request.url).origin;
+	return isAllowedRequestOrigin(origin, requestUrlOrigin, env) ? origin : requestUrlOrigin;
+}
+
+export function applyCorsHeaders(request: Request, headers: Headers, env?: StorageEnv): Headers {
 	for (const [key, value] of Object.entries(corsHeaders)) {
 		headers.set(key, value);
 	}
 
-	const origin = request.headers.get('Origin');
-	if (!origin) {
-		return headers;
-	}
-
-	const requestUrl = new URL(request.url);
-	try {
-		const originUrl = new URL(origin);
-		if (
-			origin === requestUrl.origin ||
-			originUrl.protocol === 'chrome-extension:' ||
-			originUrl.protocol === 'moz-extension:' ||
-			originUrl.protocol === 'safari-web-extension:'
-		) {
-			headers.set('Access-Control-Allow-Origin', origin);
-			headers.set('Vary', 'Origin');
-		}
-	} catch {
-		// Invalid origin URL
+	const allowedOrigin = resolveCorsOrigin(request, env);
+	if (allowedOrigin) {
+		headers.set('Access-Control-Allow-Origin', allowedOrigin);
+		headers.set('Vary', 'Origin');
 	}
 
 	return headers;

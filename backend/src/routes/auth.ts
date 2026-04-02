@@ -1,6 +1,6 @@
 import type { AuthenticatorTransportFuture } from '@simplewebauthn/server';
 import type { VerifiedAuthenticationResponse, VerifiedRegistrationResponse } from '@simplewebauthn/server';
-import { errorResponse, jsonResponse, parseJson, type RouteContext } from '../http';
+import { errorResponse, isAllowedRequestOrigin, jsonResponse, parseJson, type RouteContext } from '../http';
 import {
 	createSession,
 	createUserWithCredential,
@@ -22,19 +22,8 @@ function getExpectedOrigins(context: RouteContext): string[] {
 	const requestOrigin = context.request.headers.get('Origin');
 	const expectedOrigins = [context.origin];
 
-	if (requestOrigin) {
-		try {
-			const originUrl = new URL(requestOrigin);
-			if (
-				originUrl.protocol === 'chrome-extension:' ||
-				originUrl.protocol === 'moz-extension:' ||
-				originUrl.protocol === 'safari-web-extension:'
-			) {
-				expectedOrigins.push(requestOrigin);
-			}
-		} catch {
-			// Invalid origin URL
-		}
+	if (requestOrigin && requestOrigin !== context.origin && isAllowedRequestOrigin(requestOrigin, context.origin, context.env)) {
+		expectedOrigins.push(requestOrigin);
 	}
 
 	return expectedOrigins;

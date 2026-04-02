@@ -4,7 +4,7 @@ import { processIngestJob, type IngestJob } from './ingest/jobs';
 import { syncAllActiveSources } from './ingest/source-sync';
 import { buildKeepRootMcpServer } from './mcp/server';
 import { assertOrganizationSchemaReady, authenticateBearerToken, listActivePollableSources, SchemaCompatibilityError, type StorageEnv } from './storage';
-import { createRouteContext, errorResponse, isProtectedApiPath, type ProtectedRouteContext } from './http';
+import { corsHeaders, createRouteContext, errorResponse, isProtectedApiPath, resolveCorsOrigin, type ProtectedRouteContext } from './http';
 import { handleAuthRoute } from './routes/auth';
 import { handleAccountRoute } from './routes/account';
 import { handleApiKeyRoute } from './routes/api-keys';
@@ -24,32 +24,17 @@ function createProtectedContext(context: ReturnType<typeof createRouteContext>, 
 	};
 }
 
-function applyCorsHeaders(response: Response, request: Request): Response {
-	const origin = request.headers.get('Origin');
-	const url = new URL(request.url);
-	let allowedOrigin = url.origin;
-
-	if (origin) {
-		try {
-			const originUrl = new URL(origin);
-			if (
-				origin === url.origin ||
-				originUrl.protocol === 'chrome-extension:' ||
-				originUrl.protocol === 'moz-extension:' ||
-				originUrl.protocol === 'safari-web-extension:'
-			) {
-				allowedOrigin = origin;
-			}
-		} catch {
-			// Invalid origin URL
-		}
+function applyCorsHeaders(response: Response, request: Request, env: Env): Response {
+	const headers = new Headers(response.headers);
+	for (const [key, value] of Object.entries(corsHeaders)) {
+		headers.set(key, value);
 	}
 
-	const headers = new Headers(response.headers);
-	headers.set('Access-Control-Allow-Origin', allowedOrigin);
-	headers.set('Access-Control-Allow-Methods', 'GET, POST, PATCH, DELETE, OPTIONS');
-	headers.set('Access-Control-Allow-Headers', 'Content-Type, Authorization');
-	headers.set('Vary', 'Origin');
+	const allowedOrigin = resolveCorsOrigin(request, env);
+	if (allowedOrigin) {
+		headers.set('Access-Control-Allow-Origin', allowedOrigin);
+		headers.set('Vary', 'Origin');
+	}
 
 	return new Response(response.body, {
 		status: response.status,
@@ -138,7 +123,7 @@ export default {
 			}
 		}
 
-		return applyCorsHeaders(response, request);
+		return applyCorsHeaders(response, request, env);
 	},
 
 	async scheduled(_controller: ScheduledController, env: Env): Promise<void> {
