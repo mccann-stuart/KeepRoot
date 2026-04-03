@@ -2,7 +2,7 @@ import { Readability } from '@mozilla/readability';
 import { DOMParser } from 'linkedom';
 import TurndownService from 'turndown';
 import { saveItemContent } from '../storage/items';
-import type { AuthenticatedUser, BookmarkPayload, StorageEnv } from '../storage/shared';
+import { validateSafeUrl, type AuthenticatedUser, type BookmarkPayload, type StorageEnv } from '../storage/shared';
 
 interface ExtractedContent {
 	htmlData?: string;
@@ -163,19 +163,37 @@ export async function saveItemFromUrl(
 		url: string;
 	},
 ): Promise<Record<string, unknown>> {
-	const response = await fetch(input.url, {
-		headers: {
-			Accept: 'text/html,application/pdf,text/plain;q=0.9,*/*;q=0.8',
-			'User-Agent': 'KeepRoot/1.0 (+https://keeproot.local)',
-		},
-		redirect: 'follow',
-	});
+	let currentUrl = input.url;
+	let response: Response | null = null;
 
-	if (!response.ok) {
-		throw new Error(`Failed to fetch URL (${response.status})`);
+	// Loop to manually follow redirects to ensure each redirected URL is safe
+	for (let redirects = 0; redirects < 5; redirects++) {
+		// Validate URL before fetching to prevent SSRF
+		const safeUrl = validateSafeUrl(currentUrl);
+		response = await fetch(safeUrl.toString(), {
+			headers: {
+				Accept: 'text/html,application/pdf,text/plain;q=0.9,*/*;q=0.8',
+				'User-Agent': 'KeepRoot/1.0 (+https://keeproot.local)',
+			},
+			redirect: 'manual',
+		});
+
+		if (response.status >= 300 && response.status < 400) {
+			const location = response.headers.get('location');
+			if (!location) {
+				throw new Error('Redirect with no location header');
+			}
+			currentUrl = new URL(location, currentUrl).toString();
+		} else {
+			break;
+		}
 	}
 
-	const finalUrl = response.url || input.url;
+	if (!response || !response.ok) {
+		throw new Error(`Failed to fetch URL (${response?.status ?? 'unknown'})`);
+	}
+
+	const finalUrl = currentUrl;
 	const extracted = await extractContentFromResponse(finalUrl, response);
 	const payload: BookmarkPayload = {
 		htmlData: extracted.htmlData,

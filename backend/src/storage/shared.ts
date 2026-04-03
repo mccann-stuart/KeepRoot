@@ -297,6 +297,49 @@ export async function hashToken(token: string): Promise<string> {
 	return sha256Hex(token);
 }
 
+export function validateSafeUrl(urlString: string): URL {
+	const url = new URL(urlString);
+	if (url.protocol !== 'http:' && url.protocol !== 'https:') {
+		throw new Error('Invalid protocol');
+	}
+	const hostname = url.hostname.toLowerCase();
+
+	if (
+		hostname === 'localhost' ||
+		hostname.endsWith('.local') ||
+		hostname.endsWith('.internal')
+	) {
+		throw new Error('Local hostnames are not allowed');
+	}
+
+	// Basic IPv4 private range check
+	const ipv4Match = hostname.match(/^(\d+)\.(\d+)\.(\d+)\.(\d+)$/);
+	if (ipv4Match) {
+		const p1 = parseInt(ipv4Match[1], 10);
+		const p2 = parseInt(ipv4Match[2], 10);
+		if (
+			p1 === 10 || // 10.0.0.0/8
+			p1 === 127 || // 127.0.0.0/8
+			p1 === 0 || // 0.0.0.0/8
+			(p1 === 172 && p2 >= 16 && p2 <= 31) || // 172.16.0.0/12
+			(p1 === 192 && p2 === 168) || // 192.168.0.0/16
+			(p1 === 169 && p2 === 254) // 169.254.0.0/16
+		) {
+			throw new Error('Private IP addresses are not allowed');
+		}
+	}
+
+	// Basic IPv6 private range check
+	if (hostname.includes(':')) {
+		const ipv6Raw = hostname.replace(/^\[|\]$/g, '').toLowerCase();
+		if (ipv6Raw === '::1' || ipv6Raw === '::' || ipv6Raw.startsWith('::ffff:') || ipv6Raw.startsWith('fc') || ipv6Raw.startsWith('fd') || ipv6Raw.startsWith('fe8') || ipv6Raw.startsWith('fe9') || ipv6Raw.startsWith('fea') || ipv6Raw.startsWith('feb')) {
+			throw new Error('Private IPv6 addresses are not allowed');
+		}
+	}
+
+	return url;
+}
+
 export async function getTableColumnNames(env: StorageEnv, tableName: string): Promise<Set<string>> {
 	// PRAGMA statements do not support bound parameters.
 	// We must strictly validate the table name to prevent SQL injection.
