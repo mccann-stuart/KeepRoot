@@ -33,3 +33,7 @@
 ## 2026-03-27 - Iterator Array Allocations from Spread Operations
 **Learning:** Spreading iterators into arrays (e.g., `[...searchParams.entries()]`) immediately followed by an array `.filter()` creates multiple intermediate array allocations and executes a callback function for each iteration. When normalizing URLs with numerous tracking parameters, this memory pressure adds latency in Cloudflare Workers.
 **Action:** Iterate directly over the iterator with a procedural `for...of` loop (e.g., `for (const [key, value] of searchParams.entries())`). This avoids the spread allocation, the `.filter()` function execution overhead, and intermediate array creation, resulting in a single direct iteration.
+
+## 2026-03-31 - Batched D1 Queries Concurrent with R2 Fetch
+**Learning:** Firing multiple independent D1 queries alongside an R2 fetch using `Promise.all()` still results in multiple separate HTTP network roundtrips to the D1 API, accumulating network-level latency.
+**Action:** To optimize latency when combining dependent database reads with independent R2 fetches, batch the D1 queries into a single roundtrip using `D1Database.batch()` and execute that batch concurrently with the R2 fetch using `Promise.all()`.

@@ -491,33 +491,6 @@ function makeBookmarkMetadata(row: BookmarkRow, tags: string[], images: Bookmark
 	});
 }
 
-async function getBookmarkImages(env: StorageEnv, bookmarkId: string): Promise<BookmarkImageRow[]> {
-	const result = await env.KEEPROOT_DB.prepare(
-		`SELECT image_hash, r2_key, width, height, type, created_at
-		FROM bookmark_images
-		WHERE bookmark_id = ?
-		ORDER BY created_at ASC`,
-	)
-		.bind(bookmarkId)
-		.all<BookmarkImageRow>();
-
-	return result.results;
-}
-
-async function getBookmarkTags(env: StorageEnv, bookmarkId: string): Promise<string[]> {
-	const result = await env.KEEPROOT_DB.prepare(
-		`SELECT tags.name
-		FROM tags
-		INNER JOIN bookmark_tags ON bookmark_tags.tag_id = tags.id
-		WHERE bookmark_tags.bookmark_id = ?
-		ORDER BY tags.name ASC`,
-	)
-		.bind(bookmarkId)
-		.all<{ name: string }>();
-
-	return result.results.map((row) => row.name);
-}
-
 async function syncTags(env: StorageEnv, userId: string, bookmarkId: string, tags: string[], createdAt: string): Promise<void> {
 	const rawTags = [...new Set(tags.map((tag) => tag.trim()).filter(Boolean))];
 	if (rawTags.length === 0) {
@@ -931,11 +904,29 @@ export async function getBookmark(env: StorageEnv, userId: string, bookmarkId: s
 		.bind(bookmarkId)
 		.first<BookmarkContentRow>();
 
-	const [contentDocument, tags, images] = await Promise.all([
+	// ⚡ Bolt: Execute the R2 fetch concurrently with a batched D1 query containing the remaining D1 queries.
+	// Impact: Reduces the number of separate HTTP network roundtrips to the D1 API from 2 down to 1, while still executing the R2 fetch in parallel.
+	const [contentDocument, batchResults] = await Promise.all([
 		getContentDocument(env, contentRow),
-		getBookmarkTags(env, bookmarkId),
-		getBookmarkImages(env, bookmarkId),
+		env.KEEPROOT_DB.batch<{ name: string } | BookmarkImageRow>([
+			env.KEEPROOT_DB.prepare(
+				`SELECT tags.name
+				FROM tags
+				INNER JOIN bookmark_tags ON bookmark_tags.tag_id = tags.id
+				WHERE bookmark_tags.bookmark_id = ?
+				ORDER BY tags.name ASC`,
+			).bind(bookmarkId),
+			env.KEEPROOT_DB.prepare(
+				`SELECT image_hash, r2_key, width, height, type, created_at
+				FROM bookmark_images
+				WHERE bookmark_id = ?
+				ORDER BY created_at ASC`,
+			).bind(bookmarkId),
+		]) as Promise<[D1Result<{ name: string }>, D1Result<BookmarkImageRow>]>,
 	]);
+
+	const tags = batchResults[0].results.map((row) => row.name);
+	const images = batchResults[1].results;
 
 	let htmlData: string | undefined;
 	if (contentRow?.html_r2_key) {
