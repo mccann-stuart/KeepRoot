@@ -931,17 +931,20 @@ export async function getBookmark(env: StorageEnv, userId: string, bookmarkId: s
 		.bind(bookmarkId)
 		.first<BookmarkContentRow>();
 
-	const [contentDocument, tags, images] = await Promise.all([
+	// ⚡ Bolt: Fetch content document and HTML data from R2 concurrently using Promise.all
+	// Impact: Parallelizes R2 network requests to reduce overall latency.
+	const [contentDocument, tags, images, htmlData] = await Promise.all([
 		getContentDocument(env, contentRow),
 		getBookmarkTags(env, bookmarkId),
 		getBookmarkImages(env, bookmarkId),
+		(async () => {
+			if (contentRow?.html_r2_key) {
+				const htmlObject = await env.KEEPROOT_CONTENT.get(contentRow.html_r2_key);
+				return htmlObject ? await htmlObject.text() : undefined;
+			}
+			return undefined;
+		})(),
 	]);
-
-	let htmlData: string | undefined;
-	if (contentRow?.html_r2_key) {
-		const htmlObject = await env.KEEPROOT_CONTENT.get(contentRow.html_r2_key);
-		htmlData = htmlObject ? await htmlObject.text() : undefined;
-	}
 
 	const bookmarkRecord: BookmarkRecord = {
 		id: bookmarkId,
