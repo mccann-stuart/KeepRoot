@@ -203,6 +203,74 @@ function stripTrackingParams(searchParams: URLSearchParams): URLSearchParams {
 	return nextParams;
 }
 
+function isPrivateIPv4(ip: string): boolean {
+	const match = /^(\d+)\.(\d+)\.(\d+)\.(\d+)$/.exec(ip);
+	if (!match) return false;
+	const a = parseInt(match[1], 10);
+	const b = parseInt(match[2], 10);
+	return a === 10 || a === 127 || a === 0 || (a === 172 && b >= 16 && b <= 31) || (a === 192 && b === 168) || (a === 169 && b === 254);
+}
+
+function isPrivateIPv6(ip: string): boolean {
+	const ipv6 = ip.replace(/^\[|\]$/g, '').toLowerCase();
+	if (ipv6 === '::1' || ipv6 === '::') {
+		return true;
+	}
+	const firstBlockMatch = /^([0-9a-f]{1,4}):/i.exec(ipv6);
+	if (firstBlockMatch) {
+		const firstBlock = parseInt(firstBlockMatch[1], 16);
+		if ((firstBlock >= 0xfc00 && firstBlock <= 0xfdff) || (firstBlock >= 0xfe80 && firstBlock <= 0xfebf)) {
+			return true;
+		}
+	}
+	return false;
+}
+
+export async function validateSafeUrl(url: string | URL): Promise<void> {
+	const parsed = typeof url === 'string' ? new URL(url) : url;
+	if (parsed.protocol !== 'http:' && parsed.protocol !== 'https:') {
+		throw new Error('Invalid URL protocol');
+	}
+
+	const hostname = parsed.hostname.toLowerCase();
+	if (hostname === 'localhost' || hostname.endsWith('.local') || hostname.endsWith('.internal')) {
+		throw new Error('Local hostnames are not allowed');
+	}
+
+	if (isPrivateIPv4(hostname)) {
+		throw new Error('Private IPv4 addresses are not allowed');
+	}
+
+	if (hostname.includes(':') || hostname.startsWith('[')) {
+		if (isPrivateIPv6(hostname)) {
+			throw new Error('Private IPv6 addresses are not allowed');
+		}
+	}
+
+	try {
+		// Use node:dns dynamically since this runs in a Cloudflare Worker/Vitest environment
+		const dns = await import('node:dns/promises');
+		const ipv4Addresses = await dns.resolve4(hostname).catch(() => []);
+		for (const ip of ipv4Addresses) {
+			if (isPrivateIPv4(ip)) {
+				throw new Error('Domain resolves to a private IPv4 address');
+			}
+		}
+
+		const ipv6Addresses = await dns.resolve6(hostname).catch(() => []);
+		for (const ip of ipv6Addresses) {
+			if (isPrivateIPv6(ip)) {
+				throw new Error('Domain resolves to a private IPv6 address');
+			}
+		}
+	} catch (error) {
+		if (error instanceof Error && error.message.includes('Domain resolves')) {
+			throw error;
+		}
+		// Ignore dns lookup failures or missing 'node:dns' (e.g., standard browser environments)
+	}
+}
+
 export function normalizeCanonicalUrl(rawUrl: string): string {
 	const parsedUrl = new URL(rawUrl);
 	parsedUrl.hash = '';

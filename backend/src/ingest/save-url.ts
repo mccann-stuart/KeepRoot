@@ -2,7 +2,7 @@ import { Readability } from '@mozilla/readability';
 import { DOMParser } from 'linkedom';
 import TurndownService from 'turndown';
 import { saveItemContent } from '../storage/items';
-import type { AuthenticatedUser, BookmarkPayload, StorageEnv } from '../storage/shared';
+import { validateSafeUrl, type AuthenticatedUser, type BookmarkPayload, type StorageEnv } from '../storage/shared';
 
 interface ExtractedContent {
 	htmlData?: string;
@@ -163,19 +163,43 @@ export async function saveItemFromUrl(
 		url: string;
 	},
 ): Promise<Record<string, unknown>> {
-	const response = await fetch(input.url, {
-		headers: {
-			Accept: 'text/html,application/pdf,text/plain;q=0.9,*/*;q=0.8',
-			'User-Agent': 'KeepRoot/1.0 (+https://keeproot.local)',
-		},
-		redirect: 'follow',
-	});
+	await validateSafeUrl(input.url);
+
+	let currentUrl = input.url;
+	let response: Response;
+	let redirectCount = 0;
+	const maxRedirects = 10;
+
+	while (true) {
+		response = await fetch(currentUrl, {
+			headers: {
+				Accept: 'text/html,application/pdf,text/plain;q=0.9,*/*;q=0.8',
+				'User-Agent': 'KeepRoot/1.0 (+https://keeproot.local)',
+			},
+			redirect: 'manual',
+		});
+
+		if ([301, 302, 303, 307, 308].includes(response.status) && redirectCount < maxRedirects) {
+			const location = response.headers.get('location');
+			if (!location) {
+				break;
+			}
+			// Consume response body to prevent socket leaks in Node.js/undici
+			await response.arrayBuffer().catch(() => {});
+			const parsedLocation = new URL(location, currentUrl).toString();
+			await validateSafeUrl(parsedLocation);
+			currentUrl = parsedLocation;
+			redirectCount += 1;
+		} else {
+			break;
+		}
+	}
 
 	if (!response.ok) {
 		throw new Error(`Failed to fetch URL (${response.status})`);
 	}
 
-	const finalUrl = response.url || input.url;
+	const finalUrl = currentUrl;
 	const extracted = await extractContentFromResponse(finalUrl, response);
 	const payload: BookmarkPayload = {
 		htmlData: extracted.htmlData,
