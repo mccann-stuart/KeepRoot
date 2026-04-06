@@ -491,31 +491,25 @@ function makeBookmarkMetadata(row: BookmarkRow, tags: string[], images: Bookmark
 	});
 }
 
-async function getBookmarkImages(env: StorageEnv, bookmarkId: string): Promise<BookmarkImageRow[]> {
-	const result = await env.KEEPROOT_DB.prepare(
+function prepareBookmarkImagesQuery(env: StorageEnv, bookmarkId: string): D1PreparedStatement {
+	return env.KEEPROOT_DB.prepare(
 		`SELECT image_hash, r2_key, width, height, type, created_at
 		FROM bookmark_images
 		WHERE bookmark_id = ?
 		ORDER BY created_at ASC`,
 	)
-		.bind(bookmarkId)
-		.all<BookmarkImageRow>();
-
-	return result.results;
+		.bind(bookmarkId);
 }
 
-async function getBookmarkTags(env: StorageEnv, bookmarkId: string): Promise<string[]> {
-	const result = await env.KEEPROOT_DB.prepare(
+function prepareBookmarkTagsQuery(env: StorageEnv, bookmarkId: string): D1PreparedStatement {
+	return env.KEEPROOT_DB.prepare(
 		`SELECT tags.name
 		FROM tags
 		INNER JOIN bookmark_tags ON bookmark_tags.tag_id = tags.id
 		WHERE bookmark_tags.bookmark_id = ?
 		ORDER BY tags.name ASC`,
 	)
-		.bind(bookmarkId)
-		.all<{ name: string }>();
-
-	return result.results.map((row) => row.name);
+		.bind(bookmarkId);
 }
 
 async function syncTags(env: StorageEnv, userId: string, bookmarkId: string, tags: string[], createdAt: string): Promise<void> {
@@ -922,26 +916,28 @@ export async function getBookmark(env: StorageEnv, userId: string, bookmarkId: s
 		return null;
 	}
 
-	const contentRow = await env.KEEPROOT_DB.prepare(
-		`SELECT content_hash, r2_key, html_r2_key, excerpt, word_count, lang, content_type, content_length, fetched_at
-		FROM bookmark_contents
-		WHERE bookmark_id = ?
-		LIMIT 1`,
-	)
-		.bind(bookmarkId)
-		.first<BookmarkContentRow>();
+	// ⚡ Bolt: Using D1Database.batch() for multiple reads replaces multiple separate HTTP network roundtrips with a single roundtrip.
+	// Impact: Significantly reduces latency when fetching a bookmark by batching the content, tags, and images queries together.
+	const [contentResult, tagsResult, imagesResult] = await env.KEEPROOT_DB.batch<BookmarkContentRow | { name: string } | BookmarkImageRow>([
+		env.KEEPROOT_DB.prepare(
+			`SELECT content_hash, r2_key, html_r2_key, excerpt, word_count, lang, content_type, content_length, fetched_at
+			FROM bookmark_contents
+			WHERE bookmark_id = ?
+			LIMIT 1`,
+		).bind(bookmarkId),
+		prepareBookmarkTagsQuery(env, bookmarkId),
+		prepareBookmarkImagesQuery(env, bookmarkId),
+	]) as [D1Result<BookmarkContentRow>, D1Result<{ name: string }>, D1Result<BookmarkImageRow>];
 
-	const [contentDocument, tags, images] = await Promise.all([
+	const contentRow = contentResult.results[0] ?? null;
+	const tags = tagsResult.results.map((row) => row.name);
+	const images = imagesResult.results;
+
+	// ⚡ Bolt: Run R2 fetches concurrently after fetching their keys from D1.
+	const [contentDocument, htmlData] = await Promise.all([
 		getContentDocument(env, contentRow),
-		getBookmarkTags(env, bookmarkId),
-		getBookmarkImages(env, bookmarkId),
+		contentRow?.html_r2_key ? env.KEEPROOT_CONTENT.get(contentRow.html_r2_key).then(o => o ? o.text() : undefined) : undefined,
 	]);
-
-	let htmlData: string | undefined;
-	if (contentRow?.html_r2_key) {
-		const htmlObject = await env.KEEPROOT_CONTENT.get(contentRow.html_r2_key);
-		htmlData = htmlObject ? await htmlObject.text() : undefined;
-	}
 
 	const bookmarkRecord: BookmarkRecord = {
 		id: bookmarkId,
