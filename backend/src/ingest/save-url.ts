@@ -2,7 +2,7 @@ import { Readability } from '@mozilla/readability';
 import { DOMParser } from 'linkedom';
 import TurndownService from 'turndown';
 import { saveItemContent } from '../storage/items';
-import type { AuthenticatedUser, BookmarkPayload, StorageEnv } from '../storage/shared';
+import { validateSafeUrl, type AuthenticatedUser, type BookmarkPayload, type StorageEnv } from '../storage/shared';
 
 interface ExtractedContent {
 	htmlData?: string;
@@ -163,19 +163,45 @@ export async function saveItemFromUrl(
 		url: string;
 	},
 ): Promise<Record<string, unknown>> {
-	const response = await fetch(input.url, {
-		headers: {
-			Accept: 'text/html,application/pdf,text/plain;q=0.9,*/*;q=0.8',
-			'User-Agent': 'KeepRoot/1.0 (+https://keeproot.local)',
-		},
-		redirect: 'follow',
-	});
-
-	if (!response.ok) {
-		throw new Error(`Failed to fetch URL (${response.status})`);
+	if (!await validateSafeUrl(input.url)) {
+		throw new Error('Unsafe initial URL');
 	}
 
-	const finalUrl = response.url || input.url;
+	let currentUrl = input.url;
+	let response: Response | null = null;
+	let redirectCount = 0;
+
+	while (redirectCount < 5) {
+		response = await fetch(currentUrl, {
+			headers: {
+				Accept: 'text/html,application/pdf,text/plain;q=0.9,*/*;q=0.8',
+				'User-Agent': 'KeepRoot/1.0 (+https://keeproot.local)',
+			},
+			redirect: 'manual',
+		});
+
+		if ([301, 302, 303, 307, 308].includes(response.status)) {
+			await response.body?.cancel().catch(() => {});
+			const location = response.headers.get('location');
+			if (!location) {
+				throw new Error('Redirect missing location header');
+			}
+			const nextUrl = new URL(location, currentUrl).toString();
+			if (!await validateSafeUrl(nextUrl)) {
+				throw new Error('Unsafe redirect URL');
+			}
+			currentUrl = nextUrl;
+			redirectCount += 1;
+			continue;
+		}
+		break;
+	}
+
+	if (!response || !response.ok) {
+		throw new Error(`Failed to fetch URL (${response?.status ?? 'Unknown'})`);
+	}
+
+	const finalUrl = response.url || currentUrl;
 	const extracted = await extractContentFromResponse(finalUrl, response);
 	const payload: BookmarkPayload = {
 		htmlData: extracted.htmlData,
