@@ -318,3 +318,78 @@ export async function runSchemaStatement(env: StorageEnv, sql: string): Promise<
 		throw error;
 	}
 }
+
+export async function validateSafeUrl(url: string): Promise<boolean> {
+	try {
+		const parsedUrl = new URL(url);
+		if (parsedUrl.protocol !== 'http:' && parsedUrl.protocol !== 'https:') {
+			return false;
+		}
+
+		let hostname = parsedUrl.hostname.toLowerCase();
+		if (hostname.startsWith('[') && hostname.endsWith(']')) {
+			hostname = hostname.slice(1, -1);
+		}
+
+		if (
+			hostname === 'localhost' ||
+			hostname.endsWith('.localhost') ||
+			hostname.endsWith('.local') ||
+			hostname.endsWith('.internal')
+		) {
+			return false;
+		}
+
+		let ips: string[] = [];
+		try {
+			if (typeof process !== 'undefined' && process.versions && process.versions.node) {
+				const dns = await import('node:dns/promises');
+				const records = await dns.lookup(hostname, { all: true });
+				ips = records.map(record => record.address);
+			} else {
+				ips = [hostname];
+			}
+		} catch {
+			ips = [hostname];
+		}
+
+		for (let ip of ips) {
+			if (ip.startsWith('::ffff:')) {
+				ip = ip.slice(7);
+			}
+			const isIpv4 = /^(?:\d{1,3}\.){3}\d{1,3}$/.test(ip);
+
+			if (isIpv4) {
+				if (
+					ip.startsWith('127.') ||
+					ip.startsWith('10.') ||
+					ip.startsWith('192.168.') ||
+					ip.startsWith('169.254.') ||
+					ip.startsWith('0.')
+				) {
+					return false;
+				}
+
+				if (ip.startsWith('172.')) {
+					const secondOctet = parseInt(ip.split('.')[1], 10);
+					if (secondOctet >= 16 && secondOctet <= 31) {
+						return false;
+					}
+				}
+			} else if (ip.includes(':')) {
+				if (
+					ip === '::1' ||
+					ip.toLowerCase().startsWith('fc') ||
+					ip.toLowerCase().startsWith('fd') ||
+					ip.toLowerCase().startsWith('fe80:')
+				) {
+					return false;
+				}
+			}
+		}
+
+		return true;
+	} catch {
+		return false;
+	}
+}
