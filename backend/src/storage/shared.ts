@@ -379,9 +379,12 @@ export async function validateSafeUrl(url: string): Promise<boolean> {
 			} else if (ip.includes(':')) {
 				if (
 					ip === '::1' ||
+					ip === '::' ||
+					ip.startsWith('::') ||
 					ip.toLowerCase().startsWith('fc') ||
 					ip.toLowerCase().startsWith('fd') ||
-					ip.toLowerCase().startsWith('fe80:')
+					ip.toLowerCase().startsWith('fe80:') ||
+					ip.toLowerCase().startsWith('ff')
 				) {
 					return false;
 				}
