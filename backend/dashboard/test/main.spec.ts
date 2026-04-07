@@ -333,4 +333,63 @@ describe('dashboard MCP setup view', () => {
 		expect(fetch).not.toHaveBeenCalledWith('/account/data', expect.anything());
 		expect(window.localStorage.getItem('keeproot_secret')).toBe('session-secret');
 	});
+
+	it('marks an unread bookmark as read after opening it in the reader', async () => {
+		let bookmarkIsRead = false;
+
+		const { fetchSpy } = await bootDashboard({
+			handleFetch: (url, method, init) => {
+				if (url.endsWith('/bookmarks') && method === 'GET') {
+					return jsonResponse({
+						keys: [{
+							id: 'bookmark-1',
+							metadata: {
+								createdAt: '2026-03-16T10:00:00.000Z',
+								isRead: bookmarkIsRead,
+								title: 'Unread article',
+								url: 'https://example.com/articles/unread',
+								wordCount: 400,
+							},
+						}],
+					});
+				}
+
+				if (url.endsWith('/bookmarks/bookmark-1') && method === 'GET') {
+					return jsonResponse({
+						id: 'bookmark-1',
+						markdownData: '# Unread article',
+						metadata: {
+							createdAt: '2026-03-16T10:00:00.000Z',
+							isRead: bookmarkIsRead,
+							title: 'Unread article',
+							url: 'https://example.com/articles/unread',
+							wordCount: 400,
+						},
+					});
+				}
+
+				if (url.endsWith('/bookmarks/bookmark-1') && method === 'PATCH') {
+					expect(init?.body).toBe(JSON.stringify({ isRead: true }));
+					bookmarkIsRead = true;
+					return jsonResponse({ message: 'Updated successfully' });
+				}
+
+				return undefined;
+			},
+		});
+
+		const bookmarkCard = document.querySelector('.bookmark-card') as HTMLElement | null;
+		expect(bookmarkCard).not.toBeNull();
+
+		bookmarkCard?.click();
+		await flush();
+		await flush();
+		await flush();
+
+		expect(fetchSpy).toHaveBeenCalledWith('/bookmarks/bookmark-1', expect.objectContaining({
+			headers: expect.any(Headers),
+			method: 'PATCH',
+		}));
+		expect((document.getElementById('current-view-title') as HTMLElement).textContent).toBe('Reader');
+	});
 });
