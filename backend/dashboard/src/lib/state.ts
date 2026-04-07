@@ -157,11 +157,13 @@ export function getBookmarkId(bookmark: Pick<BookmarkSummary, 'id' | 'name'>): s
 export function buildDataSnapshot(bookmarks: BookmarkSummary[], lists: ListSummary[], smartLists: SmartListSummary[]): string {
 	return JSON.stringify({
 		bookmarks: bookmarks.map((bookmark) => ({
+			contentHash: bookmark.metadata?.contentHash,
 			id: getBookmarkId(bookmark),
 			isRead: Boolean(bookmark.metadata?.isRead),
 			listId: bookmark.metadata?.listId,
 			pinned: Boolean(bookmark.metadata?.pinned),
 			tags: Array.isArray(bookmark.metadata?.tags) ? bookmark.metadata.tags : [],
+			title: bookmark.metadata?.title ?? null,
 			updatedAt: bookmark.metadata?.updatedAt ?? bookmark.metadata?.createdAt,
 		})),
 		lists: lists.map((list) => ({ id: list.id, name: list.name, sortOrder: list.sortOrder ?? 0 })),

@@ -43,13 +43,23 @@ export async function deleteList(env: StorageEnv, userId: string, listId: string
 	return Boolean(result.meta.changes);
 }
 
-export async function createSmartList(env: StorageEnv, userId: string, payload: SmartListPayload): Promise<{ id: string; name: string }> {
+export async function createSmartList(
+	env: StorageEnv,
+	userId: string,
+	payload: SmartListPayload,
+): Promise<{ icon: string | null; id: string; name: string; rules: string; sortOrder: number }> {
 	const id = crypto.randomUUID();
 	const createdAt = new Date().toISOString();
 	await env.KEEPROOT_DB.prepare(
 		'INSERT INTO smart_lists (id, user_id, name, icon, rules, created_at, sort_order) VALUES (?, ?, ?, ?, ?, ?, ?)',
 	).bind(id, userId, payload.name, payload.icon ?? null, payload.rules, createdAt, payload.sortOrder ?? 0).run();
-	return { id, name: payload.name };
+	return {
+		icon: payload.icon ?? null,
+		id,
+		name: payload.name,
+		rules: payload.rules,
+		sortOrder: payload.sortOrder ?? 0,
+	};
 }
 
 export async function listUserSmartLists(env: StorageEnv, userId: string): Promise<Array<{ icon: string | null; id: string; name: string; rules: string; sortOrder: number }>> {
@@ -79,7 +89,10 @@ export async function updateSmartList(env: StorageEnv, userId: string, listId: s
 		bindings.push(payload.sortOrder);
 	}
 	if (updates.length === 0) {
-		return true;
+		const existing = await env.KEEPROOT_DB.prepare(
+			'SELECT id FROM smart_lists WHERE id = ? AND user_id = ? LIMIT 1',
+		).bind(listId, userId).first<{ id: string }>();
+		return Boolean(existing);
 	}
 
 	bindings.push(listId, userId);

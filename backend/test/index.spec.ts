@@ -709,6 +709,7 @@ describe('KeepRoot Worker', () => {
 		expect(listRes.status).toBe(200);
 		const listData = (await listRes.json()) as any;
 		expect(listData.keys.some((key: any) => key.name === id)).toBe(true);
+		expect(listData.keys.find((key: any) => key.id === id)?.metadata.bodyText).toBe('Example Content');
 
 		const getReq = new Request(`http://example.com/bookmarks/${id}`, {
 			headers: { Authorization: `Bearer ${API_KEY}` },
@@ -1069,6 +1070,78 @@ describe('KeepRoot Worker', () => {
 		expect(updateRes.status).toBe(200);
 
 		const deleteReq = new Request(`http://example.com/lists/${createData.id}`, {
+			method: 'DELETE',
+			headers: { Authorization: `Bearer ${API_KEY}` },
+		});
+		const deleteRes = await worker.fetch(deleteReq, env, ctx);
+		expect(deleteRes.status).toBe(200);
+
+		await waitOnExecutionContext(ctx);
+	});
+
+	it('supports smart-list CRUD with validated PATCH payloads', async () => {
+		const ctx = createExecutionContext();
+
+		const createReq = new Request('http://example.com/smart-lists', {
+			method: 'POST',
+			headers: {
+				Authorization: `Bearer ${API_KEY}`,
+				'Content-Type': 'application/json',
+			},
+			body: JSON.stringify({ icon: 'star', name: 'Travel', rules: 'visa, schengen' }),
+		});
+		const createRes = await worker.fetch(createReq, env, ctx);
+		expect(createRes.status).toBe(201);
+		const createData = (await createRes.json()) as any;
+		expect(createData.id).toBeDefined();
+		expect(createData.name).toBe('Travel');
+		expect(createData.rules).toBe('visa, schengen');
+		expect(createData.icon).toBe('star');
+		expect(createData.sortOrder).toBe(0);
+
+		const listReq = new Request('http://example.com/smart-lists', {
+			headers: { Authorization: `Bearer ${API_KEY}` },
+		});
+		const listRes = await worker.fetch(listReq, env, ctx);
+		expect(listRes.status).toBe(200);
+		const listData = (await listRes.json()) as any;
+		expect(listData.lists.some((list: any) => list.id === createData.id && list.rules === 'visa, schengen')).toBe(true);
+
+		const invalidUpdateReq = new Request(`http://example.com/smart-lists/${createData.id}`, {
+			method: 'PATCH',
+			headers: {
+				Authorization: `Bearer ${API_KEY}`,
+				'Content-Type': 'application/json',
+			},
+			body: JSON.stringify({ rules: '   ' }),
+		});
+		const invalidUpdateRes = await worker.fetch(invalidUpdateReq, env, ctx);
+		expect(invalidUpdateRes.status).toBe(400);
+		expect(await invalidUpdateRes.json()).toEqual({ error: 'Rules required' });
+
+		const updateReq = new Request(`http://example.com/smart-lists/${createData.id}`, {
+			method: 'PATCH',
+			headers: {
+				Authorization: `Bearer ${API_KEY}`,
+				'Content-Type': 'application/json',
+			},
+			body: JSON.stringify({ name: 'Travel Planning', rules: 'visa planning' }),
+		});
+		const updateRes = await worker.fetch(updateReq, env, ctx);
+		expect(updateRes.status).toBe(200);
+
+		const missingUpdateReq = new Request('http://example.com/smart-lists/does-not-exist', {
+			method: 'PATCH',
+			headers: {
+				Authorization: `Bearer ${API_KEY}`,
+				'Content-Type': 'application/json',
+			},
+			body: JSON.stringify({}),
+		});
+		const missingUpdateRes = await worker.fetch(missingUpdateReq, env, ctx);
+		expect(missingUpdateRes.status).toBe(404);
+
+		const deleteReq = new Request(`http://example.com/smart-lists/${createData.id}`, {
 			method: 'DELETE',
 			headers: { Authorization: `Bearer ${API_KEY}` },
 		});
