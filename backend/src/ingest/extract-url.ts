@@ -1,6 +1,7 @@
 import { Readability } from '@mozilla/readability';
 import { parseHTML } from 'linkedom';
 import TurndownService from 'turndown';
+import { validateSafeUrl } from '../storage/shared';
 
 interface ExtractedBookmarkPayload {
 	htmlData?: string;
@@ -265,17 +266,44 @@ function extractHtmlBookmark(html: string, url: string, fallbackTitle?: string):
 }
 
 export async function extractBookmarkPayloadFromUrl(input: ExtractBookmarkPayloadInput): Promise<ExtractedBookmarkPayload> {
-	const response = await (input.fetchImpl ?? fetch)(input.url, {
-		headers: {
-			Accept: 'text/html,application/pdf,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
-		},
-	});
-
-	if (!response.ok) {
-		throw new Error(`Failed to fetch URL (${response.status})`);
+	if (!await validateSafeUrl(input.url)) {
+		throw new Error('Unsafe initial URL');
 	}
 
-	const finalUrl = resolvePdfSourceUrl(response.url || input.url);
+	let currentUrl = input.url;
+	let response: Response | null = null;
+	let redirectCount = 0;
+
+	while (redirectCount < 5) {
+		response = await (input.fetchImpl ?? fetch)(currentUrl, {
+			headers: {
+				Accept: 'text/html,application/pdf,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
+			},
+			redirect: 'manual',
+		});
+
+		if ([301, 302, 303, 307, 308].includes(response.status)) {
+			await response.body?.cancel().catch(() => {});
+			const location = response.headers.get('location');
+			if (!location) {
+				throw new Error('Redirect missing location header');
+			}
+			const nextUrl = new URL(location, currentUrl).toString();
+			if (!await validateSafeUrl(nextUrl)) {
+				throw new Error('Unsafe redirect URL');
+			}
+			currentUrl = nextUrl;
+			redirectCount += 1;
+			continue;
+		}
+		break;
+	}
+
+	if (!response || !response.ok) {
+		throw new Error(`Failed to fetch URL (${response?.status ?? 'Unknown'})`);
+	}
+
+	const finalUrl = resolvePdfSourceUrl(response.url || currentUrl);
 	const contentType = normalizeContentType(response.headers.get('content-type'));
 	if (PDF_CONTENT_TYPES.has(contentType) || (contentType === 'application/octet-stream' && isLikelyPdfUrl(finalUrl)) || isLikelyPdfUrl(finalUrl)) {
 		const pdfBytes = new Uint8Array(await response.arrayBuffer());

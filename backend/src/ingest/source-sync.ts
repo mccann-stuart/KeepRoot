@@ -185,16 +185,18 @@ export async function syncSource(
 
 export async function syncAllActiveSources(env: StorageEnv): Promise<void> {
 	const sources = await listActivePollableSources(env);
-	for (const source of sources) {
-		try {
-			await syncSource(env, {
+	// ⚡ Bolt: Use Promise.all to sync multiple independent sources concurrently instead of a sequential loop.
+	// Impact: Significantly reduces overall background sync latency by overlapping I/O wait times.
+	await Promise.all(
+		sources.map((source) =>
+			syncSource(env, {
 				id: source.id,
 				kind: source.kind,
 				pollUrl: source.pollUrl,
 				userId: source.userId,
-			});
-		} catch (error) {
-			console.warn('Source sync failed', error);
-		}
-	}
+			}).catch((error) => {
+				console.warn('Source sync failed', error);
+			})
+		)
+	);
 }

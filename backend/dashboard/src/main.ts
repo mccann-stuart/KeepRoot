@@ -240,7 +240,14 @@ function createBookmarkCard(bookmark: BookmarkSummary) {
 	const createdAt = bookmark.metadata?.createdAt ? new Date(bookmark.metadata.createdAt) : null;
 	const wordCount = Number(bookmark.metadata?.wordCount ?? 0);
 	const readingTime = Math.max(1, Math.ceil(wordCount / 200));
-	const domain = bookmark.metadata?.url ? new URL(bookmark.metadata.url).hostname : 'Unknown source';
+	let domain = 'Unknown source';
+	if (bookmark.metadata?.url) {
+		try {
+			domain = new URL(bookmark.metadata.url).hostname;
+		} catch {
+			// Ignore invalid URLs
+		}
+	}
 
 	card.dataset.bookmarkId = bookmarkId;
 	card.classList.toggle('is-active', state.currentBookmarkId === bookmarkId);
@@ -532,7 +539,15 @@ function renderSources(sources: SourceRecord[]) {
 function renderReaderStats(bookmark: BookmarkDetail) {
 	const wordCount = Number(bookmark.metadata?.wordCount ?? 0);
 	const readingTime = Math.max(1, Math.ceil(wordCount / 200));
-	dom.viewDomain.textContent = bookmark.metadata?.url ? new URL(bookmark.metadata.url).hostname : '—';
+	let domain = '—';
+	if (bookmark.metadata?.url) {
+		try {
+			domain = new URL(bookmark.metadata.url).hostname;
+		} catch {
+			// Ignore invalid URLs
+		}
+	}
+	dom.viewDomain.textContent = domain;
 	dom.viewStatus.textContent = String(bookmark.metadata?.status ?? 'saved');
 	dom.viewWordCount.textContent = String(wordCount);
 	dom.viewReadingTime.textContent = `${readingTime} min`;
@@ -554,9 +569,18 @@ async function loadBookmark(bookmarkId: string) {
 
 		dom.viewTitle.textContent = String(bookmark.metadata?.title ?? 'Untitled');
 		if (bookmark.metadata?.url) {
-			dom.viewUrl.href = bookmark.metadata.url;
-			dom.viewUrl.textContent = new URL(bookmark.metadata.url).hostname;
-			dom.viewUrl.style.display = 'inline-flex';
+			try {
+				const parsedUrl = new URL(bookmark.metadata.url);
+				if (parsedUrl.protocol === 'http:' || parsedUrl.protocol === 'https:') {
+					dom.viewUrl.href = parsedUrl.href;
+				} else {
+					dom.viewUrl.href = '#';
+				}
+				dom.viewUrl.textContent = parsedUrl.hostname;
+				dom.viewUrl.style.display = 'inline-flex';
+			} catch {
+				dom.viewUrl.style.display = 'none';
+			}
 		} else {
 			dom.viewUrl.style.display = 'none';
 		}

@@ -53,11 +53,15 @@ function normalizeTags(tags?: string[]): string[] {
 	return (tags ?? []).map((tag) => tag.trim().toLowerCase()).filter(Boolean);
 }
 
+// ⚡ Bolt: Using procedural for loops avoids intermediate array allocations and function execution context overhead created by .map().filter().
+// Impact: Reduces GC pressure and improves execution speed when applying filters on large arrays in Cloudflare Workers.
 function applyItemFilters(items: Array<{ id: string; metadata: Record<string, unknown> }>, options: ItemListOptions): Array<{ id: string; metadata: Record<string, unknown> }> {
 	const statuses = normalizeStatuses(options.status);
 	const tags = normalizeTags(options.tags);
 
-	return items.filter((item) => {
+	const result: Array<{ id: string; metadata: Record<string, unknown> }> = [];
+	for (let i = 0; i < items.length; i += 1) {
+		const item = items[i];
 		const metadata = item.metadata;
 		const itemStatus = String(metadata.status ?? '').toLowerCase();
 		const itemDomain = metadata.domain == null ? null : String(metadata.domain);
@@ -65,36 +69,53 @@ function applyItemFilters(items: Array<{ id: string; metadata: Record<string, un
 		const itemListId = metadata.listId == null ? null : String(metadata.listId);
 		const itemIsRead = Boolean(metadata.isRead);
 		const itemPinned = Boolean(metadata.pinned);
-		const itemTags = Array.isArray(metadata.tags)
-			? metadata.tags.filter((tag): tag is string => typeof tag === 'string').map((tag) => tag.toLowerCase())
-			: [];
 
 		if (statuses.length > 0 && !statuses.includes(itemStatus)) {
-			return false;
+			continue;
 		}
 		if (options.domain && itemDomain !== options.domain) {
-			return false;
+			continue;
 		}
 		if (options.sourceId !== undefined && itemSourceId !== options.sourceId) {
-			return false;
+			continue;
 		}
 		if (options.listId !== undefined && itemListId !== options.listId) {
-			return false;
+			continue;
 		}
 		if (options.isRead !== undefined && itemIsRead !== options.isRead) {
-			return false;
+			continue;
 		}
 		if (options.pinned !== undefined && itemPinned !== options.pinned) {
-			return false;
+			continue;
 		}
-		for (const tag of tags) {
-			if (!itemTags.includes(tag)) {
-				return false;
+
+		let hasAllTags = true;
+		if (tags.length > 0) {
+			const itemTags: string[] = [];
+			const rawTags = metadata.tags;
+			if (Array.isArray(rawTags)) {
+				for (let j = 0; j < rawTags.length; j += 1) {
+					const tag = rawTags[j];
+					if (typeof tag === 'string') {
+						itemTags.push(tag.toLowerCase());
+					}
+				}
+			}
+
+			for (let j = 0; j < tags.length; j += 1) {
+				if (!itemTags.includes(tags[j])) {
+					hasAllTags = false;
+					break;
+				}
 			}
 		}
 
-		return true;
-	});
+		if (hasAllTags) {
+			result.push(item);
+		}
+	}
+
+	return result;
 }
 
 function stripRecordContent(record: BookmarkRecord, options: { includeContent?: boolean; includeHtml?: boolean }): Record<string, unknown> {

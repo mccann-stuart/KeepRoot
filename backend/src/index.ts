@@ -36,6 +36,11 @@ function applyCorsHeaders(response: Response, request: Request, env: Env): Respo
 		headers.set('Vary', 'Origin');
 	}
 
+	// Sentinel: Add security headers to prevent XSS, MIME sniffing, and clickjacking
+	headers.set('X-Content-Type-Options', 'nosniff');
+	headers.set('X-Frame-Options', 'DENY');
+	headers.set('X-XSS-Protection', '1; mode=block');
+
 	return new Response(response.body, {
 		status: response.status,
 		statusText: response.statusText,

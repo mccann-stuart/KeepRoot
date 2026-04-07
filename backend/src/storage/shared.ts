@@ -178,8 +178,17 @@ export function base64ToUint8Array(value: string): Uint8Array {
 	return bytes;
 }
 
+// ⚡ Bolt: Using a procedural for...of loop avoids the function execution context overhead and intermediate array allocations created by [...searchParams.entries()].filter().
+// Impact: Reduces GC pressure and improves execution speed when normalizing URLs with many query parameters.
 function stripTrackingParams(searchParams: URLSearchParams): URLSearchParams {
-	const entries = [...searchParams.entries()].filter(([key]) => !key.toLowerCase().startsWith('utm_') && !TRACKING_QUERY_KEYS.has(key.toLowerCase()));
+	const entries: [string, string][] = [];
+	for (const [key, value] of searchParams.entries()) {
+		const lowerKey = key.toLowerCase();
+		if (!lowerKey.startsWith('utm_') && !TRACKING_QUERY_KEYS.has(lowerKey)) {
+			entries.push([key, value]);
+		}
+	}
+
 	entries.sort((left, right) => {
 		if (left[0] === right[0]) {
 			return left[1].localeCompare(right[1]);
@@ -188,8 +197,8 @@ function stripTrackingParams(searchParams: URLSearchParams): URLSearchParams {
 	});
 
 	const nextParams = new URLSearchParams();
-	for (const [key, value] of entries) {
-		nextParams.append(key, value);
+	for (let i = 0; i < entries.length; i += 1) {
+		nextParams.append(entries[i][0], entries[i][1]);
 	}
 	return nextParams;
 }
@@ -219,6 +228,8 @@ export function normalizeCanonicalUrl(rawUrl: string): string {
 	return parsedUrl.toString();
 }
 
+// ⚡ Bolt: Using a procedural for loop avoids the function execution context overhead of Array.prototype.filter() callbacks.
+// Impact: Speeds up parsing of large string arrays in Cloudflare Workers.
 export function parseStringArray(value: string | null): string[] {
 	if (!value) {
 		return [];
@@ -229,14 +240,32 @@ export function parseStringArray(value: string | null): string[] {
 		if (!Array.isArray(parsed)) {
 			return [];
 		}
-		return parsed.filter((entry): entry is string => typeof entry === 'string');
+		const result: string[] = [];
+		for (let index = 0; index < parsed.length; index += 1) {
+			const entry = parsed[index];
+			if (typeof entry === 'string') {
+				result.push(entry);
+			}
+		}
+		return result;
 	} catch {
 		return [];
 	}
 }
 
+// ⚡ Bolt: Using a procedural for...in loop prevents intermediate array allocations created by Object.entries() and filter().
+// Impact: Significantly reduces GC pressure and speeds up compacting large objects or numerous rows in Cloudflare Workers.
 export function compactObject<T extends Record<string, unknown>>(value: T): T {
-	return Object.fromEntries(Object.entries(value).filter(([, entry]) => entry !== null && entry !== undefined && entry !== '')) as T;
+	const result: Record<string, unknown> = {};
+	for (const key in value) {
+		if (Object.prototype.hasOwnProperty.call(value, key)) {
+			const entry = value[key];
+			if (entry !== null && entry !== undefined && entry !== '') {
+				result[key] = entry;
+			}
+		}
+	}
+	return result as T;
 }
 
 // ⚡ Bolt: Precomputed lookup array avoids dynamic string allocation and map callbacks on every byte.
@@ -269,6 +298,11 @@ export async function hashToken(token: string): Promise<string> {
 }
 
 export async function getTableColumnNames(env: StorageEnv, tableName: string): Promise<Set<string>> {
+	// PRAGMA statements do not support bound parameters.
+	// We must strictly validate the table name to prevent SQL injection.
+	if (!/^[a-zA-Z0-9_]+$/.test(tableName)) {
+		throw new Error(`Invalid table name: ${tableName}`);
+	}
 	const result = await env.KEEPROOT_DB.prepare(`PRAGMA table_info(${tableName})`).all<D1ColumnInfo>();
 	return new Set(result.results.map((column) => column.name));
 }
@@ -282,5 +316,83 @@ export async function runSchemaStatement(env: StorageEnv, sql: string): Promise<
 			return;
 		}
 		throw error;
+	}
+}
+
+export async function validateSafeUrl(url: string): Promise<boolean> {
+	try {
+		const parsedUrl = new URL(url);
+		if (parsedUrl.protocol !== 'http:' && parsedUrl.protocol !== 'https:') {
+			return false;
+		}
+
+		let hostname = parsedUrl.hostname.toLowerCase();
+		if (hostname.startsWith('[') && hostname.endsWith(']')) {
+			hostname = hostname.slice(1, -1);
+		}
+
+		if (
+			hostname === 'localhost' ||
+			hostname.endsWith('.localhost') ||
+			hostname.endsWith('.local') ||
+			hostname.endsWith('.internal')
+		) {
+			return false;
+		}
+
+		let ips: string[] = [];
+		try {
+			if (typeof process !== 'undefined' && process.versions && process.versions.node) {
+				const dns = await import('node:dns/promises');
+				const records = await dns.lookup(hostname, { all: true });
+				ips = records.map(record => record.address);
+			} else {
+				ips = [hostname];
+			}
+		} catch {
+			ips = [hostname];
+		}
+
+		for (let ip of ips) {
+			if (ip.startsWith('::ffff:')) {
+				ip = ip.slice(7);
+			}
+			const isIpv4 = /^(?:\d{1,3}\.){3}\d{1,3}$/.test(ip);
+
+			if (isIpv4) {
+				if (
+					ip.startsWith('127.') ||
+					ip.startsWith('10.') ||
+					ip.startsWith('192.168.') ||
+					ip.startsWith('169.254.') ||
+					ip.startsWith('0.')
+				) {
+					return false;
+				}
+
+				if (ip.startsWith('172.')) {
+					const secondOctet = parseInt(ip.split('.')[1], 10);
+					if (secondOctet >= 16 && secondOctet <= 31) {
+						return false;
+					}
+				}
+			} else if (ip.includes(':')) {
+				if (
+					ip === '::1' ||
+					ip === '::' ||
+					ip.startsWith('::') ||
+					ip.toLowerCase().startsWith('fc') ||
+					ip.toLowerCase().startsWith('fd') ||
+					ip.toLowerCase().startsWith('fe80:') ||
+					ip.toLowerCase().startsWith('ff')
+				) {
+					return false;
+				}
+			}
+		}
+
+		return true;
+	} catch {
+		return false;
 	}
 }
