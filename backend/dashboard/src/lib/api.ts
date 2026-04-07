@@ -87,6 +87,12 @@ export class KeepRootApi {
 		return this.request('/account');
 	}
 
+	clearAllData(): Promise<{ message: string }> {
+		return this.request('/account/data', {
+			method: 'DELETE',
+		});
+	}
+
 	getStats(): Promise<UsageStats> {
 		return this.request('/stats');
 	}

@@ -1,7 +1,7 @@
 import { env, createExecutionContext, waitOnExecutionContext } from 'cloudflare:test';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import worker from '../src/index';
-import { createUserWithCredential, hashToken, storeAuthChallenge } from '../src/storage';
+import { addSource, createApiKey, createList, createSession, createSmartList, createUserWithCredential, ensureAccountSettings, hashToken, recordToolEvent, saveBookmark, storeAuthChallenge } from '../src/storage';
 import initialSchemaSql from '../migrations/0001_initial.sql?raw';
 import organizationSchemaSql from '../migrations/0002_organization.sql?raw';
 import mcpServerSchemaSql from '../migrations/0003_mcp_server.sql?raw';
@@ -152,6 +152,35 @@ async function seedApiKey(): Promise<void> {
 			createdAt,
 		)
 		.run();
+}
+
+async function seedUser(userId: string, username: string): Promise<void> {
+	await env.KEEPROOT_DB.prepare(
+		'INSERT INTO users (id, username, created_at) VALUES (?, ?, ?)',
+	)
+		.bind(userId, username, new Date().toISOString())
+		.run();
+}
+
+async function authedRequest(
+	path: string,
+	options: {
+		body?: unknown;
+		method?: string;
+		token: string;
+	} = { token: API_KEY },
+): Promise<Response> {
+	const ctx = createExecutionContext();
+	const response = await worker.fetch(new Request(`http://example.com${path}`, {
+		method: options.method ?? 'GET',
+		headers: {
+			Authorization: `Bearer ${options.token}`,
+			...(options.body === undefined ? {} : { 'Content-Type': 'application/json' }),
+		},
+		body: options.body === undefined ? undefined : JSON.stringify(options.body),
+	}), env, ctx);
+	await waitOnExecutionContext(ctx);
+	return response;
 }
 
 async function mcpRequest(method: string, params: Record<string, unknown> = {}): Promise<{ data: any; response: Response }> {
@@ -1031,6 +1060,194 @@ describe('KeepRoot Worker', () => {
 		expect(await delRes.json()).toEqual({ message: 'Deleted successfully' });
 
 		await waitOnExecutionContext(ctx);
+	});
+
+	it('clears all user data for a session-authenticated user while preserving login', async () => {
+		const sessionToken = await createSession(env, {
+			userId: TEST_USER_ID,
+			username: TEST_USERNAME,
+		});
+		const list = await createList(env, TEST_USER_ID, { name: 'Reading Queue' });
+		const source = await addSource(env, {
+			identifier: 'https://example.com/feed.xml',
+			kind: 'rss',
+			name: 'Root Feed',
+			userId: TEST_USER_ID,
+		});
+		await createSmartList(env, TEST_USER_ID, {
+			icon: 'R',
+			name: 'Unread Feed',
+			rules: 'feed unread',
+		});
+		await ensureAccountSettings(env, {
+			userId: TEST_USER_ID,
+			username: TEST_USERNAME,
+		});
+		await createApiKey(env, {
+			userId: TEST_USER_ID,
+			username: TEST_USERNAME,
+		}, 'Dashboard Key');
+		await recordToolEvent(env, {
+			durationMs: 123,
+			status: 'success',
+			toolName: 'list_items',
+			userId: TEST_USER_ID,
+		});
+		await saveBookmark(env, {
+			userId: TEST_USER_ID,
+			username: TEST_USERNAME,
+		}, {
+			htmlData: '<article><p>Saved content</p></article>',
+			images: [{
+				contentType: 'image/png',
+				dataBase64: TINY_PNG_BASE64,
+				sourceUrl: 'https://example.com/image.png',
+			}],
+			listId: list.id,
+			markdownData: '# Saved content',
+			sourceId: String(source.id),
+			tags: ['reading', 'archive'],
+			title: 'Saved article',
+			url: 'https://example.com/saved-article',
+		});
+
+		const clearRes = await authedRequest('/account/data', {
+			method: 'DELETE',
+			token: sessionToken,
+		});
+		expect(clearRes.status).toBe(200);
+		expect(await clearRes.json()).toEqual({ message: 'All data cleared' });
+
+		const bookmarksRes = await authedRequest('/bookmarks', { token: sessionToken });
+		expect(bookmarksRes.status).toBe(200);
+		expect(await bookmarksRes.json()).toEqual({ keys: [] });
+
+		const listsRes = await authedRequest('/lists', { token: sessionToken });
+		expect(listsRes.status).toBe(200);
+		expect(await listsRes.json()).toEqual({ lists: [] });
+
+		const smartListsRes = await authedRequest('/smart-lists', { token: sessionToken });
+		expect(smartListsRes.status).toBe(200);
+		expect(await smartListsRes.json()).toEqual({ lists: [] });
+
+		const sourcesRes = await authedRequest('/sources', { token: sessionToken });
+		expect(sourcesRes.status).toBe(200);
+		expect(await sourcesRes.json()).toEqual({ nextCursor: null, sources: [] });
+
+		const apiKeysRes = await authedRequest('/api-keys', { token: sessionToken });
+		expect(apiKeysRes.status).toBe(200);
+		expect(await apiKeysRes.json()).toEqual({ keys: [] });
+
+		const counts = await env.KEEPROOT_DB.batch([
+			env.KEEPROOT_DB.prepare('SELECT COUNT(*) AS count FROM users WHERE id = ?').bind(TEST_USER_ID),
+			env.KEEPROOT_DB.prepare('SELECT COUNT(*) AS count FROM sessions WHERE user_id = ?').bind(TEST_USER_ID),
+			env.KEEPROOT_DB.prepare('SELECT COUNT(*) AS count FROM bookmarks WHERE user_id = ?').bind(TEST_USER_ID),
+			env.KEEPROOT_DB.prepare('SELECT COUNT(*) AS count FROM api_keys WHERE user_id = ?').bind(TEST_USER_ID),
+			env.KEEPROOT_DB.prepare('SELECT COUNT(*) AS count FROM lists WHERE user_id = ?').bind(TEST_USER_ID),
+			env.KEEPROOT_DB.prepare('SELECT COUNT(*) AS count FROM smart_lists WHERE user_id = ?').bind(TEST_USER_ID),
+			env.KEEPROOT_DB.prepare('SELECT COUNT(*) AS count FROM sources WHERE user_id = ?').bind(TEST_USER_ID),
+			env.KEEPROOT_DB.prepare('SELECT COUNT(*) AS count FROM tags WHERE user_id = ?').bind(TEST_USER_ID),
+			env.KEEPROOT_DB.prepare('SELECT COUNT(*) AS count FROM tool_events WHERE user_id = ?').bind(TEST_USER_ID),
+			env.KEEPROOT_DB.prepare('SELECT COUNT(*) AS count FROM account_settings WHERE user_id = ?').bind(TEST_USER_ID),
+		]) as Array<{ results: Array<{ count: number }> }>;
+
+		expect(counts[0].results[0]?.count).toBe(1);
+		expect(counts[1].results[0]?.count).toBeGreaterThan(0);
+		expect(counts[2].results[0]?.count).toBe(0);
+		expect(counts[3].results[0]?.count).toBe(0);
+		expect(counts[4].results[0]?.count).toBe(0);
+		expect(counts[5].results[0]?.count).toBe(0);
+		expect(counts[6].results[0]?.count).toBe(0);
+		expect(counts[7].results[0]?.count).toBe(0);
+		expect(counts[8].results[0]?.count).toBe(0);
+		expect(counts[9].results[0]?.count).toBe(0);
+	});
+
+	it('rejects clear all data when authenticated with an API key', async () => {
+		const response = await authedRequest('/account/data', {
+			method: 'DELETE',
+			token: API_KEY,
+		});
+
+		expect(response.status).toBe(403);
+		expect(await response.json()).toEqual({ error: 'Clear all data requires a signed-in dashboard session' });
+	});
+
+	it('keeps shared R2 objects when another user still references them', async () => {
+		const sessionToken = await createSession(env, {
+			userId: TEST_USER_ID,
+			username: TEST_USERNAME,
+		});
+		await seedUser('other-user-id', 'other-user');
+
+		const firstBookmark = await saveBookmark(env, {
+			userId: TEST_USER_ID,
+			username: TEST_USERNAME,
+		}, {
+			htmlData: '<article><p>Shared content</p></article>',
+			images: [{
+				contentType: 'image/png',
+				dataBase64: TINY_PNG_BASE64,
+				sourceUrl: 'https://example.com/shared-image.png',
+			}],
+			markdownData: '# Shared content',
+			title: 'Shared article',
+			url: 'https://example.com/shared-article',
+		});
+
+		await saveBookmark(env, {
+			userId: 'other-user-id',
+			username: 'other-user',
+		}, {
+			htmlData: '<article><p>Shared content</p></article>',
+			images: [{
+				contentType: 'image/png',
+				dataBase64: TINY_PNG_BASE64,
+				sourceUrl: 'https://example.com/shared-image.png',
+			}],
+			markdownData: '# Shared content',
+			title: 'Shared article',
+			url: 'https://example.com/shared-article',
+		});
+
+		const sharedRefs = await env.KEEPROOT_DB.batch([
+			env.KEEPROOT_DB.prepare(
+				'SELECT r2_key, html_r2_key FROM bookmark_contents WHERE bookmark_id = ? LIMIT 1',
+			).bind(firstBookmark.id),
+			env.KEEPROOT_DB.prepare(
+				'SELECT r2_key FROM bookmark_images WHERE bookmark_id = ? LIMIT 1',
+			).bind(firstBookmark.id),
+		]) as [D1Result<{ html_r2_key: string | null; r2_key: string | null }>, D1Result<{ r2_key: string | null }>];
+
+		const contentKey = sharedRefs[0].results[0]?.r2_key;
+		const htmlKey = sharedRefs[0].results[0]?.html_r2_key;
+		const imageKey = sharedRefs[1].results[0]?.r2_key;
+		expect(contentKey).toBeTruthy();
+		expect(htmlKey).toBeTruthy();
+		expect(imageKey).toBeTruthy();
+
+		const clearRes = await authedRequest('/account/data', {
+			method: 'DELETE',
+			token: sessionToken,
+		});
+		expect(clearRes.status).toBe(200);
+
+		const contentObject = await env.KEEPROOT_CONTENT.get(contentKey!);
+		const htmlObject = await env.KEEPROOT_CONTENT.get(htmlKey!);
+		const imageObject = await env.KEEPROOT_CONTENT.get(imageKey!);
+		expect(contentObject).not.toBeNull();
+		expect(htmlObject).not.toBeNull();
+		expect(imageObject).not.toBeNull();
+		await contentObject?.text();
+		await htmlObject?.text();
+		await imageObject?.arrayBuffer();
+
+		const remaining = await env.KEEPROOT_DB.prepare(
+			'SELECT COUNT(*) AS count FROM bookmarks WHERE user_id = ?',
+		)
+			.bind('other-user-id')
+			.first<{ count: number }>();
+		expect(remaining?.count).toBe(1);
 	});
 
 	it('bootstraps organization schema and supports list CRUD', async () => {

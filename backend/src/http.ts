@@ -166,6 +166,7 @@ export async function parseJson<T>(request: Request): Promise<T> {
 
 export function isProtectedApiPath(pathname: string): boolean {
 	return pathname === '/account'
+		|| pathname === '/account/data'
 		|| pathname === '/stats'
 		|| pathname === '/api-keys'
 		|| pathname.startsWith('/api-keys/')

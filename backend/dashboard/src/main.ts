@@ -7,7 +7,7 @@ import { escapeHtml, renderMarkdown } from './lib/markdown';
 import { buildMcpPresets, getDefaultSourceKind, getMcpEndpoint, getSourceKindOptions, getSourceSummaryLine } from './lib/mcp';
 import { registerServiceWorker } from './lib/service-worker';
 import { buildDataSnapshot, createAppState, getBookmarkId, type AccountFeatures, type ApiKeyRecord, type BookmarkDetail, type BookmarkSummary, type HighlightRecord, type SmartListSummary, type SourceHealthRecord, type SourceRecord, type ToolUsageRecord, type ViewName } from './lib/state';
-import { clearSessionToken, loadHighlights, loadPreferences, loadSessionToken, saveHighlights, savePreference, saveSessionToken } from './lib/storage';
+import { clearDashboardDataPreservingSession, clearSessionToken, loadHighlights, loadPreferences, loadSessionToken, saveHighlights, savePreference, saveSessionToken } from './lib/storage';
 
 const dom = getDom();
 const state = createAppState(loadPreferences());
@@ -806,6 +806,35 @@ function hideHighlightTooltip() {
 	dom.highlightTooltip.classList.add('is-hidden');
 }
 
+function resetDashboardAfterDataClear() {
+	clearDashboardDataPreservingSession();
+	state.bookmarks = [];
+	state.lists = [];
+	state.smartLists = [];
+	state.tags = [];
+	state.sources = [];
+	state.apiKeys = [];
+	state.usageStats = null;
+	state.currentBookmarkId = null;
+	lastSnapshot = '';
+	dom.newKeyName.value = '';
+	dom.newKeyValue.value = '';
+	dom.newKeyResult.classList.add('is-hidden');
+	switchView('settings');
+	renderSidebar();
+	renderApiKeys([]);
+	renderSources([]);
+	renderMcpStatus();
+	updateSummaryStats();
+
+	state.preferences = loadPreferences();
+	applyTheme(state.preferences.theme);
+	applyFont(state.preferences.font);
+	applyFontSize(state.preferences.fontSize);
+	dom.notificationToggle.checked = state.preferences.notifications;
+	savePreference('notifications', state.preferences.notifications);
+}
+
 async function handleBookmarkCardAction(action: string, bookmarkId: string) {
 	try {
 		const bookmark = state.bookmarks.find((item) => getBookmarkId(item) === bookmarkId);
@@ -899,6 +928,30 @@ function bindEvents() {
 	dom.notificationToggle.addEventListener('change', () => {
 		state.preferences.notifications = dom.notificationToggle.checked;
 		savePreference('notifications', state.preferences.notifications);
+	});
+
+	dom.clearDataBtn.addEventListener('click', async () => {
+		if (!window.confirm('Clear all saved data? This deletes bookmarks, lists, sources, API keys, local highlights, and saved preferences.')) {
+			return;
+		}
+
+		try {
+			dom.clearDataBtn.disabled = true;
+			dom.clearDataBtn.textContent = 'Clearing…';
+			await api.clearAllData();
+			resetDashboardAfterDataClear();
+			await Promise.allSettled([
+				refreshData(true),
+				fetchApiKeys(),
+				fetchMcpData(),
+			]);
+			showToast('All saved data cleared', 'success');
+		} catch (error) {
+			showToast(error instanceof Error ? error.message : 'Failed to clear data', 'error');
+		} finally {
+			dom.clearDataBtn.disabled = false;
+			dom.clearDataBtn.textContent = 'Clear All Data';
+		}
 	});
 
 	document.querySelectorAll<HTMLButtonElement>('.theme-option').forEach((button) => {
