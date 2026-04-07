@@ -553,6 +553,43 @@ function renderReaderStats(bookmark: BookmarkDetail) {
 	dom.viewReadingTime.textContent = `${readingTime} min`;
 }
 
+function updateBookmarkSummary(bookmarkId: string, updates: Record<string, unknown>) {
+	let didUpdate = false;
+	state.bookmarks = state.bookmarks.map((bookmark) => {
+		if (getBookmarkId(bookmark) !== bookmarkId) {
+			return bookmark;
+		}
+
+		didUpdate = true;
+		return {
+			...bookmark,
+			metadata: {
+				...bookmark.metadata,
+				...updates,
+			},
+		};
+	});
+
+	if (!didUpdate) {
+		return;
+	}
+
+	lastSnapshot = buildDataSnapshot(state.bookmarks, state.lists, state.smartLists);
+}
+
+async function markBookmarkAsRead(bookmarkId: string) {
+	const bookmark = state.bookmarks.find((item) => getBookmarkId(item) === bookmarkId);
+	if (bookmark?.metadata?.isRead) {
+		return;
+	}
+
+	await api.updateBookmark(bookmarkId, { isRead: true });
+	updateBookmarkSummary(bookmarkId, {
+		isRead: true,
+		updatedAt: new Date().toISOString(),
+	});
+}
+
 async function loadBookmark(bookmarkId: string) {
 	state.currentBookmarkId = bookmarkId;
 	switchView('content');
@@ -608,6 +645,12 @@ async function loadBookmark(bookmarkId: string) {
 		renderReaderStats(bookmark);
 		dom.markdownContainer.innerHTML = renderMarkdown(bookmark.markdownData, highlights);
 		renderBookmarkLists();
+
+		if (!bookmark.metadata?.isRead) {
+			void markBookmarkAsRead(bookmarkId).catch((error) => {
+				showToast(error instanceof Error ? error.message : 'Failed to update bookmark', 'error');
+			});
+		}
 	} catch (error) {
 		dom.markdownContainer.innerHTML = '<div class="panel"><p class="muted-copy">Failed to load bookmark content.</p></div>';
 		showToast(error instanceof Error ? error.message : 'Failed to load bookmark', 'error');
