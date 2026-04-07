@@ -1,5 +1,16 @@
 # Changelog
 
+## Week ending 2026-04-03
+
+### Highlights
+
+- Tightened backend origin validation so CORS and passkey flows only trust the app origin plus explicitly allowed browser extension IDs.
+- Added coverage for approved and rejected extension origins during WebAuthn verification and preflight handling to lock in the stricter behavior.
+
+### Key PRs
+
+No repo-visible PR links landed this week. The only new product change in git history appears as a direct commit, so this entry does not invent a PR link.
+
 ## Week ending 2026-03-27
 
 ### Highlights
