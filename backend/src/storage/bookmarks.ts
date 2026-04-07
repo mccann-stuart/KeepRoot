@@ -21,6 +21,7 @@ interface BookmarkRow {
 	content_ref: string | null;
 	content_type: string | null;
 	created_at: string;
+	body_text?: string | null;
 	domain: string | null;
 	embedding_updated_at: string | null;
 	excerpt: string | null;
@@ -460,6 +461,7 @@ async function putIfMissing(bucket: R2Bucket, key: string, value: string | Array
 
 function makeBookmarkMetadata(row: BookmarkRow, tags: string[], images: BookmarkImageRow[]): Record<string, unknown> {
 	return compactObject({
+		bodyText: row.body_text,
 		canonicalUrl: row.canonical_url,
 		contentHash: row.content_hash,
 		contentLength: row.content_length,
@@ -870,11 +872,17 @@ export async function listBookmarks(env: StorageEnv, userId: string): Promise<Bo
 	// Impact: Significantly reduces latency when fetching list of bookmarks and tags.
 	const [rawBookmarks, tagRows] = await env.KEEPROOT_DB.batch<BookmarkRow | { bookmark_id: string; name: string }>([
 		env.KEEPROOT_DB.prepare(
-			`SELECT id, url, canonical_url, title, site_name, domain, status, notes, source_id, processing_state, search_updated_at, embedding_updated_at, created_at, updated_at, last_fetched_at,
-				content_hash, content_ref, content_type, content_length, excerpt, word_count, lang, list_id, pinned, sort_order, is_read
+			`SELECT bookmarks.id, bookmarks.url, bookmarks.canonical_url, bookmarks.title, bookmarks.site_name, bookmarks.domain, bookmarks.status, bookmarks.notes,
+				bookmarks.source_id, bookmarks.processing_state, bookmarks.search_updated_at, bookmarks.embedding_updated_at, bookmarks.created_at, bookmarks.updated_at,
+				bookmarks.last_fetched_at, bookmarks.content_hash, bookmarks.content_ref, bookmarks.content_type, bookmarks.content_length, bookmarks.excerpt,
+				bookmarks.word_count, bookmarks.lang, bookmarks.list_id, bookmarks.pinned, bookmarks.sort_order, bookmarks.is_read,
+				item_search_documents.body_text AS body_text
 			FROM bookmarks
-			WHERE user_id = ?
-			ORDER BY pinned DESC, sort_order ASC, created_at DESC`,
+			LEFT JOIN item_search_documents
+				ON item_search_documents.bookmark_id = bookmarks.id
+				AND item_search_documents.user_id = bookmarks.user_id
+			WHERE bookmarks.user_id = ?
+			ORDER BY bookmarks.pinned DESC, bookmarks.sort_order ASC, bookmarks.created_at DESC`,
 		)
 			.bind(userId),
 

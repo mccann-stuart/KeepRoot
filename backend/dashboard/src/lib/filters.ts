@@ -5,10 +5,19 @@ function getBookmarkTags(bookmark: BookmarkSummary): string[] {
 	return Array.isArray(bookmark.metadata?.tags) ? bookmark.metadata.tags : [];
 }
 
+function getSmartListSearchText(bookmark: BookmarkSummary): string {
+	return [
+		...getBookmarkTags(bookmark),
+		String(bookmark.metadata?.title ?? ''),
+		String(bookmark.metadata?.excerpt ?? ''),
+		String(bookmark.metadata?.bodyText ?? ''),
+	].join('\n').toLowerCase();
+}
+
 function matchesSmartList(bookmark: BookmarkSummary, smartList: SmartListSummary): boolean {
 	const rules = smartList.rules.split(',').map((rule) => rule.trim().toLowerCase()).filter(Boolean);
-	const tags = getBookmarkTags(bookmark).map((tag) => tag.toLowerCase());
-	return rules.some((rule) => tags.some((tag) => tag.includes(rule)));
+	const searchText = getSmartListSearchText(bookmark);
+	return rules.some((rule) => searchText.includes(rule));
 }
 
 export function collectTags(bookmarks: BookmarkSummary[]): string[] {

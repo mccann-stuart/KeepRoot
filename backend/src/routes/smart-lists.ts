@@ -26,7 +26,19 @@ export async function handleSmartListRoute(context: ProtectedRouteContext): Prom
 	if (context.request.method === 'PATCH' && context.pathname.startsWith('/smart-lists/')) {
 		const listId = context.pathname.slice('/smart-lists/'.length);
 		const body = await parseJson<{ icon?: string; name?: string; rules?: string; sortOrder?: number }>(context.request);
-		const updated = await updateSmartList(context.env, context.authUser.userId, listId, body);
+		const payload = {
+			icon: body.icon,
+			name: body.name === undefined ? undefined : body.name.trim(),
+			rules: body.rules === undefined ? undefined : body.rules.trim(),
+			sortOrder: body.sortOrder,
+		};
+		if (payload.name !== undefined && !payload.name) {
+			return errorResponse('Name required', 400);
+		}
+		if (payload.rules !== undefined && !payload.rules) {
+			return errorResponse('Rules required', 400);
+		}
+		const updated = await updateSmartList(context.env, context.authUser.userId, listId, payload);
 		if (!updated) {
 			return errorResponse('Not found', 404);
 		}
