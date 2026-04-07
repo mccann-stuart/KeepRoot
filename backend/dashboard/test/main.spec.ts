@@ -48,6 +48,7 @@ async function flush(): Promise<void> {
 async function bootDashboard(options?: {
 	account?: Record<string, unknown>;
 	apiKeys?: Array<Record<string, unknown>>;
+	handleFetch?: (url: string, method: string, init?: RequestInit) => Response | Promise<Response> | undefined;
 	sources?: Array<Record<string, unknown>>;
 	stats?: Record<string, unknown>;
 }): Promise<{ fetchSpy: ReturnType<typeof vi.fn> }> {
@@ -96,6 +97,10 @@ async function bootDashboard(options?: {
 	const fetchSpy = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
 		const url = typeof input === 'string' ? input : input instanceof URL ? input.toString() : input.url;
 		const method = init?.method ?? 'GET';
+		const customResponse = await options?.handleFetch?.(url, method, init);
+		if (customResponse) {
+			return customResponse;
+		}
 
 		if (url.endsWith('/bookmarks') && method === 'GET') {
 			return jsonResponse({ keys: [] });
@@ -245,5 +250,87 @@ describe('dashboard MCP setup view', () => {
 		expect((document.getElementById('mcp-source-bridge-field') as HTMLElement).classList.contains('is-hidden')).toBe(false);
 		expect((document.getElementById('mcp-sources-list') as HTMLElement).textContent).toContain('Root Feed');
 		expect((document.getElementById('mcp-sources-list') as HTMLElement).textContent).toContain('Remove');
+	});
+
+	it('clears all data from settings after confirmation and preserves the session token', async () => {
+		let cleared = false;
+		await bootDashboard({
+			apiKeys: [{
+				createdAt: '2026-03-16T10:00:00.000Z',
+				id: 'key-1',
+				name: 'Primary Key',
+			}],
+			handleFetch: (url, method) => {
+				if (url.endsWith('/account/data') && method === 'DELETE') {
+					cleared = true;
+					return jsonResponse({ message: 'All data cleared' });
+				}
+				if (cleared && url.endsWith('/api-keys') && method === 'GET') {
+					return jsonResponse({ keys: [] });
+				}
+				if (cleared && url.endsWith('/bookmarks') && method === 'GET') {
+					return jsonResponse({ keys: [] });
+				}
+				if (cleared && url.endsWith('/lists') && method === 'GET') {
+					return jsonResponse({ lists: [] });
+				}
+				if (cleared && url.endsWith('/smart-lists') && method === 'GET') {
+					return jsonResponse({ lists: [] });
+				}
+				if (cleared && url.endsWith('/stats') && method === 'GET') {
+					return jsonResponse({
+						inbox: { pending: 0 },
+						items: { byStatus: {}, total: 0 },
+						recentToolUsage: [],
+						sourceHealth: [],
+						sources: { byKind: {}, total: 0 },
+					});
+				}
+				if (cleared && url.endsWith('/sources') && method === 'GET') {
+					return jsonResponse({ nextCursor: null, sources: [] });
+				}
+				return undefined;
+			},
+		});
+
+		window.localStorage.setItem('keeproot_theme', 'dark');
+		window.localStorage.setItem('keeproot_font', 'sans');
+		window.localStorage.setItem('keeproot_font_size', '22');
+		window.localStorage.setItem('keeproot_notifications', 'false');
+		window.localStorage.setItem('keeproot_highlights_bookmark-1', JSON.stringify([{ id: 'h1', note: 'note', text: 'text' }]));
+
+		(document.getElementById('open-settings-btn') as HTMLButtonElement).click();
+		await flush();
+
+		(document.getElementById('clear-data-btn') as HTMLButtonElement).click();
+		await flush();
+		await flush();
+
+		expect(fetch).toHaveBeenCalledWith('/account/data', expect.objectContaining({
+			headers: expect.any(Headers),
+			method: 'DELETE',
+		}));
+		expect(window.localStorage.getItem('keeproot_secret')).toBe('session-secret');
+		expect(window.localStorage.getItem('keeproot_theme')).toBe('auto');
+		expect(window.localStorage.getItem('keeproot_font')).toBe('default');
+		expect(window.localStorage.getItem('keeproot_font_size')).toBe('16');
+		expect(window.localStorage.getItem('keeproot_notifications')).toBe('true');
+		expect(window.localStorage.getItem('keeproot_highlights_bookmark-1')).toBeNull();
+		expect((document.getElementById('api-keys-list') as HTMLElement).textContent).toContain('No active API keys.');
+		expect((document.getElementById('current-view-title') as HTMLElement).textContent).toBe('Settings');
+	});
+
+	it('does nothing when clear all data confirmation is cancelled', async () => {
+		await bootDashboard();
+		vi.mocked(window.confirm).mockReturnValue(false);
+
+		(document.getElementById('open-settings-btn') as HTMLButtonElement).click();
+		await flush();
+
+		(document.getElementById('clear-data-btn') as HTMLButtonElement).click();
+		await flush();
+
+		expect(fetch).not.toHaveBeenCalledWith('/account/data', expect.anything());
+		expect(window.localStorage.getItem('keeproot_secret')).toBe('session-secret');
 	});
 });

@@ -15,6 +15,8 @@ const DEFAULT_PREFERENCES: Preferences = {
 	theme: 'auto',
 };
 
+const HIGHLIGHT_STORAGE_PREFIX = 'keeproot_highlights_';
+
 function getBrowserStorage(): Storage {
 	return window.localStorage;
 }
@@ -31,6 +33,32 @@ export function loadPreferences(): Preferences {
 		notifications: localStorage.getItem(STORAGE_KEYS.notifications) !== 'false',
 		theme: theme === 'light' || theme === 'dark' ? theme : DEFAULT_PREFERENCES.theme,
 	};
+}
+
+export function clearDashboardDataPreservingSession(): void {
+	const storage = getBrowserStorage();
+	const keysToRemove: string[] = [];
+
+	for (let index = 0; index < storage.length; index += 1) {
+		const key = storage.key(index);
+		if (!key || key === STORAGE_KEYS.token) {
+			continue;
+		}
+
+		if (
+			key === STORAGE_KEYS.theme
+			|| key === STORAGE_KEYS.font
+			|| key === STORAGE_KEYS.fontSize
+			|| key === STORAGE_KEYS.notifications
+			|| key.startsWith(HIGHLIGHT_STORAGE_PREFIX)
+		) {
+			keysToRemove.push(key);
+		}
+	}
+
+	for (const key of keysToRemove) {
+		storage.removeItem(key);
+	}
 }
 
 export function savePreference<K extends keyof Preferences>(key: K, value: Preferences[K]): void {
@@ -64,7 +92,7 @@ export function clearSessionToken(): void {
 }
 
 function highlightStorageKey(bookmarkId: string): string {
-	return `keeproot_highlights_${bookmarkId}`;
+	return `${HIGHLIGHT_STORAGE_PREFIX}${bookmarkId}`;
 }
 
 export function loadHighlights(bookmarkId: string): HighlightRecord[] {

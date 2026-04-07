@@ -183,6 +183,12 @@ a {
 	background: color-mix(in srgb, var(--danger) 24%, var(--surface-strong));
 }
 
+.danger-panel {
+	border-color: color-mix(in srgb, var(--danger) 38%, var(--border));
+	background:
+		linear-gradient(180deg, color-mix(in srgb, var(--danger) 8%, var(--surface-strong)), var(--surface-strong));
+}
+
 .btn-compact {
 	padding: 0.45rem 0.8rem;
 	font-size: 0.92rem;

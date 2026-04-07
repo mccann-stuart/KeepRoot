@@ -30,6 +30,7 @@ export function getDom() {
 		btnSaveSmartList: required<HTMLButtonElement>('btn-save-smart-list'),
 		btnSaveTags: required<HTMLButtonElement>('btn-save-tags'),
 		contentView: required<HTMLElement>('content-view'),
+		clearDataBtn: required<HTMLButtonElement>('clear-data-btn'),
 		copyNewKeyBtn: required<HTMLButtonElement>('copy-new-key-btn'),
 		currentViewTitle: required<HTMLElement>('current-view-title'),
 		deleteBtn: required<HTMLButtonElement>('delete-btn'),

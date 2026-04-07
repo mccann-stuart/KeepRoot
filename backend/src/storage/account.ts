@@ -10,6 +10,26 @@ interface AccountSettingsRow {
 	user_id: string;
 }
 
+interface BookmarkContentKeyRow {
+	content_ref: string | null;
+	html_r2_key: string | null;
+	r2_key: string | null;
+}
+
+interface BookmarkImageKeyRow {
+	r2_key: string | null;
+}
+
+interface BookmarkEmbeddingKeyRow {
+	vector_id: string;
+}
+
+type BucketReferenceTarget = {
+	column: 'html_r2_key' | 'r2_key';
+	keys: string[];
+	table: 'bookmark_contents' | 'bookmark_images';
+};
+
 function parseJsonObject(value: string | null, fallback: Record<string, unknown>): Record<string, unknown> {
 	if (!value) {
 		return fallback;
@@ -41,6 +61,62 @@ function getDefaultLimits(): Record<string, unknown> {
 		maxSources: null,
 		maxToolCallsPerDay: null,
 	};
+}
+
+function chunkValues<T>(values: T[], size = 50): T[][] {
+	const chunks: T[][] = [];
+	for (let index = 0; index < values.length; index += size) {
+		chunks.push(values.slice(index, index + size));
+	}
+	return chunks;
+}
+
+async function deleteVectorEntries(env: StorageEnv, vectorIds: string[]): Promise<void> {
+	if (!env.KEEPROOT_VECTOR_INDEX || vectorIds.length === 0) {
+		return;
+	}
+
+	for (const chunk of chunkValues(vectorIds, 100)) {
+		try {
+			await env.KEEPROOT_VECTOR_INDEX.deleteByIds(chunk);
+		} catch (error) {
+			console.warn('Vector delete failed during user data clear', error);
+		}
+	}
+}
+
+async function deleteUnreferencedBucketObjects(env: StorageEnv, target: BucketReferenceTarget): Promise<void> {
+	if (target.keys.length === 0) {
+		return;
+	}
+
+	const removableKeys = new Set<string>();
+	for (const chunk of chunkValues(target.keys, 50)) {
+		const placeholders = chunk.map(() => '?').join(', ');
+		const result = await env.KEEPROOT_DB.prepare(
+			`SELECT ${target.column} AS key
+			FROM ${target.table}
+			WHERE ${target.column} IN (${placeholders})`,
+		)
+			.bind(...chunk)
+			.all<{ key: string | null }>();
+
+		const referencedKeys = new Set(
+			result.results
+				.map((row) => row.key)
+				.filter((key): key is string => Boolean(key)),
+		);
+
+		for (const key of chunk) {
+			if (!referencedKeys.has(key)) {
+				removableKeys.add(key);
+			}
+		}
+	}
+
+	await Promise.all(
+		[...removableKeys].map((key) => env.KEEPROOT_CONTENT.delete(key)),
+	);
 }
 
 export async function ensureAccountSettings(
@@ -95,4 +171,86 @@ export async function getWhoAmI(
 		limits,
 		tokenType: user.tokenType,
 	});
+}
+
+export async function clearUserData(env: StorageEnv, userId: string): Promise<void> {
+	const [contentRows, imageRows, embeddingRows] = await env.KEEPROOT_DB.batch<
+		BookmarkContentKeyRow | BookmarkImageKeyRow | BookmarkEmbeddingKeyRow
+	>([
+		env.KEEPROOT_DB.prepare(
+			`SELECT bookmarks.content_ref, bookmark_contents.r2_key, bookmark_contents.html_r2_key
+			FROM bookmarks
+			LEFT JOIN bookmark_contents ON bookmark_contents.bookmark_id = bookmarks.id
+			WHERE bookmarks.user_id = ?`,
+		).bind(userId),
+		env.KEEPROOT_DB.prepare(
+			`SELECT bookmark_images.r2_key
+			FROM bookmark_images
+			INNER JOIN bookmarks ON bookmarks.id = bookmark_images.bookmark_id
+			WHERE bookmarks.user_id = ?`,
+		).bind(userId),
+		env.KEEPROOT_DB.prepare(
+			`SELECT vector_id
+			FROM bookmark_embeddings
+			WHERE user_id = ?`,
+		).bind(userId),
+	]) as [D1Result<BookmarkContentKeyRow>, D1Result<BookmarkImageKeyRow>, D1Result<BookmarkEmbeddingKeyRow>];
+
+	const contentKeys = new Set<string>();
+	const htmlKeys = new Set<string>();
+	const imageKeys = new Set<string>();
+	const vectorIds = embeddingRows.results.map((row) => row.vector_id).filter(Boolean);
+
+	for (const row of contentRows.results) {
+		if (row.content_ref) {
+			contentKeys.add(row.content_ref);
+		}
+		if (row.r2_key) {
+			contentKeys.add(row.r2_key);
+		}
+		if (row.html_r2_key) {
+			htmlKeys.add(row.html_r2_key);
+		}
+	}
+
+	for (const row of imageRows.results) {
+		if (row.r2_key) {
+			imageKeys.add(row.r2_key);
+		}
+	}
+
+	await env.KEEPROOT_DB.batch([
+		env.KEEPROOT_DB.prepare('DELETE FROM item_search_fts WHERE user_id = ?').bind(userId),
+		env.KEEPROOT_DB.prepare('DELETE FROM tool_events WHERE user_id = ?').bind(userId),
+		env.KEEPROOT_DB.prepare('DELETE FROM inbox_entries WHERE user_id = ?').bind(userId),
+		env.KEEPROOT_DB.prepare('DELETE FROM source_runs WHERE source_id IN (SELECT id FROM sources WHERE user_id = ?)').bind(userId),
+		env.KEEPROOT_DB.prepare('DELETE FROM api_keys WHERE user_id = ?').bind(userId),
+		env.KEEPROOT_DB.prepare('DELETE FROM account_settings WHERE user_id = ?').bind(userId),
+		env.KEEPROOT_DB.prepare('DELETE FROM sources WHERE user_id = ?').bind(userId),
+		env.KEEPROOT_DB.prepare('DELETE FROM smart_lists WHERE user_id = ?').bind(userId),
+		env.KEEPROOT_DB.prepare('DELETE FROM lists WHERE user_id = ?').bind(userId),
+		env.KEEPROOT_DB.prepare('DELETE FROM tags WHERE user_id = ?').bind(userId),
+		env.KEEPROOT_DB.prepare('DELETE FROM item_search_documents WHERE user_id = ?').bind(userId),
+		env.KEEPROOT_DB.prepare('DELETE FROM bookmark_embeddings WHERE user_id = ?').bind(userId),
+		env.KEEPROOT_DB.prepare('DELETE FROM bookmarks WHERE user_id = ?').bind(userId),
+	]);
+
+	await Promise.all([
+		deleteVectorEntries(env, vectorIds),
+		deleteUnreferencedBucketObjects(env, {
+			column: 'r2_key',
+			keys: [...contentKeys],
+			table: 'bookmark_contents',
+		}),
+		deleteUnreferencedBucketObjects(env, {
+			column: 'html_r2_key',
+			keys: [...htmlKeys],
+			table: 'bookmark_contents',
+		}),
+		deleteUnreferencedBucketObjects(env, {
+			column: 'r2_key',
+			keys: [...imageKeys],
+			table: 'bookmark_images',
+		}),
+	]);
 }
