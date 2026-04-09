@@ -441,11 +441,18 @@ function buildExcerpt(content: string): string {
 	return `${content.slice(0, 237).trimEnd()}...`;
 }
 
+// ⚡ Bolt: Using a regex .exec() loop avoids the function execution context overhead and intermediate array allocations created by .split().filter(Boolean), while maintaining full Unicode whitespace support.
+// Impact: Reduces GC pressure and improves execution speed for large text documents without breaking whitespace detection.
 function countWords(content: string): number {
 	if (!content) {
 		return 0;
 	}
-	return content.split(/\s+/).filter(Boolean).length;
+	let count = 0;
+	const regex = /\S+/g;
+	while (regex.exec(content) !== null) {
+		count++;
+	}
+	return count;
 }
 
 async function putIfMissing(bucket: R2Bucket, key: string, value: string | ArrayBuffer | ArrayBufferView, contentType: string): Promise<void> {
