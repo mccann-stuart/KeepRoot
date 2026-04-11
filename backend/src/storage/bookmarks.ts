@@ -386,27 +386,35 @@ async function hydrateImagePayloads(payload: BookmarkPayload, pageUrl: string): 
 	}
 	const uniqueDiscoveredUrls = [...new Set(discoveredImageUrls)];
 
-	for (const imageUrl of uniqueDiscoveredUrls.slice(0, MAX_AUTO_FETCH_IMAGES)) {
+	// ⚡ Bolt: Execute image ingestion processing in parallel using Promise.all to significantly reduce I/O latency
+	const fetchPromises = uniqueDiscoveredUrls.slice(0, MAX_AUTO_FETCH_IMAGES).map(async (imageUrl) => {
 		const absoluteImageUrl = resolveAbsoluteImageUrl(imageUrl, pageUrl);
 		if (!absoluteImageUrl || existingSourceUrls.has(absoluteImageUrl)) {
-			continue;
+			return null;
 		}
 
 		try {
 			const fetchedImage = await fetchImageAsPayload(absoluteImageUrl, pageUrl);
 			if (!fetchedImage?.dataBase64) {
-				continue;
+				return null;
 			}
 			const sourceCandidates = buildImageSourceCandidates(imageUrl, pageUrl, absoluteImageUrl);
-			hydratedImages.push({
+			return {
 				...fetchedImage,
 				sourceCandidates,
-			});
-			for (const candidate of sourceCandidates) {
+			};
+		} catch {
+			return null;
+		}
+	});
+
+	const fetchedResults = await Promise.all(fetchPromises);
+	for (const fetchedImage of fetchedResults) {
+		if (fetchedImage) {
+			hydratedImages.push(fetchedImage);
+			for (const candidate of fetchedImage.sourceCandidates) {
 				existingSourceUrls.add(candidate);
 			}
-		} catch {
-			// Best-effort image ingestion; bookmark save should still succeed.
 		}
 	}
 
