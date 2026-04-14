@@ -1,4 +1,4 @@
-import { compactObject, type PaginationInput, type SourceKind, type SourceListOptions, type StorageEnv } from './shared';
+import { compactObject, type PaginationInput, type SourceKind, type SourceListOptions, type StorageEnv, validateSafeUrl } from './shared';
 
 interface SourceRow {
 	config_json: string;
@@ -100,6 +100,14 @@ async function resolveYouTubePollUrl(identifier: string): Promise<{ normalizedId
 		: raw.startsWith('@')
 			? `https://www.youtube.com/${raw}`
 			: `https://www.youtube.com/${raw.replace(/^\/+/, '')}`;
+
+	if (!await validateSafeUrl(normalizedUrl)) {
+		return {
+			normalizedIdentifier: normalizedUrl,
+			pollUrl: null,
+		};
+	}
+
 	const parsedUrl = new URL(normalizedUrl);
 	const pathSegments = parsedUrl.pathname.split('/').filter(Boolean);
 
