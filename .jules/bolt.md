@@ -4,3 +4,7 @@
 ## $(date +%Y-%m-%d) - Preserve Ordering When Parallelizing Network Requests
 **Learning:** When refactoring sequential loops that populate an array into concurrent `Promise.all()` executions (like fetching multiple images), mutating the shared array inside the async callbacks using `.push()` destroys the original ordering because it appends results as they complete. In contexts where order is critical (e.g., preserving the prioritized `og:image` as the first thumbnail), this creates a functional regression.
 **Action:** When parallelizing ordered processing, always map to an array of promises, `await Promise.all()` on that array, and then process the results sequentially to build the final array, preserving the initial order.
+
+## 2024-05-30 - Optimize iterative arrays
+**Learning:** Declarative array methods like `.filter().map().sort().slice().map()` and `.split(' ').filter()` allocate many intermediate arrays and execute function context overhead. In the V8 engine, and especially under Cloudflare Workers, fusing iterators via procedural `for` or `for...of` loops avoids this memory overhead and minimizes GC pressure for high frequency paths (e.g. searching across many IDs). Furthermore, regex `exec` loops correctly support `\s` matching without splitting strings entirely.
+**Action:** Identify sequences of list/string manipulation in loops/hotpaths and rewrite them as combined `for`/`for...of`/`exec` iterations.

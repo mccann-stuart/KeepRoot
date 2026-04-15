@@ -53,10 +53,19 @@ function normalizeText(value: string): string {
 		.trim();
 }
 
+// ⚡ Bolt: Using a regex .exec() loop avoids the function execution context overhead and intermediate array allocations created by .split().filter(), while maintaining full Unicode whitespace support.
+// Impact: Reduces GC pressure and improves execution speed when tokenizing search queries and large documents.
 function tokenize(value: string): string[] {
-	return normalizeText(value)
-		.split(' ')
-		.filter((token) => token.length > 1);
+	const normalized = normalizeText(value);
+	const tokens: string[] = [];
+	const regex = /\S+/g;
+	let match: RegExpExecArray | null;
+	while ((match = regex.exec(normalized)) !== null) {
+		if (match[0].length > 1) {
+			tokens.push(match[0]);
+		}
+	}
+	return tokens;
 }
 
 function buildFtsQuery(query: string): string | null {
@@ -492,12 +501,12 @@ export async function searchBookmarkIds(
 		}
 	}
 
-	const ranked = [...candidateIds]
-		.filter((id) => {
-			const metadata = bookmarkMeta.get(id);
-			return metadata ? matchesSearchFilters(metadata, options) : false;
-		})
-		.map<SearchResultRow & { keywordScore: number }>((id) => {
+	// ⚡ Bolt: Using procedural for loops avoids intermediate array allocations created by declarative array methods (.filter().map().sort().slice().map()).
+	// Impact: Fuses multiple iterations into one, significantly reducing GC pressure and execution time during large search evaluations.
+	const filteredCandidates: Array<SearchResultRow & { keywordScore: number }> = [];
+	for (const id of candidateIds) {
+		const metadata = bookmarkMeta.get(id);
+		if (metadata && matchesSearchFilters(metadata, options)) {
 			const keywordScore = keywordScores.get(id) ?? 0;
 			const semanticScore = semanticScores.get(id) ?? 0;
 			const matchReason: MatchReason = keywordScore > 0 && semanticScore > 0
@@ -505,19 +514,27 @@ export async function searchBookmarkIds(
 				: keywordScore > 0
 					? 'keyword'
 					: 'semantic';
-			return {
+			filteredCandidates.push({
 				id,
 				keywordScore,
 				matchReason,
 				score: keywordScore + semanticScore,
-			};
-		})
-		.sort((left, right) => right.score - left.score)
-		.slice(0, limit);
+			});
+		}
+	}
 
-	return ranked.map((entry) => ({
-		id: entry.id,
-		matchReason: entry.matchReason,
-		score: entry.score,
-	}));
+	filteredCandidates.sort((left, right) => right.score - left.score);
+
+	const limitCandidates = filteredCandidates.slice(0, limit);
+	const ranked: SearchResultRow[] = [];
+	for (let i = 0; i < limitCandidates.length; i += 1) {
+		const entry = limitCandidates[i];
+		ranked.push({
+			id: entry.id,
+			matchReason: entry.matchReason,
+			score: entry.score,
+		});
+	}
+
+	return ranked;
 }
