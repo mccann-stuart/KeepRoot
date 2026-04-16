@@ -211,23 +211,29 @@ export async function searchItems(env: StorageEnv, userId: string, options: Item
 
 	const allItems = await listBookmarks(env, userId);
 	const filtered = applyItemFilters(allItems, options);
-	const itemMap = new Map(filtered.map((item) => [item.id, item]));
+	// ⚡ Bolt: Using a procedural loop to construct the map prevents creating an intermediate tuple array for all items, saving memory and GC cycles.
+	const itemMap = new Map<string, { id: string; metadata: Record<string, unknown> }>();
+	for (let i = 0; i < filtered.length; i += 1) {
+		const item = filtered[i];
+		itemMap.set(item.id, item);
+	}
 
-	return {
-		items: matches
-			.map<SearchItemResult | null>((match) => {
-				const item = itemMap.get(match.id);
-				if (!item) {
-					return null;
-				}
-
-				return compactObject({
+	// ⚡ Bolt: Using a procedural loop avoids intermediate array allocations created by .map().filter().
+	const items: SearchItemResult[] = [];
+	for (let i = 0; i < matches.length; i += 1) {
+		const match = matches[i];
+		const item = itemMap.get(match.id);
+		if (item) {
+			items.push(
+				compactObject({
 					id: item.id,
 					matchReason: match.matchReason,
 					score: match.score,
 					metadata: item.metadata,
-				});
-			})
-			.filter((item): item is SearchItemResult => item !== null),
-	};
+				})
+			);
+		}
+	}
+
+	return { items };
 }
