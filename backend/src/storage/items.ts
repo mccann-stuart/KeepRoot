@@ -211,23 +211,27 @@ export async function searchItems(env: StorageEnv, userId: string, options: Item
 
 	const allItems = await listBookmarks(env, userId);
 	const filtered = applyItemFilters(allItems, options);
-	const itemMap = new Map(filtered.map((item) => [item.id, item]));
 
-	return {
-		items: matches
-			.map<SearchItemResult | null>((match) => {
-				const item = itemMap.get(match.id);
-				if (!item) {
-					return null;
-				}
+	// ⚡ Bolt: Using procedural for loops for map creation and filtering prevents intermediate array allocations
+	// Impact: Reduces GC pressure and improves execution speed for large lists of search matches
+	const itemMap = new Map<string, typeof filtered[0]>();
+	for (let i = 0; i < filtered.length; i++) {
+		itemMap.set(filtered[i].id, filtered[i]);
+	}
 
-				return compactObject({
-					id: item.id,
-					matchReason: match.matchReason,
-					score: match.score,
-					metadata: item.metadata,
-				});
-			})
-			.filter((item): item is SearchItemResult => item !== null),
-	};
+	const items: SearchItemResult[] = [];
+	for (let i = 0; i < matches.length; i++) {
+		const match = matches[i];
+		const item = itemMap.get(match.id);
+		if (item) {
+			items.push(compactObject({
+				id: item.id,
+				matchReason: match.matchReason,
+				score: match.score,
+				metadata: item.metadata,
+			}));
+		}
+	}
+
+	return { items };
 }
