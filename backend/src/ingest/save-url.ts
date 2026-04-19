@@ -186,7 +186,12 @@ export async function saveItemFromUrl(
 			if (!location) {
 				throw new Error('Redirect missing location header');
 			}
-			const nextUrl = new URL(location, currentUrl).toString();
+			let nextUrl: string;
+			try {
+				nextUrl = new URL(location, currentUrl).toString();
+			} catch {
+				throw new Error('Invalid redirect URL');
+			}
 			if (!await validateSafeUrl(nextUrl)) {
 				throw new Error('Unsafe redirect URL');
 			}

@@ -859,7 +859,7 @@ describe('KeepRoot Worker', () => {
 		const createRes = await worker.fetch(createReq, env, ctx);
 		expect(createRes.status).toBe(201);
 		const createData = (await createRes.json()) as any;
-		expect(fetchSpy).toHaveBeenCalledWith('https://example.com/images/hero.png');
+		expect(fetchSpy).toHaveBeenCalledWith('https://example.com/images/hero.png', { redirect: 'manual' });
 
 		const getReq = new Request(`http://example.com/bookmarks/${createData.id}`, {
 			headers: { Authorization: `Bearer ${API_KEY}` },

@@ -1,4 +1,4 @@
-import { compactObject, type PaginationInput, type SourceKind, type SourceListOptions, type StorageEnv } from './shared';
+import { compactObject, validateSafeUrl, type PaginationInput, type SourceKind, type SourceListOptions, type StorageEnv } from './shared';
 
 interface SourceRow {
 	config_json: string;
@@ -120,15 +120,44 @@ async function resolveYouTubePollUrl(identifier: string): Promise<{ normalizedId
 	}
 
 	try {
-		const response = await fetch(normalizedUrl);
-		if (response.ok) {
-			const html = await response.text();
-			const rssMatch = html.match(/https:\/\/www\.youtube\.com\/feeds\/videos\.xml\?channel_id=[A-Za-z0-9_-]+/);
-			if (rssMatch?.[0]) {
-				return {
-					normalizedIdentifier: normalizedUrl,
-					pollUrl: rssMatch[0],
-				};
+		if (await validateSafeUrl(normalizedUrl)) {
+			let currentUrl = normalizedUrl;
+			let response: Response | null = null;
+			let redirectCount = 0;
+
+			while (redirectCount < 5) {
+				response = await fetch(currentUrl, { redirect: 'manual' });
+
+				if ([301, 302, 303, 307, 308].includes(response.status)) {
+					await response.body?.cancel().catch(() => {});
+					const location = response.headers.get('location');
+					if (!location) break;
+
+					let nextUrl: string;
+					try {
+						nextUrl = new URL(location, currentUrl).toString();
+					} catch {
+						break;
+					}
+
+					if (!await validateSafeUrl(nextUrl)) break;
+
+					currentUrl = nextUrl;
+					redirectCount += 1;
+					continue;
+				}
+				break;
+			}
+
+			if (response && response.ok) {
+				const html = await response.text();
+				const rssMatch = html.match(/https:\/\/www\.youtube\.com\/feeds\/videos\.xml\?channel_id=[A-Za-z0-9_-]+/);
+				if (rssMatch?.[0]) {
+					return {
+						normalizedIdentifier: normalizedUrl,
+						pollUrl: rssMatch[0],
+					};
+				}
 			}
 		}
 	} catch {

@@ -160,7 +160,21 @@ export async function syncSource(
 				});
 				throw new Error(errorText);
 			}
-			const nextUrl = new URL(location, currentUrl).toString();
+			let nextUrl: string;
+			try {
+				nextUrl = new URL(location, currentUrl).toString();
+			} catch {
+				const errorText = 'Invalid redirect URL';
+				await markSourcePollingResult(env, {
+					discoveredCount: 0,
+					errorText,
+					id: source.id,
+					runType: 'poll',
+					savedCount: 0,
+					status: 'error',
+				});
+				throw new Error(errorText);
+			}
 			if (!await validateSafeUrl(nextUrl)) {
 				const errorText = 'Unsafe redirect URL';
 				await markSourcePollingResult(env, {
