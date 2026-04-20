@@ -209,7 +209,8 @@ export async function searchItems(env: StorageEnv, userId: string, options: Item
 		return { items: [] };
 	}
 
-	const allItems = await listBookmarks(env, userId);
+	// ⚡ Bolt: Fetch only the matching bookmarks instead of loading all user bookmarks into memory to significantly reduce DB load and memory footprint.
+	const allItems = await listBookmarks(env, userId, matches.map(m => m.id));
 	const filtered = applyItemFilters(allItems, options);
 	const itemMap = new Map(filtered.map((item) => [item.id, item]));
 
