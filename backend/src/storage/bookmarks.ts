@@ -882,7 +882,10 @@ export async function saveBookmark(
 	};
 }
 
-export async function listBookmarks(env: StorageEnv, userId: string): Promise<BookmarkListItem[]> {
+export async function listBookmarks(env: StorageEnv, userId: string, bookmarkIds?: string[]): Promise<BookmarkListItem[]> {
+	const placeholders = bookmarkIds?.length ? bookmarkIds.map(() => '?').join(', ') : '';
+	const bookmarkIdBindings = bookmarkIds?.length ? bookmarkIds : [];
+
 	// ⚡ Bolt: Using D1Database.batch() for multiple reads replaces multiple separate HTTP network roundtrips with a single roundtrip.
 	// Impact: Significantly reduces latency when fetching list of bookmarks and tags.
 	const [rawBookmarks, tagRows] = await env.KEEPROOT_DB.batch<BookmarkRow | { bookmark_id: string; name: string }>([
@@ -896,18 +899,18 @@ export async function listBookmarks(env: StorageEnv, userId: string): Promise<Bo
 			LEFT JOIN item_search_documents
 				ON item_search_documents.bookmark_id = bookmarks.id
 				AND item_search_documents.user_id = bookmarks.user_id
-			WHERE bookmarks.user_id = ?
+			WHERE bookmarks.user_id = ?${placeholders ? ` AND bookmarks.id IN (${placeholders})` : ''}
 			ORDER BY bookmarks.pinned DESC, bookmarks.sort_order ASC, bookmarks.created_at DESC`,
 		)
-			.bind(userId),
+			.bind(userId, ...bookmarkIdBindings),
 
 		env.KEEPROOT_DB.prepare(
 			`SELECT bookmark_tags.bookmark_id, tags.name
 			 FROM tags
 			 INNER JOIN bookmark_tags ON bookmark_tags.tag_id = tags.id
-			 WHERE tags.user_id = ?`,
+			 WHERE tags.user_id = ?${placeholders ? ` AND bookmark_tags.bookmark_id IN (${placeholders})` : ''}`,
 		)
-			.bind(userId),
+			.bind(userId, ...bookmarkIdBindings),
 	]) as [D1Result<BookmarkRow>, D1Result<{ bookmark_id: string; name: string }>];
 
 	const tagsByBookmark = new Map<string, string[]>();
