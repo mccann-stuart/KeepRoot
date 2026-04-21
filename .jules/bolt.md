@@ -4,3 +4,6 @@
 ## $(date +%Y-%m-%d) - Preserve Ordering When Parallelizing Network Requests
 **Learning:** When refactoring sequential loops that populate an array into concurrent `Promise.all()` executions (like fetching multiple images), mutating the shared array inside the async callbacks using `.push()` destroys the original ordering because it appends results as they complete. In contexts where order is critical (e.g., preserving the prioritized `og:image` as the first thumbnail), this creates a functional regression.
 **Action:** When parallelizing ordered processing, always map to an array of promises, `await Promise.all()` on that array, and then process the results sequentially to build the final array, preserving the initial order.
+## $(date +%Y-%m-%d) - Optimizing Map Initializations
+**Learning:** In performance-sensitive contexts (like Cloudflare Workers), initializing a `Map` from a large array using declarative `new Map(arr.map(item => [key, item]))` is inefficient because `.map` creates a large intermediate array of tuples, consuming memory and increasing garbage collection (GC) pressure.
+**Action:** When initializing a `Map` from an array, especially inside loops or hot paths, instantiate an empty map and populate it using a procedural `for` loop with `map.set()`. To maintain TypeScript type safety, use `typeof arr[number]` as the value type parameter.
