@@ -392,4 +392,50 @@ describe('dashboard MCP setup view', () => {
 		}));
 		expect((document.getElementById('current-view-title') as HTMLElement).textContent).toBe('Reader');
 	});
+
+	it('keeps a bookmark visible after pinning by moving it into the pinned panel', async () => {
+		let bookmarkPinned = false;
+
+		const { fetchSpy } = await bootDashboard({
+			handleFetch: (url, method, init) => {
+				if (url.endsWith('/bookmarks') && method === 'GET') {
+					return jsonResponse({
+						keys: [{
+							id: 'bookmark-1',
+							metadata: {
+								createdAt: '2026-03-16T10:00:00.000Z',
+								pinned: bookmarkPinned,
+								title: 'Pin me',
+								url: 'https://example.com/articles/pin-me',
+								wordCount: 400,
+							},
+						}],
+					});
+				}
+
+				if (url.endsWith('/bookmarks/bookmark-1') && method === 'PATCH') {
+					expect(init?.body).toBe(JSON.stringify({ pinned: true }));
+					bookmarkPinned = true;
+					return jsonResponse({ message: 'Updated successfully' });
+				}
+
+				return undefined;
+			},
+		});
+
+		const pinButton = document.querySelector('[data-action="toggle-pin"]') as HTMLButtonElement | null;
+		expect(pinButton).not.toBeNull();
+
+		pinButton?.click();
+		await flush();
+		await flush();
+
+		expect(fetchSpy).toHaveBeenCalledWith('/bookmarks/bookmark-1', expect.objectContaining({
+			headers: expect.any(Headers),
+			method: 'PATCH',
+		}));
+		expect((document.getElementById('pinned-bookmark-list') as HTMLElement).textContent).toContain('Pin me');
+		expect((document.getElementById('bookmark-list') as HTMLElement).textContent).not.toContain('Pin me');
+		expect((document.getElementById('pinned-bookmark-list')?.closest('.bookmark-panel') as HTMLElement).classList.contains('is-hidden')).toBe(false);
+	});
 });

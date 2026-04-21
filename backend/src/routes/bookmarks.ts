@@ -8,7 +8,15 @@ export async function handleBookmarkRoute(context: ProtectedRouteContext): Promi
 		if (!rawContent) {
 			return errorResponse('Missing bookmark content', 400);
 		}
-		const saved = await saveItemContent(context.env, context.authUser, body);
+		let saved: Awaited<ReturnType<typeof saveItemContent>>;
+		try {
+			saved = await saveItemContent(context.env, context.authUser, body);
+		} catch (error) {
+			if (error instanceof Error && error.name === 'ValidationError') {
+				return errorResponse(error.message, 400);
+			}
+			throw error;
+		}
 		return jsonResponse({
 			id: saved.id,
 			inboxEntryId: saved.inboxEntryId,

@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { bufferToBase64URL, base64URLToUint8Array, normalizeCanonicalUrl } from '../src/storage/shared';
+import { bufferToBase64URL, base64URLToUint8Array, normalizeCanonicalUrl, validateSafeUrl } from '../src/storage/shared';
 
 describe('shared storage utilities', () => {
 	describe('bufferToBase64URL', () => {
@@ -130,6 +130,31 @@ describe('shared storage utilities', () => {
 
 		it('throws TypeError on malformed URLs', () => {
 			expect(() => normalizeCanonicalUrl('not-a-valid-url')).toThrow(TypeError);
+		});
+	});
+
+	describe('validateSafeUrl', () => {
+		it('rejects non-http protocols', async () => {
+			await expect(validateSafeUrl('file:///etc/passwd')).resolves.toBe(false);
+			await expect(validateSafeUrl('javascript:alert(1)')).resolves.toBe(false);
+		});
+
+		it('rejects local and private IPv4 targets', async () => {
+			await expect(validateSafeUrl('http://127.0.0.1/admin')).resolves.toBe(false);
+			await expect(validateSafeUrl('http://10.0.0.5/admin')).resolves.toBe(false);
+			await expect(validateSafeUrl('http://172.16.0.1/admin')).resolves.toBe(false);
+			await expect(validateSafeUrl('http://192.168.1.1/admin')).resolves.toBe(false);
+		});
+
+		it('rejects IPv4-mapped IPv6 private targets', async () => {
+			await expect(validateSafeUrl('http://[::ffff:127.0.0.1]/admin')).resolves.toBe(false);
+			await expect(validateSafeUrl('http://[::ffff:192.168.1.1]/admin')).resolves.toBe(false);
+		});
+
+		it('rejects multicast and reserved IPv4 targets', async () => {
+			await expect(validateSafeUrl('http://224.0.0.1/feed')).resolves.toBe(false);
+			await expect(validateSafeUrl('http://240.0.0.1/feed')).resolves.toBe(false);
+			await expect(validateSafeUrl('http://0.0.0.0/feed')).resolves.toBe(false);
 		});
 	});
 });

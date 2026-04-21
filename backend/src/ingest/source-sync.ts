@@ -1,7 +1,7 @@
 import { XMLParser } from 'fast-xml-parser';
 import { saveItemContent } from '../storage/items';
 import { listActivePollableSources, markSourcePollingResult } from '../storage/sources';
-import type { SourceKind, StorageEnv } from '../storage/shared';
+import { validateSafeUrl, type SourceKind, type StorageEnv } from '../storage/shared';
 
 interface FeedEntry {
 	publishedAt?: string;
@@ -119,6 +119,19 @@ export async function syncSource(
 		userId: string;
 	},
 ): Promise<{ discoveredCount: number; savedCount: number }> {
+	if (!(await validateSafeUrl(source.pollUrl))) {
+		const errorText = 'Refusing to fetch unsafe source feed URL';
+		await markSourcePollingResult(env, {
+			discoveredCount: 0,
+			errorText,
+			id: source.id,
+			runType: 'poll',
+			savedCount: 0,
+			status: 'error',
+		});
+		throw new Error(errorText);
+	}
+
 	const response = await fetch(source.pollUrl, {
 		headers: {
 			Accept: 'application/rss+xml, application/atom+xml, application/xml, text/xml;q=0.9, */*;q=0.5',

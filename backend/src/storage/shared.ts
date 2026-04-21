@@ -319,6 +319,84 @@ export async function runSchemaStatement(env: StorageEnv, sql: string): Promise<
 	}
 }
 
+function isUnsafeIpv4Address(ip: string): boolean {
+	const octets = ip.split('.').map((part) => Number.parseInt(part, 10));
+	if (octets.length !== 4 || octets.some((octet) => !Number.isInteger(octet) || octet < 0 || octet > 255)) {
+		return false;
+	}
+
+	const [first, second, third, fourth] = octets;
+	return first === 0
+		|| first === 10
+		|| first === 127
+		|| (first === 100 && second >= 64 && second <= 127)
+		|| (first === 169 && second === 254)
+		|| (first === 172 && second >= 16 && second <= 31)
+		|| (first === 192 && second === 0 && third === 0)
+		|| (first === 192 && second === 0 && third === 2)
+		|| (first === 192 && second === 168)
+		|| (first === 198 && (second === 18 || second === 19))
+		|| (first === 198 && second === 51 && third === 100)
+		|| (first === 203 && second === 0 && third === 113)
+		|| first >= 224
+		|| (first === 255 && second === 255 && third === 255 && fourth === 255);
+}
+
+function ipv4FromMappedIpv6(ip: string): string | null {
+	const normalized = ip.toLowerCase();
+	const mappedPrefix = '::ffff:';
+	if (!normalized.startsWith(mappedPrefix)) {
+		return null;
+	}
+
+	const suffix = normalized.slice(mappedPrefix.length);
+	if (/^(?:\d{1,3}\.){3}\d{1,3}$/.test(suffix)) {
+		return suffix;
+	}
+
+	const groups = suffix.split(':');
+	if (groups.length !== 2) {
+		return null;
+	}
+
+	const high = Number.parseInt(groups[0], 16);
+	const low = Number.parseInt(groups[1], 16);
+	if (!Number.isInteger(high) || !Number.isInteger(low) || high < 0 || high > 0xffff || low < 0 || low > 0xffff) {
+		return null;
+	}
+
+	return [
+		(high >> 8) & 0xff,
+		high & 0xff,
+		(low >> 8) & 0xff,
+		low & 0xff,
+	].join('.');
+}
+
+function isUnsafeIpAddress(ip: string): boolean {
+	const normalized = ip.toLowerCase();
+	const mappedIpv4 = ipv4FromMappedIpv6(normalized);
+	if (mappedIpv4) {
+		return isUnsafeIpv4Address(mappedIpv4);
+	}
+
+	if (/^(?:\d{1,3}\.){3}\d{1,3}$/.test(normalized)) {
+		return isUnsafeIpv4Address(normalized);
+	}
+
+	if (normalized.includes(':')) {
+		return normalized === '::1'
+			|| normalized === '::'
+			|| normalized.startsWith('::')
+			|| normalized.startsWith('fc')
+			|| normalized.startsWith('fd')
+			|| normalized.startsWith('fe80:')
+			|| normalized.startsWith('ff');
+	}
+
+	return false;
+}
+
 export async function validateSafeUrl(url: string): Promise<boolean> {
 	try {
 		const parsedUrl = new URL(url);
@@ -340,55 +418,8 @@ export async function validateSafeUrl(url: string): Promise<boolean> {
 			return false;
 		}
 
-		let ips: string[] = [];
-		try {
-			if (typeof process !== 'undefined' && process.versions && process.versions.node) {
-				const dns = await import('node:dns/promises');
-				const records = await dns.lookup(hostname, { all: true });
-				ips = records.map(record => record.address);
-			} else {
-				ips = [hostname];
-			}
-		} catch {
-			ips = [hostname];
-		}
-
-		for (let ip of ips) {
-			if (ip.startsWith('::ffff:')) {
-				ip = ip.slice(7);
-			}
-			const isIpv4 = /^(?:\d{1,3}\.){3}\d{1,3}$/.test(ip);
-
-			if (isIpv4) {
-				if (
-					ip.startsWith('127.') ||
-					ip.startsWith('10.') ||
-					ip.startsWith('192.168.') ||
-					ip.startsWith('169.254.') ||
-					ip.startsWith('0.')
-				) {
-					return false;
-				}
-
-				if (ip.startsWith('172.')) {
-					const secondOctet = parseInt(ip.split('.')[1], 10);
-					if (secondOctet >= 16 && secondOctet <= 31) {
-						return false;
-					}
-				}
-			} else if (ip.includes(':')) {
-				if (
-					ip === '::1' ||
-					ip === '::' ||
-					ip.startsWith('::') ||
-					ip.toLowerCase().startsWith('fc') ||
-					ip.toLowerCase().startsWith('fd') ||
-					ip.toLowerCase().startsWith('fe80:') ||
-					ip.toLowerCase().startsWith('ff')
-				) {
-					return false;
-				}
-			}
+		if (isUnsafeIpAddress(hostname)) {
+			return false;
 		}
 
 		return true;

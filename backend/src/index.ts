@@ -40,6 +40,10 @@ function applyCorsHeaders(response: Response, request: Request, env: Env): Respo
 	headers.set('X-Content-Type-Options', 'nosniff');
 	headers.set('X-Frame-Options', 'DENY');
 	headers.set('X-XSS-Protection', '1; mode=block');
+	const pathname = new URL(request.url).pathname;
+	if (pathname === '/mcp' || pathname.startsWith('/auth/') || isProtectedApiPath(pathname)) {
+		headers.set('Cache-Control', 'no-store');
+	}
 
 	return new Response(response.body, {
 		status: response.status,

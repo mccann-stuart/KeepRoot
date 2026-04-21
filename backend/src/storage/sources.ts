@@ -1,4 +1,4 @@
-import { compactObject, type PaginationInput, type SourceKind, type SourceListOptions, type StorageEnv } from './shared';
+import { compactObject, validateSafeUrl, type PaginationInput, type SourceKind, type SourceListOptions, type StorageEnv } from './shared';
 
 interface SourceRow {
 	config_json: string;
@@ -61,10 +61,24 @@ function parseConfig(value: string | null): Record<string, unknown> {
 	}
 }
 
-function ensureHttpUrl(value: string): string {
-	const url = new URL(value);
+function validationError(message: string): Error {
+	const error = new Error(message);
+	error.name = 'ValidationError';
+	return error;
+}
+
+async function ensureSafeHttpUrl(value: string): Promise<string> {
+	let url: URL;
+	try {
+		url = new URL(value);
+	} catch {
+		throw validationError('Source URL must be a valid URL');
+	}
 	if (url.protocol !== 'http:' && url.protocol !== 'https:') {
-		throw new Error('Source URL must use http or https');
+		throw validationError('Source URL must use http or https');
+	}
+	if (!await validateSafeUrl(url.toString())) {
+		throw validationError('Source URL must not point to local, private, or reserved network addresses');
 	}
 	return url.toString();
 }
@@ -85,7 +99,7 @@ function inferSourceName(kind: SourceKind, identifier: string): string {
 async function resolveYouTubePollUrl(identifier: string): Promise<{ normalizedIdentifier: string; pollUrl: string | null }> {
 	const raw = identifier.trim();
 	if (!raw) {
-		throw new Error('Missing YouTube identifier');
+		throw validationError('Missing YouTube identifier');
 	}
 
 	if (raw.startsWith('UC') && raw.length >= 24) {
@@ -96,11 +110,14 @@ async function resolveYouTubePollUrl(identifier: string): Promise<{ normalizedId
 	}
 
 	const normalizedUrl = raw.startsWith('http://') || raw.startsWith('https://')
-		? ensureHttpUrl(raw)
+		? await ensureSafeHttpUrl(raw)
 		: raw.startsWith('@')
 			? `https://www.youtube.com/${raw}`
 			: `https://www.youtube.com/${raw.replace(/^\/+/, '')}`;
 	const parsedUrl = new URL(normalizedUrl);
+	if (parsedUrl.hostname !== 'youtube.com' && !parsedUrl.hostname.endsWith('.youtube.com')) {
+		throw validationError('YouTube sources must use a youtube.com URL, handle, or channel id');
+	}
 	const pathSegments = parsedUrl.pathname.split('/').filter(Boolean);
 
 	if (parsedUrl.pathname === '/feeds/videos.xml') {
@@ -148,7 +165,7 @@ async function normalizeSourceInput(
 	config: Record<string, unknown>,
 ): Promise<{ emailAlias: string | null; normalizedIdentifier: string; pollUrl: string | null; storedConfig: Record<string, unknown> }> {
 	if (kind === 'rss') {
-		const pollUrl = ensureHttpUrl(identifier.trim());
+		const pollUrl = await ensureSafeHttpUrl(identifier.trim());
 		return {
 			emailAlias: null,
 			normalizedIdentifier: pollUrl,
@@ -169,11 +186,13 @@ async function normalizeSourceInput(
 
 	if (kind === 'x') {
 		const bridgeUrl = typeof config.bridgeUrl === 'string' ? config.bridgeUrl.trim() : '';
-		const pollUrl = bridgeUrl ? ensureHttpUrl(bridgeUrl) : identifier.includes('feeds.') || identifier.endsWith('.xml') ? ensureHttpUrl(identifier.trim()) : null;
+		const pollUrl = bridgeUrl
+			? await ensureSafeHttpUrl(bridgeUrl)
+			: identifier.includes('feeds.') || identifier.endsWith('.xml')
+				? await ensureSafeHttpUrl(identifier.trim())
+				: null;
 		if (!pollUrl) {
-			const error = new Error('X sources require an operator-provided RSS bridge URL');
-			error.name = 'ValidationError';
-			throw error;
+			throw validationError('X sources require an operator-provided RSS bridge URL');
 		}
 
 		return {
@@ -188,9 +207,7 @@ async function normalizeSourceInput(
 	}
 
 	if (!env.MCP_EMAIL_DOMAIN) {
-		const error = new Error('Email sources require MCP_EMAIL_DOMAIN to be configured');
-		error.name = 'ValidationError';
-		throw error;
+		throw validationError('Email sources require MCP_EMAIL_DOMAIN to be configured');
 	}
 
 	return {
