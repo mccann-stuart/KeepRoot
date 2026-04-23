@@ -11,6 +11,7 @@ import {
 	type BookmarkPayload,
 	type BookmarkRecord,
 	type StorageEnv,
+	validateSafeUrl,
 } from './shared';
 import { refreshBookmarkIndexes, removeBookmarkIndexes } from './search';
 
@@ -348,6 +349,10 @@ async function fetchImageAsPayload(imageUrl: string, pageUrl: string): Promise<B
 
 	if (absoluteUrl.startsWith('data:')) {
 		return parseDataUrl(absoluteUrl);
+	}
+
+	if (!await validateSafeUrl(absoluteUrl)) {
+		return null;
 	}
 
 	const response = await fetch(absoluteUrl);
