@@ -209,8 +209,12 @@ export async function searchItems(env: StorageEnv, userId: string, options: Item
 		return { items: [] };
 	}
 
-	const allItems = await listBookmarks(env, userId);
-	const filtered = applyItemFilters(allItems, options);
+	const matchIds = matches.map((match) => match.id);
+
+	// ⚡ Bolt: Fetch only the specific bookmark IDs returned by searchBookmarkIds instead of all user bookmarks
+	// Impact: Prevents O(N) memory and D1 load issues when searching across a large number of bookmarks.
+	const fetched = await listBookmarks(env, userId, matchIds);
+	const filtered = applyItemFilters(fetched, options);
 	const itemMap = new Map(filtered.map((item) => [item.id, item]));
 
 	return {
