@@ -5,6 +5,7 @@ import {
 	encoder,
 	normalizeCanonicalUrl,
 	sha256Hex,
+	validateSafeUrl,
 	type BookmarkImagePayload,
 	type BookmarkListItem,
 	type BookmarkPatchPayload,
@@ -350,6 +351,10 @@ async function fetchImageAsPayload(imageUrl: string, pageUrl: string): Promise<B
 		return parseDataUrl(absoluteUrl);
 	}
 
+	if (!await validateSafeUrl(absoluteUrl)) {
+		return null;
+	}
+
 	const response = await fetch(absoluteUrl);
 	if (!response.ok) {
 		return null;
@@ -652,6 +657,12 @@ export async function saveBookmark(
 	const rawContent = payload.markdownData ?? payload.textContent ?? payload.htmlData;
 	if (!rawContent) {
 		throw new Error('Missing bookmark content');
+	}
+
+	if (!(await validateSafeUrl(payload.url)) || (payload.canonicalUrl && !(await validateSafeUrl(payload.canonicalUrl)))) {
+		const error = new Error('Bookmark URL must use a safe http or https URL');
+		error.name = 'ValidationError';
+		throw error;
 	}
 
 	const normalizedUrl = normalizeCanonicalUrl(payload.url);

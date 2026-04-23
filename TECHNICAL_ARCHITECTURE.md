@@ -484,6 +484,19 @@ Minimum logical scopes:
 - `sources:write`
 - `stats:read`
 
+### Server-side fetch controls
+All Worker-initiated outbound fetches should pass through the shared safe-URL policy before network access:
+- manual `save_item` URL fetches
+- redirect targets during URL extraction
+- RSS, YouTube, and X bridge feed polling
+- dashboard or extension bookmark payload URLs
+- auto-hydrated image URLs discovered in saved Markdown or HTML
+
+The validator rejects non-HTTP(S) schemes, local hostnames, private IPv4 ranges, IPv4-mapped IPv6 private ranges, unique-local and link-local IPv6 ranges, multicast, and reserved network targets. Source sync also revalidates stored poll URLs so unsafe legacy source rows cannot be fetched by scheduled jobs.
+
+### Dashboard cache controls
+Authenticated API, auth, and MCP responses should be emitted with `Cache-Control: no-store`. The dashboard service worker should cache only static app-shell assets (`/`, `/assets/app.css`, `/assets/app.js`) and should leave authenticated API reads network-only. Offline API failures should return a 503 JSON response rather than replaying cached bookmark, source, account, or key data from a previous session.
+
 ## Observability And Stats
 For launch:
 - D1-backed counters and `tool_events` are sufficient.

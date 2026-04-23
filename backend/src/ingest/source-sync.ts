@@ -119,7 +119,7 @@ export async function syncSource(
 		userId: string;
 	},
 ): Promise<{ discoveredCount: number; savedCount: number }> {
-	if (!await validateSafeUrl(source.pollUrl)) {
+	if (!(await validateSafeUrl(source.pollUrl))) {
 		const errorText = 'Unsafe source URL';
 		await markSourcePollingResult(env, {
 			discoveredCount: 0,
@@ -161,7 +161,7 @@ export async function syncSource(
 				throw new Error(errorText);
 			}
 			const nextUrl = new URL(location, currentUrl).toString();
-			if (!await validateSafeUrl(nextUrl)) {
+			if (!(await validateSafeUrl(nextUrl))) {
 				const errorText = 'Unsafe redirect URL';
 				await markSourcePollingResult(env, {
 					discoveredCount: 0,

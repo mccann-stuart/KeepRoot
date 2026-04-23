@@ -469,6 +469,7 @@ describe('KeepRoot Worker', () => {
 		await waitOnExecutionContext(ctx);
 
 		expect(response.status).toBe(200);
+		expect(response.headers.get('Cache-Control')).toBe('no-store');
 	});
 
 	it('protects and serves MCP dashboard account and stats routes', async () => {
@@ -655,6 +656,25 @@ describe('KeepRoot Worker', () => {
 		expect(await xResponse.json()).toEqual({
 			error: 'X sources require an operator-provided RSS bridge URL',
 		});
+
+		const privateRssCtx = createExecutionContext();
+		const privateRssResponse = await worker.fetch(new Request('http://example.com/sources', {
+			method: 'POST',
+			headers: {
+				Authorization: `Bearer ${API_KEY}`,
+				'Content-Type': 'application/json',
+			},
+			body: JSON.stringify({
+				identifier: 'http://127.0.0.1/feed.xml',
+				kind: 'rss',
+			}),
+		}), env, privateRssCtx);
+		await waitOnExecutionContext(privateRssCtx);
+
+		expect(privateRssResponse.status).toBe(400);
+		expect(await privateRssResponse.json()).toEqual({
+			error: 'Source URL must not point to local, private, or reserved network addresses',
+		});
 	});
 
 	it('responds with 400 Bad Request if bookmark content is missing', async () => {
@@ -676,6 +696,28 @@ describe('KeepRoot Worker', () => {
 
 		expect(response.status).toBe(400);
 		expect(await response.json()).toEqual({ error: 'Missing bookmark content' });
+	});
+
+	it('rejects POST /bookmarks with an unsafe bookmark URL', async () => {
+		const ctx = createExecutionContext();
+		const createReq = new Request('http://example.com/bookmarks', {
+			method: 'POST',
+			headers: {
+				Authorization: `Bearer ${API_KEY}`,
+				'Content-Type': 'application/json',
+			},
+			body: JSON.stringify({
+				markdownData: '# Unsafe',
+				title: 'Unsafe Bookmark',
+				url: 'http://127.0.0.1/admin',
+			}),
+		});
+
+		const response = await worker.fetch(createReq, env, ctx);
+		await waitOnExecutionContext(ctx);
+
+		expect(response.status).toBe(400);
+		expect(await response.json()).toEqual({ error: 'Bookmark URL must use a safe http or https URL' });
 	});
 
 	it('successfully creates a bookmark via POST /bookmarks', async () => {
@@ -833,6 +875,39 @@ describe('KeepRoot Worker', () => {
 		expect(getRes.status).toBe(200);
 		const getData = (await getRes.json()) as any;
 		expect(getData.markdownData).toMatch(/^# Article\s+!\[hero\]\(\/images\/[a-f0-9]{64}\)$/);
+
+		await waitOnExecutionContext(ctx);
+	});
+
+	it('does not fetch unsafe markdown image URLs during server-side hydration', async () => {
+		const ctx = createExecutionContext();
+		const fetchSpy = vi.spyOn(globalThis, 'fetch');
+		const createReq = new Request('http://example.com/bookmarks', {
+			method: 'POST',
+			headers: {
+				Authorization: `Bearer ${API_KEY}`,
+				'Content-Type': 'application/json',
+			},
+			body: JSON.stringify({
+				url: 'https://example.com/articles/private-image',
+				title: 'Unsafe Image Bookmark',
+				markdownData: '# Article\n\n![private](http://127.0.0.1/admin.png)',
+			}),
+		});
+
+		const createRes = await worker.fetch(createReq, env, ctx);
+		expect(createRes.status).toBe(201);
+		const createData = (await createRes.json()) as any;
+		expect(fetchSpy).not.toHaveBeenCalledWith('http://127.0.0.1/admin.png');
+
+		const getReq = new Request(`http://example.com/bookmarks/${createData.id}`, {
+			headers: { Authorization: `Bearer ${API_KEY}` },
+		});
+		const getRes = await worker.fetch(getReq, env, ctx);
+		expect(getRes.status).toBe(200);
+		const getData = (await getRes.json()) as any;
+		expect(getData.metadata.images ?? []).toEqual([]);
+		expect(getData.markdownData).toContain('http://127.0.0.1/admin.png');
 
 		await waitOnExecutionContext(ctx);
 	});

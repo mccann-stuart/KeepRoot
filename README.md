@@ -20,6 +20,7 @@ Current MCP implementation:
 - auth: `Authorization: Bearer <session-or-api-key>`
 - storage: D1 for structured state, R2 for content payloads
 - scope: item save/search/list/get/update, inbox triage, account profile, source records, and usage stats
+- fetch safety: URL saves, source feeds, redirects, bookmark URLs, and auto-hydrated images reject non-HTTP(S), local, private, multicast, and reserved network targets
 
 Current limitations:
 - MCP auth is bearer-token based today; OAuth-style MCP auth is planned, not shipped
@@ -51,6 +52,13 @@ Main components:
 Authentication modes:
 - **WebAuthn + sessions** for dashboard sign-up/sign-in
 - **API keys** for extension writes and MCP clients
+
+Security notes:
+- Authenticated API, auth, and MCP responses are sent with `Cache-Control: no-store`.
+- The dashboard service worker only caches static app-shell assets. Authenticated API reads are network-only and return a 503 JSON offline response when unavailable.
+- Server-side fetches validate initial URLs and redirects before fetching remote content.
+- Stored bookmark images are rewritten to R2-backed `/images/*` or `/thumbs/*` paths after safe hydration.
+- Browser extension API keys are stored in extension-local storage and can be revoked from the dashboard.
 
 ---
 
@@ -90,8 +98,10 @@ Authentication modes:
 KeepRoot/
 ├── backend/                   # Cloudflare Worker, dashboard, storage layer, migrations, tests
 ├── extension/                 # Cross-browser extension source and Safari packager
+├── CHANGELOG.md               # Human-readable release/audit notes
 ├── PRD.md                     # MCP product requirements
-└── TECHNICAL_ARCHITECTURE.md  # MCP technical architecture
+├── TECHNICAL_ARCHITECTURE.md  # MCP technical architecture
+└── backend/AGENTS.md          # Backend contributor guidance
 ```
 
 ---
@@ -164,6 +174,18 @@ https://backend.<your-username>.workers.dev
 ```
 
 Use the root origin in the extension and the `/mcp` path for MCP clients.
+
+### Local checks
+
+```bash
+cd backend
+npm test
+npm run build
+
+cd ../extension
+npm test
+npm run build
+```
 
 ---
 

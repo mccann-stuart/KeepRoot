@@ -273,6 +273,17 @@ function createBookmarkCard(bookmark: BookmarkSummary) {
 	return card;
 }
 
+function updateBookmarkPanelVisibility() {
+	const pinnedPanel = dom.pinnedBookmarkList.closest<HTMLElement>('.bookmark-panel');
+	const bookmarksPanel = dom.bookmarkList.closest<HTMLElement>('.bookmark-panel');
+	if (pinnedPanel) {
+		pinnedPanel.classList.toggle('is-hidden', dom.pinnedBookmarkList.childElementCount === 0);
+	}
+	if (bookmarksPanel) {
+		bookmarksPanel.classList.toggle('is-hidden', dom.bookmarkList.childElementCount === 0);
+	}
+}
+
 function renderBookmarkLists() {
 	if (state.currentView !== 'inbox') {
 		return;
@@ -292,6 +303,7 @@ function renderBookmarkLists() {
 
 	if (!filtered.length) {
 		dom.bookmarkList.innerHTML = '<div class="panel"><p class="muted-copy">No bookmarks match this view.</p></div>';
+		updateBookmarkPanelVisibility();
 		return;
 	}
 
@@ -299,6 +311,8 @@ function renderBookmarkLists() {
 		const target = bookmark.metadata?.pinned ? dom.pinnedBookmarkList : dom.bookmarkList;
 		target.appendChild(createBookmarkCard(bookmark));
 	}
+
+	updateBookmarkPanelVisibility();
 }
 
 function renderApiKeys(keys: ApiKeyRecord[]) {

@@ -7,6 +7,7 @@ import { getWhoAmI } from '../storage/account';
 import { listInbox, markInboxDone } from '../storage/inbox';
 import { getItem, listItems, searchItems, updateItem } from '../storage/items';
 import { saveItemFromUrl } from '../ingest/save-url';
+import type { IngestJob } from '../ingest/jobs';
 import type { AuthenticatedUser, StorageEnv } from '../storage/shared';
 
 type ToolHandler<TArgs> = (args: TArgs) => Promise<Record<string, unknown>>;

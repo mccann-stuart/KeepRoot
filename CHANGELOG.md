@@ -1,5 +1,42 @@
 # Changelog
 
+## Unreleased
+
+### Highlights
+
+- Hardened server-side fetch paths by blocking unsafe bookmark URLs, source feed URLs, stored source poll URLs, redirects, and auto-hydrated Markdown/HTML image URLs that point at local, private, multicast, or reserved network targets.
+- Changed the dashboard service worker to cache only static app-shell assets and keep authenticated API reads network-only, with API/auth/MCP responses marked `Cache-Control: no-store`.
+- Added regression coverage for unsafe bookmark URLs, unsafe source URLs, unsafe image hydration, and IPv4-mapped IPv6 SSRF cases.
+
+### Key PRs
+
+No PR link yet; this entry tracks the current local audit pass.
+
+## Week ending 2026-04-17
+
+### Highlights
+
+- Reduced bookmark-save latency for pages with multiple auto-discovered images by fetching image payloads concurrently during hydration instead of serially.
+
+### Key PRs
+
+- [#79](https://github.com/mccann-stuart/KeepRoot/pull/79) Parallelize image ingestion fetching
+
+This was the only repo-visible change that landed this week, so the entry stays focused on that merged PR.
+
+## Week ending 2026-04-10
+
+### Highlights
+
+- Improved dashboard day-to-day bookmark management by marking bookmarks as read when opened, adding a clear-all-data action in settings, and expanding smart list matching to bookmark titles plus saved content.
+- Closed an SSRF bypass in shared URL handling by rejecting IPv6 unspecified and multicast addresses.
+
+### Key PRs
+
+- [#72](https://github.com/mccann-stuart/KeepRoot/pull/72) Fix SSRF bypass via IPv6 unspecified and multicast addresses
+
+The dashboard improvements landed this week as direct commits on `main`, so this entry only links the repo-visible merged PR.
+
 ## Week ending 2026-04-03
 
 ### Highlights

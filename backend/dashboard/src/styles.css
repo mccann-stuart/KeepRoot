@@ -571,10 +571,6 @@ html[data-color-scheme="dark"] .sidebar {
 	padding: 1.1rem 1.15rem 1.15rem;
 }
 
-.bookmark-panel:has(.bookmark-list:empty) {
-	display: none;
-}
-
 .bookmark-panel__header {
 	display: flex;
 	align-items: center;

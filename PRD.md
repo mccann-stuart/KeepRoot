@@ -2,7 +2,7 @@
 
 ## Document Control
 - Status: Draft
-- Last updated: 2026-03-14
+- Last updated: 2026-04-20
 - Scope: Product requirements for a Cloudflare-native remote MCP server for KeepRoot
 - Explicitly out of scope for this document: code-level build steps, CI/CD instructions, and migration execution
 
@@ -188,6 +188,13 @@ These are the difference between a passive archive and a useful personal memory 
 - The account should have an inspectable view of counts, health, and recent tool usage.
 - The system should support asynchronous processing for expensive work without losing user trust or introducing silent failure.
 
+### 9. Server-side fetch and dashboard cache safety
+- All server-side fetch paths must reject non-HTTP(S), loopback, private, link-local, multicast, and reserved address targets before network access.
+- Redirect handling must re-run the same safe-URL validation before following a target.
+- Source feed polling and bookmark image hydration must use the same safe-fetch policy as manual URL saves.
+- Authenticated dashboard API responses must not be persisted in browser, service-worker, or shared HTTP caches.
+- The dashboard service worker may cache static app assets, but authenticated API reads must remain network-only.
+
 ## Search And Retrieval Requirements
 - `search_items` must support:
   - keyword search
@@ -269,6 +276,8 @@ These are the difference between a passive archive and a useful personal memory 
 - Semantic search quality depends on chunking and embedding strategy; item-level embeddings are simpler but less precise than chunk-level indexing.
 - Source ingestion can create trust issues if provenance and duplicate handling are not explicit.
 - Email and X ingest flows have more operational edge cases than RSS.
+- Any new server-side fetch feature can reintroduce SSRF risk if it bypasses the shared URL validator.
+- Offline dashboard support can leak cross-session data if authenticated API responses are cached instead of treated as network-only.
 
 ## Open Questions
 - Should `save_item` always return quickly, or should clients be allowed to request synchronous completion?
