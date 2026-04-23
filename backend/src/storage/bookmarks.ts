@@ -709,7 +709,12 @@ export async function saveBookmark(
 
 			if (sourceCandidates.length) {
 				const rewrittenImagePath = `/${imageKey}`;
-				const rewriteMap = new Map(sourceCandidates.map((candidate) => [candidate, rewrittenImagePath]));
+				// ⚡ Bolt: Using procedural for loops for map creation prevents intermediate array allocations
+				// Impact: Reduces GC pressure and improves execution speed
+				const rewriteMap = new Map<string, string>();
+				for (let i = 0; i < sourceCandidates.length; i++) {
+					rewriteMap.set(sourceCandidates[i], rewrittenImagePath);
+				}
 				rewrittenMarkdownData = rewriteMarkdownImageUrls(rewrittenMarkdownData, rewriteMap);
 				if (rewrittenHtmlData) {
 					rewrittenHtmlData = rewriteHtmlImageUrls(rewrittenHtmlData, rewriteMap);
