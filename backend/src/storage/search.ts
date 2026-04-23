@@ -88,35 +88,35 @@ function tokenFrequency(tokens: string[]): Map<string, number> {
 	return frequencies;
 }
 
-function cosineSimilarity(left: string, right: string): number {
-	const leftTokens = tokenize(left);
-	const rightTokens = tokenize(right);
-	if (leftTokens.length === 0 || rightTokens.length === 0) {
+// ⚡ Bolt: By accepting pre-calculated query frequencies and magnitude, we avoid redundant calculations in a hot loop.
+// Impact: Significantly reduces the CPU overhead of hydrating candidate search scores.
+function cosineSimilarity(queryFrequencies: Map<string, number>, queryMagnitude: number, right: string): number {
+	if (queryMagnitude === 0) {
 		return 0;
 	}
 
-	const leftFrequencies = tokenFrequency(leftTokens);
+	const rightTokens = tokenize(right);
+	if (rightTokens.length === 0) {
+		return 0;
+	}
+
 	const rightFrequencies = tokenFrequency(rightTokens);
 	let dotProduct = 0;
-	let leftMagnitude = 0;
 	let rightMagnitude = 0;
 
-	for (const value of leftFrequencies.values()) {
-		leftMagnitude += value * value;
-	}
 	for (const value of rightFrequencies.values()) {
 		rightMagnitude += value * value;
 	}
-	for (const [token, leftValue] of leftFrequencies.entries()) {
+	for (const [token, queryValue] of queryFrequencies.entries()) {
 		const rightValue = rightFrequencies.get(token) ?? 0;
-		dotProduct += leftValue * rightValue;
+		dotProduct += queryValue * rightValue;
 	}
 
-	if (leftMagnitude === 0 || rightMagnitude === 0) {
+	if (rightMagnitude === 0) {
 		return 0;
 	}
 
-	return dotProduct / (Math.sqrt(leftMagnitude) * Math.sqrt(rightMagnitude));
+	return dotProduct / (Math.sqrt(queryMagnitude) * Math.sqrt(rightMagnitude));
 }
 
 async function loadBookmarkTags(env: StorageEnv, bookmarkId: string): Promise<string[]> {
@@ -418,6 +418,15 @@ export async function searchBookmarkIds(
 			.bind(userId, Math.max(limit * 8, 50))
 			.all<SearchDocumentCandidateRow>();
 
+		// ⚡ Bolt: Pre-calculate the query's token frequency and magnitude outside the loop.
+		// Impact: Eliminates O(n) redundant work where n is the number of search candidates.
+		const queryTokens = tokenize(query);
+		const queryFrequencies = tokenFrequency(queryTokens);
+		let queryMagnitude = 0;
+		for (const value of queryFrequencies.values()) {
+			queryMagnitude += value * value;
+		}
+
 		for (const row of candidates.results) {
 			const documentText = [
 				row.title ?? '',
@@ -426,7 +435,7 @@ export async function searchBookmarkIds(
 				row.excerpt ?? '',
 				row.body_text ?? '',
 			].join('\n');
-			const score = cosineSimilarity(query, documentText);
+			const score = cosineSimilarity(queryFrequencies, queryMagnitude, documentText);
 			if (score > 0) {
 				semanticScores.set(row.bookmark_id, score);
 			}

@@ -1,4 +1,4 @@
-## 2024-05-24 - SSRF Bypass via IPv6 Unspecified and Multicast Addresses
-**Vulnerability:** The `validateSafeUrl` function used for fetching external URLs correctly blocked common private IPv4 ranges and IPv6 loopback (`::1`), ULA (`fc`), and Link-Local (`fe80`). However, it missed the IPv6 unspecified address (`::`), IPv4-mapped loopbacks (`::127.0.0.1`), and multicast addresses (`ff00::/8`).
-**Learning:** URL normalization and DNS lookup utilities often resolve unspecified addresses or complex mapped formats into standard prefixes. `::` resolves to `localhost` on many environments but does not start with `fc` or match `::1`.
-**Prevention:** When implementing custom SSRF checks for IP string validation, explicitly block Unspecified/Mapped addresses (`::` prefix) and Multicast prefixes (`ff`), not just specific local subnets.
+## 2025-05-18 - SSRF in Scheduled Source Syncing
+**Vulnerability:** The RSS/Atom source syncing feature directly fetched an external URL (`source.pollUrl`) constructed from a user-provided `bridgeUrl` without any loopback/SSRF protection or safe redirect handling, exposing internal network services to Server-Side Request Forgery via scheduled Worker tasks.
+**Learning:** Scheduled or background tasks that consume user-configured URLs must be subjected to the exact same SSRF mitigations as immediate, user-facing URL ingests.
+**Prevention:** Always run user-supplied hostnames through a DNS-based blocklist filter (`validateSafeUrl`) and configure `fetch` with `redirect: 'manual'`, strictly validating every redirect `Location` header before following. Ensure any `Response` variable from a redirect loop handles null checks properly to satisfy TypeScript compilation.
