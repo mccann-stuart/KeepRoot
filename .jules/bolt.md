@@ -4,3 +4,7 @@
 ## $(date +%Y-%m-%d) - Preserve Ordering When Parallelizing Network Requests
 **Learning:** When refactoring sequential loops that populate an array into concurrent `Promise.all()` executions (like fetching multiple images), mutating the shared array inside the async callbacks using `.push()` destroys the original ordering because it appends results as they complete. In contexts where order is critical (e.g., preserving the prioritized `og:image` as the first thumbnail), this creates a functional regression.
 **Action:** When parallelizing ordered processing, always map to an array of promises, `await Promise.all()` on that array, and then process the results sequentially to build the final array, preserving the initial order.
+
+## 2024-04-23 - Prevent D1 variable limits when batching IN queries
+**Learning:** Cloudflare D1 (SQLite) has a hard limit on the number of bound parameters per query (traditionally 100). When refactoring an O(N) fetch to use `IN (?, ?...)` to fetch specific IDs, large arrays can cause the query to crash. Additionally, using `new Date().getTime()` in sort callbacks is a slow operation that can be replaced with `.localeCompare()` for ISO8601 strings.
+**Action:** When binding arrays for `IN` queries, chunk the input array into batches (e.g., 50 items) and recursively call the query function, then concatenate and manually re-sort the results. Use `String(date).localeCompare(String(date))` for faster date sorting.

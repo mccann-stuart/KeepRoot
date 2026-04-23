@@ -882,7 +882,47 @@ export async function saveBookmark(
 	};
 }
 
-export async function listBookmarks(env: StorageEnv, userId: string): Promise<BookmarkListItem[]> {
+export async function listBookmarks(env: StorageEnv, userId: string, filterIds?: string[]): Promise<BookmarkListItem[]> {
+	if (filterIds && filterIds.length === 0) {
+		return [];
+	}
+
+	if (filterIds && filterIds.length > 50) {
+		const batchSize = 50;
+		const results: BookmarkListItem[] = [];
+		for (let i = 0; i < filterIds.length; i += batchSize) {
+			const batchIds = filterIds.slice(i, i + batchSize);
+			const batchResults = await listBookmarks(env, userId, batchIds);
+			results.push(...batchResults);
+		}
+		// Preserve order
+		return results.sort((a, b) => {
+			const sortOrderA = Number(a.metadata.sortOrder) || 0;
+			const sortOrderB = Number(b.metadata.sortOrder) || 0;
+			const pinnedA = a.metadata.pinned ? 1 : 0;
+			const pinnedB = b.metadata.pinned ? 1 : 0;
+			if (pinnedA !== pinnedB) return pinnedB - pinnedA;
+			if (sortOrderA !== sortOrderB) return sortOrderA - sortOrderB;
+			// created_at is an ISO8601 string, so localeCompare provides correct chronological ordering
+			const dateA = String(a.metadata.createdAt);
+			const dateB = String(b.metadata.createdAt);
+			return dateB.localeCompare(dateA);
+		});
+	}
+
+	let bookmarkCondition = '';
+	let tagCondition = '';
+	const bindings: unknown[] = [userId];
+	const tagBindings: unknown[] = [userId];
+
+	if (filterIds && filterIds.length > 0) {
+		const placeholders = filterIds.map(() => '?').join(', ');
+		bookmarkCondition = ` AND bookmarks.id IN (${placeholders})`;
+		tagCondition = ` AND bookmark_tags.bookmark_id IN (${placeholders})`;
+		bindings.push(...filterIds);
+		tagBindings.push(...filterIds);
+	}
+
 	// ⚡ Bolt: Using D1Database.batch() for multiple reads replaces multiple separate HTTP network roundtrips with a single roundtrip.
 	// Impact: Significantly reduces latency when fetching list of bookmarks and tags.
 	const [rawBookmarks, tagRows] = await env.KEEPROOT_DB.batch<BookmarkRow | { bookmark_id: string; name: string }>([
@@ -896,18 +936,18 @@ export async function listBookmarks(env: StorageEnv, userId: string): Promise<Bo
 			LEFT JOIN item_search_documents
 				ON item_search_documents.bookmark_id = bookmarks.id
 				AND item_search_documents.user_id = bookmarks.user_id
-			WHERE bookmarks.user_id = ?
+			WHERE bookmarks.user_id = ?${bookmarkCondition}
 			ORDER BY bookmarks.pinned DESC, bookmarks.sort_order ASC, bookmarks.created_at DESC`,
 		)
-			.bind(userId),
+			.bind(...bindings),
 
 		env.KEEPROOT_DB.prepare(
 			`SELECT bookmark_tags.bookmark_id, tags.name
 			 FROM tags
 			 INNER JOIN bookmark_tags ON bookmark_tags.tag_id = tags.id
-			 WHERE tags.user_id = ?`,
+			 WHERE tags.user_id = ?${tagCondition}`,
 		)
-			.bind(userId),
+			.bind(...tagBindings),
 	]) as [D1Result<BookmarkRow>, D1Result<{ bookmark_id: string; name: string }>];
 
 	const tagsByBookmark = new Map<string, string[]>();
