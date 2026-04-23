@@ -859,7 +859,13 @@ describe('KeepRoot Worker', () => {
 		const createRes = await worker.fetch(createReq, env, ctx);
 		expect(createRes.status).toBe(201);
 		const createData = (await createRes.json()) as any;
-		expect(fetchSpy).toHaveBeenCalledWith('https://example.com/images/hero.png');
+		expect(fetchSpy).toHaveBeenCalledWith('https://example.com/images/hero.png', {
+			headers: {
+				Accept: 'image/webp,image/apng,image/*,*/*;q=0.8',
+				'User-Agent': 'KeepRoot/1.0 (+https://keeproot.local)',
+			},
+			redirect: 'manual',
+		});
 
 		const getReq = new Request(`http://example.com/bookmarks/${createData.id}`, {
 			headers: { Authorization: `Bearer ${API_KEY}` },

@@ -2,3 +2,7 @@
 **Vulnerability:** The RSS/Atom source syncing feature directly fetched an external URL (`source.pollUrl`) constructed from a user-provided `bridgeUrl` without any loopback/SSRF protection or safe redirect handling, exposing internal network services to Server-Side Request Forgery via scheduled Worker tasks.
 **Learning:** Scheduled or background tasks that consume user-configured URLs must be subjected to the exact same SSRF mitigations as immediate, user-facing URL ingests.
 **Prevention:** Always run user-supplied hostnames through a DNS-based blocklist filter (`validateSafeUrl`) and configure `fetch` with `redirect: 'manual'`, strictly validating every redirect `Location` header before following. Ensure any `Response` variable from a redirect loop handles null checks properly to satisfy TypeScript compilation.
+## 2025-05-18 - SSRF in Image Auto-fetching
+**Vulnerability:** The bookmark image auto-fetching feature (`fetchImageAsPayload`) directly fetched external URLs extracted from HTML/Markdown without any loopback/SSRF protection or safe redirect handling, exposing internal network services to Server-Side Request Forgery.
+**Learning:** Background processes that fetch resources extracted from user content (like inline images) must be subjected to the exact same SSRF mitigations as the primary user-provided URL ingests.
+**Prevention:** Always run extracted image URLs through a DNS-based blocklist filter (`validateSafeUrl`) and configure `fetch` with `redirect: 'manual'`, strictly validating every redirect `Location` header before following.

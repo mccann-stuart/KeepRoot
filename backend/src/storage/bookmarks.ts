@@ -5,6 +5,7 @@ import {
 	encoder,
 	normalizeCanonicalUrl,
 	sha256Hex,
+	validateSafeUrl,
 	type BookmarkImagePayload,
 	type BookmarkListItem,
 	type BookmarkPatchPayload,
@@ -350,8 +351,41 @@ async function fetchImageAsPayload(imageUrl: string, pageUrl: string): Promise<B
 		return parseDataUrl(absoluteUrl);
 	}
 
-	const response = await fetch(absoluteUrl);
-	if (!response.ok) {
+	if (!await validateSafeUrl(absoluteUrl)) {
+		return null;
+	}
+
+	let currentUrl = absoluteUrl;
+	let response: Response | null = null;
+	let redirectCount = 0;
+
+	while (redirectCount < 5) {
+		response = await fetch(currentUrl, {
+			headers: {
+				Accept: 'image/webp,image/apng,image/*,*/*;q=0.8',
+				'User-Agent': 'KeepRoot/1.0 (+https://keeproot.local)',
+			},
+			redirect: 'manual',
+		});
+
+		if ([301, 302, 303, 307, 308].includes(response.status)) {
+			await response.body?.cancel().catch(() => {});
+			const location = response.headers.get('location');
+			if (!location) {
+				return null;
+			}
+			const nextUrl = new URL(location, currentUrl).toString();
+			if (!await validateSafeUrl(nextUrl)) {
+				return null;
+			}
+			currentUrl = nextUrl;
+			redirectCount += 1;
+			continue;
+		}
+		break;
+	}
+
+	if (!response || !response.ok) {
 		return null;
 	}
 
