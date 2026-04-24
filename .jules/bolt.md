@@ -4,3 +4,9 @@
 ## $(date +%Y-%m-%d) - Preserve Ordering When Parallelizing Network Requests
 **Learning:** When refactoring sequential loops that populate an array into concurrent `Promise.all()` executions (like fetching multiple images), mutating the shared array inside the async callbacks using `.push()` destroys the original ordering because it appends results as they complete. In contexts where order is critical (e.g., preserving the prioritized `og:image` as the first thumbnail), this creates a functional regression.
 **Action:** When parallelizing ordered processing, always map to an array of promises, `await Promise.all()` on that array, and then process the results sequentially to build the final array, preserving the initial order.
+## 2026-04-24 - Avoiding Array Allocations in String Parsing
+**Learning:** Chaining `.split(' ').filter(Boolean)` (or similar) on strings allocates multiple intermediate arrays and closures, causing GC spikes in Cloudflare Workers.
+**Action:** When extracting tokens or words from strings, avoid `.split()`. Instead, compile a  with the  flag (e.g., `/[a-z0-9]+/g`) and use a `while (regex.exec(str) !== null)` loop to parse values in a single pass without intermediate garbage.
+## 2024-05-18 - Avoiding Array Allocations in String Parsing
+**Learning:** Chaining `.split(' ').filter(Boolean)` (or similar) on strings allocates multiple intermediate arrays and closures, causing GC spikes in Cloudflare Workers.
+**Action:** When extracting tokens or words from strings, avoid `.split()`. Instead, compile a `RegExp` with the `g` flag (e.g., `/[a-z0-9]+/g`) and use a `while (regex.exec(str) !== null)` loop to parse values in a single pass without intermediate garbage.

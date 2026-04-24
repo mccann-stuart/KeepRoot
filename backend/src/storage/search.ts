@@ -53,10 +53,19 @@ function normalizeText(value: string): string {
 		.trim();
 }
 
+// ⚡ Bolt: Using a regex .exec() loop avoids the function execution context overhead and intermediate array allocations created by .split().filter(), while parsing tokens in a single pass.
+// Impact: Reduces GC pressure and improves execution speed for tokenizing text documents.
 function tokenize(value: string): string[] {
-	return normalizeText(value)
-		.split(' ')
-		.filter((token) => token.length > 1);
+	const lower = value.toLowerCase();
+	const tokens: string[] = [];
+	const regex = /[a-z0-9]+/g;
+	let match: RegExpExecArray | null;
+	while ((match = regex.exec(lower)) !== null) {
+		if (match[0].length > 1) {
+			tokens.push(match[0]);
+		}
+	}
+	return tokens;
 }
 
 function buildFtsQuery(query: string): string | null {
