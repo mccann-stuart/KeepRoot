@@ -4,3 +4,6 @@
 ## $(date +%Y-%m-%d) - Preserve Ordering When Parallelizing Network Requests
 **Learning:** When refactoring sequential loops that populate an array into concurrent `Promise.all()` executions (like fetching multiple images), mutating the shared array inside the async callbacks using `.push()` destroys the original ordering because it appends results as they complete. In contexts where order is critical (e.g., preserving the prioritized `og:image` as the first thumbnail), this creates a functional regression.
 **Action:** When parallelizing ordered processing, always map to an array of promises, `await Promise.all()` on that array, and then process the results sequentially to build the final array, preserving the initial order.
+## 2024-05-19 - Avoid Intermediate Tuples in Map Initialization
+**Learning:** Initializing a Map from an array using `new Map(arr.map(x => [key, x]))` creates a large intermediate array of tuples before populating the Map. In performance-critical environments like Cloudflare Workers, this sudden burst of objects increases GC pressure and memory spikes.
+**Action:** When initializing a Map from a large array, instantiate an empty Map using `typeof arr[number]` to preserve type safety, and populate it sequentially using a procedural `for...of` loop with `map.set()`.
