@@ -720,7 +720,14 @@ export async function saveBookmark(
 
 			if (sourceCandidates.length) {
 				const rewrittenImagePath = `/${imageKey}`;
-				const rewriteMap = new Map(sourceCandidates.map((candidate) => [candidate, rewrittenImagePath]));
+
+				// ⚡ Bolt: Populate Map using procedural loop to avoid allocating intermediate tuple arrays.
+				// Impact: Reduces GC pressure and speeds up candidate resolution for large searches.
+				const rewriteMap = new Map<string, string>();
+				for (const candidate of sourceCandidates) {
+					rewriteMap.set(candidate, rewrittenImagePath);
+				}
+
 				rewrittenMarkdownData = rewriteMarkdownImageUrls(rewrittenMarkdownData, rewriteMap);
 				if (rewrittenHtmlData) {
 					rewrittenHtmlData = rewriteHtmlImageUrls(rewrittenHtmlData, rewriteMap);

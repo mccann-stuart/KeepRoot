@@ -211,7 +211,13 @@ export async function searchItems(env: StorageEnv, userId: string, options: Item
 
 	const allItems = await listBookmarks(env, userId);
 	const filtered = applyItemFilters(allItems, options);
-	const itemMap = new Map(filtered.map((item) => [item.id, item]));
+
+	// ⚡ Bolt: Populate Map using procedural loop to avoid allocating intermediate tuple arrays.
+	// Impact: Reduces GC pressure and speeds up candidate resolution for large searches.
+	const itemMap = new Map<string, typeof filtered[number]>();
+	for (const item of filtered) {
+		itemMap.set(item.id, item);
+	}
 
 	return {
 		items: matches
