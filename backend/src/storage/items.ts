@@ -211,7 +211,14 @@ export async function searchItems(env: StorageEnv, userId: string, options: Item
 
 	const allItems = await listBookmarks(env, userId);
 	const filtered = applyItemFilters(allItems, options);
-	const itemMap = new Map(filtered.map((item) => [item.id, item]));
+
+	// ⚡ Bolt: Using a procedural for loop to populate the map avoids intermediate tuple array allocations created by .map().
+	// Impact: Reduces GC pressure and memory spikes when mapping large filtered item arrays in Cloudflare Workers.
+	const itemMap = new Map<string, typeof filtered[number]>();
+	for (let i = 0; i < filtered.length; i += 1) {
+		const item = filtered[i];
+		itemMap.set(item.id, item);
+	}
 
 	return {
 		items: matches

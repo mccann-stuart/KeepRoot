@@ -720,7 +720,14 @@ export async function saveBookmark(
 
 			if (sourceCandidates.length) {
 				const rewrittenImagePath = `/${imageKey}`;
-				const rewriteMap = new Map(sourceCandidates.map((candidate) => [candidate, rewrittenImagePath]));
+
+				// ⚡ Bolt: Using a procedural for loop avoids intermediate tuple array allocations created by .map().
+				// Impact: Reduces GC pressure and memory overhead when rewriting multiple image URLs.
+				const rewriteMap = new Map<string, string>();
+				for (let i = 0; i < sourceCandidates.length; i += 1) {
+					rewriteMap.set(sourceCandidates[i], rewrittenImagePath);
+				}
+
 				rewrittenMarkdownData = rewriteMarkdownImageUrls(rewrittenMarkdownData, rewriteMap);
 				if (rewrittenHtmlData) {
 					rewrittenHtmlData = rewriteHtmlImageUrls(rewrittenHtmlData, rewriteMap);
