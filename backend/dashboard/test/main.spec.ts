@@ -48,6 +48,7 @@ async function flush(): Promise<void> {
 async function bootDashboard(options?: {
 	account?: Record<string, unknown>;
 	apiKeys?: Array<Record<string, unknown>>;
+	beforeImport?: () => void;
 	handleFetch?: (url: string, method: string, init?: RequestInit) => Response | Promise<Response> | undefined;
 	sources?: Array<Record<string, unknown>>;
 	stats?: Record<string, unknown>;
@@ -58,7 +59,11 @@ async function bootDashboard(options?: {
 		configurable: true,
 		value: createStorageMock(),
 	});
-	window.localStorage.setItem('keeproot_secret', 'session-secret');
+	Object.defineProperty(window, 'sessionStorage', {
+		configurable: true,
+		value: createStorageMock(),
+	});
+	window.sessionStorage.setItem('keeproot_secret', 'session-secret');
 	window.history.replaceState({}, '', '/dashboard');
 
 	Object.defineProperty(window, 'matchMedia', {
@@ -166,6 +171,7 @@ async function bootDashboard(options?: {
 
 	vi.stubGlobal('fetch', fetchSpy);
 
+	options?.beforeImport?.();
 	await import('../src/main');
 	await flush();
 	await flush();
@@ -310,7 +316,8 @@ describe('dashboard MCP setup view', () => {
 			headers: expect.any(Headers),
 			method: 'DELETE',
 		}));
-		expect(window.localStorage.getItem('keeproot_secret')).toBe('session-secret');
+		expect(window.sessionStorage.getItem('keeproot_secret')).toBe('session-secret');
+		expect(window.localStorage.getItem('keeproot_secret')).toBeNull();
 		expect(window.localStorage.getItem('keeproot_theme')).toBe('auto');
 		expect(window.localStorage.getItem('keeproot_font')).toBe('default');
 		expect(window.localStorage.getItem('keeproot_font_size')).toBe('16');
@@ -331,7 +338,7 @@ describe('dashboard MCP setup view', () => {
 		await flush();
 
 		expect(fetch).not.toHaveBeenCalledWith('/account/data', expect.anything());
-		expect(window.localStorage.getItem('keeproot_secret')).toBe('session-secret');
+		expect(window.sessionStorage.getItem('keeproot_secret')).toBe('session-secret');
 	});
 
 	it('marks an unread bookmark as read after opening it in the reader', async () => {
@@ -437,5 +444,93 @@ describe('dashboard MCP setup view', () => {
 		expect((document.getElementById('pinned-bookmark-list') as HTMLElement).textContent).toContain('Pin me');
 		expect((document.getElementById('bookmark-list') as HTMLElement).textContent).not.toContain('Pin me');
 		expect((document.getElementById('pinned-bookmark-list')?.closest('.bookmark-panel') as HTMLElement).classList.contains('is-hidden')).toBe(false);
+	});
+
+	it('does not overlap silent polling refreshes', async () => {
+		let bookmarkListCalls = 0;
+		let resolvePollingBookmarks: (() => void) | null = null;
+		let pollingCallback: (() => void) | null = null;
+
+		await bootDashboard({
+			beforeImport: () => {
+				vi.spyOn(window, 'setInterval').mockImplementation((callback: TimerHandler) => {
+					pollingCallback = callback as () => void;
+					return 1;
+				});
+				vi.spyOn(window, 'clearInterval').mockImplementation(() => {});
+			},
+			handleFetch: (url, method) => {
+				if (url.endsWith('/bookmarks') && method === 'GET') {
+					bookmarkListCalls += 1;
+					if (bookmarkListCalls === 1) {
+						return jsonResponse({ keys: [] });
+					}
+
+					return new Promise<Response>((resolve) => {
+						resolvePollingBookmarks = () => resolve(jsonResponse({ keys: [] }));
+					});
+				}
+
+				return undefined;
+			},
+		});
+
+		expect(pollingCallback).toBeTypeOf('function');
+		expect(bookmarkListCalls).toBe(1);
+
+		pollingCallback?.();
+		pollingCallback?.();
+		await flush();
+
+		expect(bookmarkListCalls).toBe(2);
+		resolvePollingBookmarks?.();
+		await flush();
+	});
+
+	it('prevents duplicate API key creation submissions while a request is pending', async () => {
+		let resolveCreateKey: (() => void) | null = null;
+		let createKeyCalls = 0;
+
+		await bootDashboard({
+			handleFetch: (url, method) => {
+				if (url.endsWith('/api-keys') && method === 'POST') {
+					createKeyCalls += 1;
+					return new Promise<Response>((resolve) => {
+						resolveCreateKey = () => resolve(jsonResponse({
+							metadata: {
+								createdAt: '2026-03-16T10:00:00.000Z',
+								id: 'key-1',
+								name: 'Duplicate Guard',
+							},
+							secret: 'new-secret',
+						}));
+					});
+				}
+
+				if (url.endsWith('/api-keys') && method === 'GET') {
+					return jsonResponse({ keys: [] });
+				}
+
+				return undefined;
+			},
+		});
+
+		(document.getElementById('setup-btn') as HTMLButtonElement).click();
+		await flush();
+
+		const form = document.getElementById('generate-key-form') as HTMLFormElement;
+		(document.getElementById('new-key-name') as HTMLInputElement).value = 'Duplicate Guard';
+		form.dispatchEvent(new Event('submit', { bubbles: true, cancelable: true }));
+		form.dispatchEvent(new Event('submit', { bubbles: true, cancelable: true }));
+		await flush();
+
+		expect(createKeyCalls).toBe(1);
+		expect(form.querySelector<HTMLButtonElement>('button[type="submit"]')?.disabled).toBe(true);
+
+		resolveCreateKey?.();
+		await flush();
+
+		expect((document.getElementById('new-key-value') as HTMLInputElement).value).toBe('new-secret');
+		expect(form.querySelector<HTMLButtonElement>('button[type="submit"]')?.disabled).toBe(false);
 	});
 });

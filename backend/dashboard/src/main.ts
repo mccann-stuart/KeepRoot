@@ -19,6 +19,40 @@ let currentHighlightId: string | null = null;
 let currentHighlightSelection = '';
 let lastSnapshot = '';
 let toastTimeout = 0;
+let silentRefreshInFlight = false;
+
+async function runWithButtonBusy(button: HTMLButtonElement, busyText: string, task: () => Promise<void>): Promise<void> {
+	if (button.disabled || button.dataset.busy === 'true') {
+		return;
+	}
+
+	const originalText = button.textContent ?? '';
+	button.dataset.busy = 'true';
+	button.disabled = true;
+	button.textContent = busyText;
+	try {
+		await task();
+	} finally {
+		delete button.dataset.busy;
+		button.disabled = false;
+		button.textContent = originalText;
+	}
+}
+
+async function runWithElementBusy(element: HTMLElement, task: () => Promise<void>): Promise<void> {
+	if (element.dataset.busy === 'true') {
+		return;
+	}
+
+	element.dataset.busy = 'true';
+	element.setAttribute('aria-busy', 'true');
+	try {
+		await task();
+	} finally {
+		delete element.dataset.busy;
+		element.removeAttribute('aria-busy');
+	}
+}
 
 function showToast(message: string, tone: 'error' | 'success' = 'success') {
 	dom.toast.textContent = message;
@@ -801,7 +835,14 @@ function startPolling() {
 	}
 
 	state.pollingHandle = window.setInterval(() => {
-		void refreshData(true);
+		if (silentRefreshInFlight) {
+			return;
+		}
+
+		silentRefreshInFlight = true;
+		void refreshData(true).finally(() => {
+			silentRefreshInFlight = false;
+		});
 	}, 5000);
 }
 
@@ -1112,15 +1153,17 @@ function bindEvents() {
 			return;
 		}
 
-		try {
-			await api.deleteBookmark(state.currentBookmarkId);
-			state.currentBookmarkId = null;
-			showToast('Bookmark deleted', 'success');
-			switchView('inbox', state.filterType, state.filterId);
-			await refreshData(true);
-		} catch (error) {
-			showToast(error instanceof Error ? error.message : 'Delete failed', 'error');
-		}
+		await runWithButtonBusy(dom.deleteBtn, 'Deleting…', async () => {
+			try {
+				await api.deleteBookmark(state.currentBookmarkId!);
+				state.currentBookmarkId = null;
+				showToast('Bookmark deleted', 'success');
+				switchView('inbox', state.filterType, state.filterId);
+				await refreshData(true);
+			} catch (error) {
+				showToast(error instanceof Error ? error.message : 'Delete failed', 'error');
+			}
+		});
 	});
 
 	dom.generateKeyForm.addEventListener('submit', async (event) => {
@@ -1130,15 +1173,24 @@ function bindEvents() {
 			return;
 		}
 
-		try {
-			const response = await api.createApiKey(name);
-			dom.newKeyName.value = '';
-			dom.newKeyValue.value = response.secret;
-			dom.newKeyResult.classList.remove('is-hidden');
-			await fetchApiKeys();
-			showToast('API key created', 'success');
-		} catch (error) {
-			showToast(error instanceof Error ? error.message : 'Failed to create API key', 'error');
+		const submitButton = dom.generateKeyForm.querySelector<HTMLButtonElement>('button[type="submit"]');
+		const runCreate = async () => {
+			try {
+				const response = await api.createApiKey(name);
+				dom.newKeyName.value = '';
+				dom.newKeyValue.value = response.secret;
+				dom.newKeyResult.classList.remove('is-hidden');
+				await fetchApiKeys();
+				showToast('API key created', 'success');
+			} catch (error) {
+				showToast(error instanceof Error ? error.message : 'Failed to create API key', 'error');
+			}
+		};
+
+		if (submitButton) {
+			await runWithButtonBusy(submitButton, 'Creating…', runCreate);
+		} else {
+			await runWithElementBusy(dom.generateKeyForm, runCreate);
 		}
 	});
 
@@ -1153,13 +1205,15 @@ function bindEvents() {
 			return;
 		}
 
-		try {
-			await api.deleteApiKey(button.dataset.apiKeyId);
-			await fetchApiKeys();
-			showToast('API key deleted', 'success');
-		} catch (error) {
-			showToast(error instanceof Error ? error.message : 'Failed to delete API key', 'error');
-		}
+		await runWithButtonBusy(button, 'Deleting…', async () => {
+			try {
+				await api.deleteApiKey(button.dataset.apiKeyId!);
+				await fetchApiKeys();
+				showToast('API key deleted', 'success');
+			} catch (error) {
+				showToast(error instanceof Error ? error.message : 'Failed to delete API key', 'error');
+			}
+		});
 	});
 
 	dom.mcpPresetPanel.addEventListener('click', async (event) => {
@@ -1223,13 +1277,15 @@ function bindEvents() {
 			return;
 		}
 
-		try {
-			await api.deleteSource(button.dataset.sourceId);
-			await fetchMcpData();
-			showToast('Source removed', 'success');
-		} catch (error) {
-			showToast(error instanceof Error ? error.message : 'Failed to remove source', 'error');
-		}
+		await runWithButtonBusy(button, 'Removing…', async () => {
+			try {
+				await api.deleteSource(button.dataset.sourceId!);
+				await fetchMcpData();
+				showToast('Source removed', 'success');
+			} catch (error) {
+				showToast(error instanceof Error ? error.message : 'Failed to remove source', 'error');
+			}
+		});
 	});
 
 	dom.addListBtn.addEventListener('click', () => {
@@ -1285,18 +1341,20 @@ function bindEvents() {
 			return;
 		}
 
-		try {
-			if (state.filterType === 'list') {
-				await api.deleteList(state.filterId);
-			} else if (state.filterType === 'smartlist') {
-				await api.deleteSmartList(state.filterId);
+		await runWithButtonBusy(dom.deleteListBtn, 'Deleting…', async () => {
+			try {
+				if (state.filterType === 'list') {
+					await api.deleteList(state.filterId!);
+				} else if (state.filterType === 'smartlist') {
+					await api.deleteSmartList(state.filterId!);
+				}
+				switchView('inbox', 'all', null);
+				await refreshData(true);
+				showToast('List deleted', 'success');
+			} catch (error) {
+				showToast(error instanceof Error ? error.message : 'Failed to delete list', 'error');
 			}
-			switchView('inbox', 'all', null);
-			await refreshData(true);
-			showToast('List deleted', 'success');
-		} catch (error) {
-			showToast(error instanceof Error ? error.message : 'Failed to delete list', 'error');
-		}
+		});
 	});
 
 	dom.btnSaveList.addEventListener('click', async () => {
@@ -1305,19 +1363,21 @@ function bindEvents() {
 			return;
 		}
 
-		try {
-			if (editingListId) {
-				await api.updateList(editingListId, { name });
-				showToast('List updated', 'success');
-			} else {
-				await api.createList({ name });
-				showToast('List created', 'success');
+		await runWithButtonBusy(dom.btnSaveList, 'Saving…', async () => {
+			try {
+				if (editingListId) {
+					await api.updateList(editingListId, { name });
+					showToast('List updated', 'success');
+				} else {
+					await api.createList({ name });
+					showToast('List created', 'success');
+				}
+				closeDialog(dom.listModal);
+				await refreshData(true);
+			} catch (error) {
+				showToast(error instanceof Error ? error.message : 'Failed to save list', 'error');
 			}
-			closeDialog(dom.listModal);
-			await refreshData(true);
-		} catch (error) {
-			showToast(error instanceof Error ? error.message : 'Failed to save list', 'error');
-		}
+		});
 	});
 
 	dom.btnSaveSmartList.addEventListener('click', async () => {
@@ -1327,19 +1387,21 @@ function bindEvents() {
 			return;
 		}
 
-		try {
-			if (editingListId) {
-				await api.updateSmartList(editingListId, { name, rules });
-				showToast('Smart list updated', 'success');
-			} else {
-				await api.createSmartList({ name, rules });
-				showToast('Smart list created', 'success');
+		await runWithButtonBusy(dom.btnSaveSmartList, 'Saving…', async () => {
+			try {
+				if (editingListId) {
+					await api.updateSmartList(editingListId, { name, rules });
+					showToast('Smart list updated', 'success');
+				} else {
+					await api.createSmartList({ name, rules });
+					showToast('Smart list created', 'success');
+				}
+				closeDialog(dom.smartListModal);
+				await refreshData(true);
+			} catch (error) {
+				showToast(error instanceof Error ? error.message : 'Failed to save smart list', 'error');
 			}
-			closeDialog(dom.smartListModal);
-			await refreshData(true);
-		} catch (error) {
-			showToast(error instanceof Error ? error.message : 'Failed to save smart list', 'error');
-		}
+		});
 	});
 
 	dom.btnCancelList.addEventListener('click', () => closeDialog(dom.listModal));
@@ -1362,16 +1424,18 @@ function bindEvents() {
 			return;
 		}
 
-		try {
-			const tags = dom.tagsInput.value.split(',').map((tag) => tag.trim()).filter(Boolean);
-			await api.updateBookmark(state.currentBookmarkId, { tags });
-			closeDialog(dom.tagsModal);
-			await refreshData(true);
-			await loadBookmark(state.currentBookmarkId);
-			showToast('Tags updated', 'success');
-		} catch (error) {
-			showToast(error instanceof Error ? error.message : 'Failed to update tags', 'error');
-		}
+		await runWithButtonBusy(dom.btnSaveTags, 'Saving…', async () => {
+			try {
+				const tags = dom.tagsInput.value.split(',').map((tag) => tag.trim()).filter(Boolean);
+				await api.updateBookmark(state.currentBookmarkId!, { tags });
+				closeDialog(dom.tagsModal);
+				await refreshData(true);
+				await loadBookmark(state.currentBookmarkId!);
+				showToast('Tags updated', 'success');
+			} catch (error) {
+				showToast(error instanceof Error ? error.message : 'Failed to update tags', 'error');
+			}
+		});
 	});
 
 	dom.markdownContainer.addEventListener('mouseup', (event) => {
@@ -1431,16 +1495,18 @@ function bindEvents() {
 			return;
 		}
 
-		const highlights = getHighlightsForCurrentBookmark();
-		const existing = highlights.find((item) => item.id === currentHighlightId);
-		if (!existing) {
-			return;
-		}
+		await runWithButtonBusy(dom.btnSaveNote, 'Saving…', async () => {
+			const highlights = getHighlightsForCurrentBookmark();
+			const existing = highlights.find((item) => item.id === currentHighlightId);
+			if (!existing) {
+				return;
+			}
 
-		existing.note = dom.noteInput.value.trim();
-		saveCurrentHighlights(highlights);
-		closeDialog(dom.noteModal);
-		await loadBookmark(state.currentBookmarkId);
+			existing.note = dom.noteInput.value.trim();
+			saveCurrentHighlights(highlights);
+			closeDialog(dom.noteModal);
+			await loadBookmark(state.currentBookmarkId!);
+		});
 	});
 
 	dom.btnDeleteHighlight.addEventListener('click', async () => {
@@ -1448,9 +1514,11 @@ function bindEvents() {
 			return;
 		}
 
-		saveCurrentHighlights(getHighlightsForCurrentBookmark().filter((item) => item.id !== currentHighlightId));
-		closeDialog(dom.noteModal);
-		await loadBookmark(state.currentBookmarkId);
+		await runWithButtonBusy(dom.btnDeleteHighlight, 'Deleting…', async () => {
+			saveCurrentHighlights(getHighlightsForCurrentBookmark().filter((item) => item.id !== currentHighlightId));
+			closeDialog(dom.noteModal);
+			await loadBookmark(state.currentBookmarkId!);
+		});
 	});
 
 	window.matchMedia('(prefers-color-scheme: dark)').addEventListener('change', () => {

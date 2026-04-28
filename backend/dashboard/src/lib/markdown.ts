@@ -44,5 +44,5 @@ export function renderMarkdown(markdown: string, highlights: HighlightRecord[] =
 		return html;
 	}
 
-	return applyHighlights(html, highlights);
+	return DOMPurify.sanitize(applyHighlights(html, highlights));
 }

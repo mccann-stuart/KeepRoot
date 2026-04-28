@@ -31,6 +31,10 @@ describe('dashboard storage helpers', () => {
 			configurable: true,
 			value: createStorageMock(),
 		});
+		Object.defineProperty(window, 'sessionStorage', {
+			configurable: true,
+			value: createStorageMock(),
+		});
 	});
 
 	it('loads defaults and persists preferences', () => {
@@ -57,6 +61,8 @@ describe('dashboard storage helpers', () => {
 	it('persists sessions and highlight notes', () => {
 		saveSessionToken('secret');
 		expect(loadSessionToken()).toBe('secret');
+		expect(window.localStorage.getItem('keeproot_secret')).toBeNull();
+		expect(window.sessionStorage.getItem('keeproot_secret')).toBe('secret');
 
 		saveHighlights('bookmark-1', [
 			{ id: 'highlight-1', note: 'Important', text: 'Quoted text' },
@@ -67,5 +73,14 @@ describe('dashboard storage helpers', () => {
 
 		clearSessionToken();
 		expect(loadSessionToken()).toBeNull();
+		expect(window.sessionStorage.getItem('keeproot_secret')).toBeNull();
+	});
+
+	it('migrates legacy localStorage sessions into sessionStorage', () => {
+		window.localStorage.setItem('keeproot_secret', 'legacy-secret');
+
+		expect(loadSessionToken()).toBe('legacy-secret');
+		expect(window.localStorage.getItem('keeproot_secret')).toBeNull();
+		expect(window.sessionStorage.getItem('keeproot_secret')).toBe('legacy-secret');
 	});
 });

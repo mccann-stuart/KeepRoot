@@ -5,9 +5,9 @@ const STORAGE_KEYS = {
 	fontSize: 'keeproot_font_size',
 	notifications: 'keeproot_notifications',
 	theme: 'keeproot_theme',
-	token: 'keeproot_secret',
 };
 
+const LEGACY_SESSION_TOKEN_KEY = 'keeproot_secret';
 const DEFAULT_PREFERENCES: Preferences = {
 	font: 'default',
 	fontSize: 16,
@@ -19,6 +19,10 @@ const HIGHLIGHT_STORAGE_PREFIX = 'keeproot_highlights_';
 
 function getBrowserStorage(): Storage {
 	return window.localStorage;
+}
+
+function getSessionStorage(): Storage {
+	return window.sessionStorage;
 }
 
 export function loadPreferences(): Preferences {
@@ -41,7 +45,7 @@ export function clearDashboardDataPreservingSession(): void {
 
 	for (let index = 0; index < storage.length; index += 1) {
 		const key = storage.key(index);
-		if (!key || key === STORAGE_KEYS.token) {
+		if (!key || key === LEGACY_SESSION_TOKEN_KEY) {
 			continue;
 		}
 
@@ -80,15 +84,30 @@ export function savePreference<K extends keyof Preferences>(key: K, value: Prefe
 }
 
 export function loadSessionToken(): string | null {
-	return getBrowserStorage().getItem(STORAGE_KEYS.token);
+	const sessionStorage = getSessionStorage();
+	const token = sessionStorage.getItem(LEGACY_SESSION_TOKEN_KEY);
+	if (token) {
+		return token;
+	}
+
+	const legacyToken = getBrowserStorage().getItem(LEGACY_SESSION_TOKEN_KEY);
+	if (!legacyToken) {
+		return null;
+	}
+
+	sessionStorage.setItem(LEGACY_SESSION_TOKEN_KEY, legacyToken);
+	getBrowserStorage().removeItem(LEGACY_SESSION_TOKEN_KEY);
+	return legacyToken;
 }
 
 export function saveSessionToken(token: string): void {
-	getBrowserStorage().setItem(STORAGE_KEYS.token, token);
+	getSessionStorage().setItem(LEGACY_SESSION_TOKEN_KEY, token);
+	getBrowserStorage().removeItem(LEGACY_SESSION_TOKEN_KEY);
 }
 
 export function clearSessionToken(): void {
-	getBrowserStorage().removeItem(STORAGE_KEYS.token);
+	getSessionStorage().removeItem(LEGACY_SESSION_TOKEN_KEY);
+	getBrowserStorage().removeItem(LEGACY_SESSION_TOKEN_KEY);
 }
 
 function highlightStorageKey(bookmarkId: string): string {
