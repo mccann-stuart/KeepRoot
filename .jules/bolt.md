@@ -4,3 +4,6 @@
 ## $(date +%Y-%m-%d) - Preserve Ordering When Parallelizing Network Requests
 **Learning:** When refactoring sequential loops that populate an array into concurrent `Promise.all()` executions (like fetching multiple images), mutating the shared array inside the async callbacks using `.push()` destroys the original ordering because it appends results as they complete. In contexts where order is critical (e.g., preserving the prioritized `og:image` as the first thumbnail), this creates a functional regression.
 **Action:** When parallelizing ordered processing, always map to an array of promises, `await Promise.all()` on that array, and then process the results sequentially to build the final array, preserving the initial order.
+## 2025-04-28 - Avoid Using .push() to Optimize .map()
+**Learning:** JS engines like V8 optimize `.map()` by pre-allocating an array of the exact known size. Blindly replacing `.map()` with a procedural loop that uses `.push()` on an empty array forces dynamic reallocation and increases overhead, creating a micro-optimization with negative impact.
+**Action:** Only replace `.map()` with a procedural loop when it eliminates the need to allocate an intermediate array entirely, such as populating a `Map` or directly aggregating results.
