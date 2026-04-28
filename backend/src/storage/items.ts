@@ -211,7 +211,14 @@ export async function searchItems(env: StorageEnv, userId: string, options: Item
 
 	const allItems = await listBookmarks(env, userId);
 	const filtered = applyItemFilters(allItems, options);
-	const itemMap = new Map(filtered.map((item) => [item.id, item]));
+
+	// ⚡ Bolt: Using a procedural loop to initialize the Map prevents the allocation of a large intermediate array of tuples.
+	// Impact: Reduces memory spikes and GC pressure when searching and filtering a large number of bookmarks.
+	const itemMap = new Map<string, typeof filtered[number]>();
+	for (let i = 0; i < filtered.length; i += 1) {
+		const item = filtered[i];
+		itemMap.set(item.id, item);
+	}
 
 	return {
 		items: matches
