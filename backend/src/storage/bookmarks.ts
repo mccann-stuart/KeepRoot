@@ -351,16 +351,46 @@ async function fetchImageAsPayload(imageUrl: string, pageUrl: string): Promise<B
 		return parseDataUrl(absoluteUrl);
 	}
 
-	if (!await validateSafeUrl(absoluteUrl)) {
+	let currentUrl = absoluteUrl;
+	let response: Response | null = null;
+	let redirectCount = 0;
+
+	if (!await validateSafeUrl(currentUrl)) {
 		return null;
 	}
 
-	const response = await fetch(absoluteUrl);
-	if (!response.ok) {
+	while (redirectCount < 5) {
+		response = await fetch(currentUrl, {
+			redirect: 'manual',
+		});
+
+		if ([301, 302, 303, 307, 308].includes(response.status)) {
+			// Cancel response body to prevent socket leaks/memory issues
+			await response.body?.cancel().catch(() => {});
+			const location = response.headers.get('location');
+			if (!location) {
+				return null;
+			}
+			try {
+				const nextUrl = new URL(location, currentUrl).toString();
+				if (!await validateSafeUrl(nextUrl)) {
+					return null;
+				}
+				currentUrl = nextUrl;
+				redirectCount += 1;
+				continue;
+			} catch {
+				return null;
+			}
+		}
+		break;
+	}
+
+	if (!response || !response.ok) {
 		return null;
 	}
 
-	const contentType = response.headers.get('content-type') ?? 'application/octet-stream';
+	const contentType = response?.headers.get('content-type') ?? 'application/octet-stream';
 	if (!contentType.toLowerCase().startsWith('image/')) {
 		return null;
 	}
