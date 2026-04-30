@@ -340,29 +340,32 @@ export async function addSource(
 }
 
 export async function getSourceById(env: StorageEnv, userId: string, sourceId: string): Promise<Record<string, unknown> | null> {
-	const source = await env.KEEPROOT_DB.prepare(
-		`SELECT id, kind, name, normalized_identifier, poll_url, email_alias, status, config_json,
-			last_polled_at, last_success_at, last_error, created_at, updated_at
-		FROM sources
-		WHERE id = ? AND user_id = ?
-		LIMIT 1`,
-	)
-		.bind(sourceId, userId)
-		.first<SourceRow>();
+	// ⚡ Bolt: Using D1Database.batch() for multiple reads replaces multiple separate HTTP network roundtrips with a single roundtrip.
+	// Impact: Significantly reduces latency when fetching a source by batching the source details and recent runs queries together.
+	const [sourceResult, recentRunsResult] = await env.KEEPROOT_DB.batch<SourceRow | SourceRunRow>([
+		env.KEEPROOT_DB.prepare(
+			`SELECT id, kind, name, normalized_identifier, poll_url, email_alias, status, config_json,
+				last_polled_at, last_success_at, last_error, created_at, updated_at
+			FROM sources
+			WHERE id = ? AND user_id = ?
+			LIMIT 1`,
+		).bind(sourceId, userId),
+		env.KEEPROOT_DB.prepare(
+			`SELECT id, run_type, status, discovered_count, saved_count, error_count, started_at, finished_at, error_text
+			FROM source_runs
+			WHERE source_id = ?
+			ORDER BY started_at DESC
+			LIMIT 5`,
+		).bind(sourceId),
+	]) as [D1Result<SourceRow>, D1Result<SourceRunRow>];
+
+	const source = sourceResult.results[0];
 
 	if (!source) {
 		return null;
 	}
 
-	const recentRuns = await env.KEEPROOT_DB.prepare(
-		`SELECT id, run_type, status, discovered_count, saved_count, error_count, started_at, finished_at, error_text
-		FROM source_runs
-		WHERE source_id = ?
-		ORDER BY started_at DESC
-		LIMIT 5`,
-	)
-		.bind(sourceId)
-		.all<SourceRunRow>();
+	const recentRuns = recentRunsResult;
 
 	return compactObject({
 		config: parseConfig(source.config_json),

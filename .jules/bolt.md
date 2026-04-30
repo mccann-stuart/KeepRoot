@@ -7,3 +7,7 @@
 ## 2025-04-28 - Avoid Using .push() to Optimize .map()
 **Learning:** JS engines like V8 optimize `.map()` by pre-allocating an array of the exact known size. Blindly replacing `.map()` with a procedural loop that uses `.push()` on an empty array forces dynamic reallocation and increases overhead, creating a micro-optimization with negative impact.
 **Action:** Only replace `.map()` with a procedural loop when it eliminates the need to allocate an intermediate array entirely, such as populating a `Map` or directly aggregating results.
+
+## 2024-05-18 - Parallelizing Source Query
+**Learning:** In Cloudflare Workers, retrieving a source via `getSourceById` executed a sequential chain: fetch `source` -> fetch `recentRuns`. However, because the queries both depend on `sourceId`, they can be batched together into a single `D1Database.batch()` call.
+**Action:** Always identify independent database reads that depend on the same parent ID (like `sourceId`) and group them into a single `D1Database.batch()` call.
