@@ -7,3 +7,6 @@
 ## 2025-04-28 - Avoid Using .push() to Optimize .map()
 **Learning:** JS engines like V8 optimize `.map()` by pre-allocating an array of the exact known size. Blindly replacing `.map()` with a procedural loop that uses `.push()` on an empty array forces dynamic reallocation and increases overhead, creating a micro-optimization with negative impact.
 **Action:** Only replace `.map()` with a procedural loop when it eliminates the need to allocate an intermediate array entirely, such as populating a `Map` or directly aggregating results.
+## 2024-05-01 - Benchmark-driven decisions for array mapping and string splitting
+**Learning:** In the Bun/V8 environment, `.split(' ')` is often surprisingly fast and heavily optimized compared to `Regex.exec()` loops, despite the intermediate array allocation. Conversely, iterating large arrays of tuples to initialize a `Map` is measurably slower than instantiating an empty `Map` and populating it via a procedural loop.
+**Action:** Always write a quick micro-benchmark scratchpad before applying "known" optimizations like regex loops or procedural loops, as engine-specific optimizations (like V8's fast path for `.split`) can render them unnecessary or even slower. Ensure scratchpad files are cleaned up before submitting.

@@ -694,15 +694,34 @@ export async function saveBookmark(
 		version: 1,
 	};
 
+	// ⚡ Bolt: Consolidate image processing to process hashing concurrently and apply document rewrites in a single pass.
+	// Impact: Reduces the algorithm from O(N*M) to O(N+M) where N is number of images and M is document length. Also parallelizes the hashing overhead.
 	if (hydratedImages.length) {
-		for (const image of hydratedImages) {
-			if (!image.dataBase64) {
+		const processedImages = await Promise.all(
+			hydratedImages.map(async (image) => {
+				if (!image.dataBase64) {
+					return null;
+				}
+				const bytes = base64ToUint8Array(image.dataBase64);
+				const imageHash = await sha256Hex(bytes);
+				const variant = normalizeVariant(image.variant);
+				const imageKey = variant === 'original' ? `images/${imageHash}` : `thumbs/${imageHash}/${variant}`;
+				const sourceCandidates = image.sourceCandidates?.length
+					? image.sourceCandidates
+					: image.sourceUrl
+						? buildImageSourceCandidates(image.sourceUrl, normalizedUrl)
+						: [];
+				return { image, imageHash, imageKey, sourceCandidates };
+			}),
+		);
+
+		const combinedRewriteMap = new Map<string, string>();
+		for (let i = 0; i < processedImages.length; i += 1) {
+			const processed = processedImages[i];
+			if (!processed) {
 				continue;
 			}
-			const bytes = base64ToUint8Array(image.dataBase64);
-			const imageHash = await sha256Hex(bytes);
-			const variant = normalizeVariant(image.variant);
-			const imageKey = variant === 'original' ? `images/${imageHash}` : `thumbs/${imageHash}/${variant}`;
+			const { image, imageHash, imageKey, sourceCandidates } = processed;
 			contentDocument.images.push({
 				height: image.height ?? null,
 				imageHash,
@@ -712,19 +731,18 @@ export async function saveBookmark(
 				width: image.width ?? null,
 			});
 
-			const sourceCandidates = image.sourceCandidates?.length
-				? image.sourceCandidates
-				: image.sourceUrl
-					? buildImageSourceCandidates(image.sourceUrl, normalizedUrl)
-					: [];
-
-			if (sourceCandidates.length) {
+			if (sourceCandidates.length > 0) {
 				const rewrittenImagePath = `/${imageKey}`;
-				const rewriteMap = new Map(sourceCandidates.map((candidate) => [candidate, rewrittenImagePath]));
-				rewrittenMarkdownData = rewriteMarkdownImageUrls(rewrittenMarkdownData, rewriteMap);
-				if (rewrittenHtmlData) {
-					rewrittenHtmlData = rewriteHtmlImageUrls(rewrittenHtmlData, rewriteMap);
+				for (let j = 0; j < sourceCandidates.length; j += 1) {
+					combinedRewriteMap.set(sourceCandidates[j], rewrittenImagePath);
 				}
+			}
+		}
+
+		if (combinedRewriteMap.size > 0) {
+			rewrittenMarkdownData = rewriteMarkdownImageUrls(rewrittenMarkdownData, combinedRewriteMap);
+			if (rewrittenHtmlData) {
+				rewrittenHtmlData = rewriteHtmlImageUrls(rewrittenHtmlData, combinedRewriteMap);
 			}
 		}
 	}
