@@ -1,3 +1,5 @@
+import { resolve } from 'node:dns/promises';
+
 const TRACKING_QUERY_KEYS = new Set([
 	'fbclid',
 	'gclid',
@@ -420,6 +422,17 @@ export async function validateSafeUrl(url: string): Promise<boolean> {
 
 		if (isUnsafeIpAddress(hostname)) {
 			return false;
+		}
+
+		try {
+			const addresses = await resolve(hostname);
+			for (const addr of addresses) {
+				if (isUnsafeIpAddress(addr)) {
+					return false;
+				}
+			}
+		} catch (error) {
+			return false; // Fail closed
 		}
 
 		return true;
