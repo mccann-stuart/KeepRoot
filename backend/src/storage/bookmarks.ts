@@ -893,42 +893,100 @@ export async function saveBookmark(
 	};
 }
 
-export async function listBookmarks(env: StorageEnv, userId: string): Promise<BookmarkListItem[]> {
-	// ⚡ Bolt: Using D1Database.batch() for multiple reads replaces multiple separate HTTP network roundtrips with a single roundtrip.
-	// Impact: Significantly reduces latency when fetching list of bookmarks and tags.
-	const [rawBookmarks, tagRows] = await env.KEEPROOT_DB.batch<BookmarkRow | { bookmark_id: string; name: string }>([
-		env.KEEPROOT_DB.prepare(
-			`SELECT bookmarks.id, bookmarks.url, bookmarks.canonical_url, bookmarks.title, bookmarks.site_name, bookmarks.domain, bookmarks.status, bookmarks.notes,
-				bookmarks.source_id, bookmarks.processing_state, bookmarks.search_updated_at, bookmarks.embedding_updated_at, bookmarks.created_at, bookmarks.updated_at,
-				bookmarks.last_fetched_at, bookmarks.content_hash, bookmarks.content_ref, bookmarks.content_type, bookmarks.content_length, bookmarks.excerpt,
-				bookmarks.word_count, bookmarks.lang, bookmarks.list_id, bookmarks.pinned, bookmarks.sort_order, bookmarks.is_read,
-				item_search_documents.body_text AS body_text
-			FROM bookmarks
-			LEFT JOIN item_search_documents
-				ON item_search_documents.bookmark_id = bookmarks.id
-				AND item_search_documents.user_id = bookmarks.user_id
-			WHERE bookmarks.user_id = ?
-			ORDER BY bookmarks.pinned DESC, bookmarks.sort_order ASC, bookmarks.created_at DESC`,
-		)
-			.bind(userId),
+export async function listBookmarks(env: StorageEnv, userId: string, options?: { ids?: string[] }): Promise<BookmarkListItem[]> {
+	const ids = options?.ids;
 
-		env.KEEPROOT_DB.prepare(
-			`SELECT bookmark_tags.bookmark_id, tags.name
-			 FROM tags
-			 INNER JOIN bookmark_tags ON bookmark_tags.tag_id = tags.id
-			 WHERE tags.user_id = ?`,
-		)
-			.bind(userId),
-	]) as [D1Result<BookmarkRow>, D1Result<{ bookmark_id: string; name: string }>];
+	if (ids && ids.length === 0) {
+		return [];
+	}
+
+	let rawBookmarkResults: BookmarkRow[] = [];
+	let tagResults: { bookmark_id: string; name: string }[] = [];
+
+	if (!ids) {
+		// ⚡ Bolt: Using D1Database.batch() for multiple reads replaces multiple separate HTTP network roundtrips with a single roundtrip.
+		// Impact: Significantly reduces latency when fetching list of bookmarks and tags.
+		const [rawBookmarks, tagRows] = await env.KEEPROOT_DB.batch<BookmarkRow | { bookmark_id: string; name: string }>([
+			env.KEEPROOT_DB.prepare(
+				`SELECT bookmarks.id, bookmarks.url, bookmarks.canonical_url, bookmarks.title, bookmarks.site_name, bookmarks.domain, bookmarks.status, bookmarks.notes,
+					bookmarks.source_id, bookmarks.processing_state, bookmarks.search_updated_at, bookmarks.embedding_updated_at, bookmarks.created_at, bookmarks.updated_at,
+					bookmarks.last_fetched_at, bookmarks.content_hash, bookmarks.content_ref, bookmarks.content_type, bookmarks.content_length, bookmarks.excerpt,
+					bookmarks.word_count, bookmarks.lang, bookmarks.list_id, bookmarks.pinned, bookmarks.sort_order, bookmarks.is_read,
+					item_search_documents.body_text AS body_text
+				FROM bookmarks
+				LEFT JOIN item_search_documents
+					ON item_search_documents.bookmark_id = bookmarks.id
+					AND item_search_documents.user_id = bookmarks.user_id
+				WHERE bookmarks.user_id = ?
+				ORDER BY bookmarks.pinned DESC, bookmarks.sort_order ASC, bookmarks.created_at DESC`,
+			)
+				.bind(userId),
+
+			env.KEEPROOT_DB.prepare(
+				`SELECT bookmark_tags.bookmark_id, tags.name
+				 FROM tags
+				 INNER JOIN bookmark_tags ON bookmark_tags.tag_id = tags.id
+				 WHERE tags.user_id = ?`,
+			)
+				.bind(userId),
+		]) as [D1Result<BookmarkRow>, D1Result<{ bookmark_id: string; name: string }>];
+
+		rawBookmarkResults = rawBookmarks.results;
+		tagResults = tagRows.results;
+	} else {
+		const batchSize = 50;
+		for (let i = 0; i < ids.length; i += batchSize) {
+			const batchIds = ids.slice(i, i + batchSize);
+			const placeholders = batchIds.map(() => '?').join(', ');
+
+			const [rawBookmarks, tagRows] = await env.KEEPROOT_DB.batch<BookmarkRow | { bookmark_id: string; name: string }>([
+				env.KEEPROOT_DB.prepare(
+					`SELECT bookmarks.id, bookmarks.url, bookmarks.canonical_url, bookmarks.title, bookmarks.site_name, bookmarks.domain, bookmarks.status, bookmarks.notes,
+						bookmarks.source_id, bookmarks.processing_state, bookmarks.search_updated_at, bookmarks.embedding_updated_at, bookmarks.created_at, bookmarks.updated_at,
+						bookmarks.last_fetched_at, bookmarks.content_hash, bookmarks.content_ref, bookmarks.content_type, bookmarks.content_length, bookmarks.excerpt,
+						bookmarks.word_count, bookmarks.lang, bookmarks.list_id, bookmarks.pinned, bookmarks.sort_order, bookmarks.is_read,
+						item_search_documents.body_text AS body_text
+					FROM bookmarks
+					LEFT JOIN item_search_documents
+						ON item_search_documents.bookmark_id = bookmarks.id
+						AND item_search_documents.user_id = bookmarks.user_id
+					WHERE bookmarks.id IN (${placeholders}) AND bookmarks.user_id = ?
+					ORDER BY bookmarks.pinned DESC, bookmarks.sort_order ASC, bookmarks.created_at DESC`,
+				)
+					.bind(...batchIds, userId),
+
+				env.KEEPROOT_DB.prepare(
+					`SELECT bookmark_tags.bookmark_id, tags.name
+					 FROM tags
+					 INNER JOIN bookmark_tags ON bookmark_tags.tag_id = tags.id
+					 WHERE bookmark_tags.bookmark_id IN (${placeholders}) AND tags.user_id = ?`,
+				)
+					.bind(...batchIds, userId),
+			]) as [D1Result<BookmarkRow>, D1Result<{ bookmark_id: string; name: string }>];
+
+			rawBookmarkResults = rawBookmarkResults.concat(rawBookmarks.results);
+			tagResults = tagResults.concat(tagRows.results);
+		}
+
+		rawBookmarkResults.sort((a, b) => {
+			if (a.pinned !== b.pinned) {
+				return b.pinned - a.pinned;
+			}
+			if (a.sort_order !== b.sort_order) {
+				return a.sort_order - b.sort_order;
+			}
+			return String(b.created_at).localeCompare(String(a.created_at));
+		});
+	}
 
 	const tagsByBookmark = new Map<string, string[]>();
-	for (const row of tagRows.results) {
+	for (const row of tagResults) {
 		const tags = tagsByBookmark.get(row.bookmark_id) || [];
 		tags.push(row.name);
 		tagsByBookmark.set(row.bookmark_id, tags);
 	}
 
-	return rawBookmarks.results.map((row) => ({
+	return rawBookmarkResults.map((row) => ({
 		id: row.id,
 		name: row.id,
 		metadata: makeBookmarkMetadata(row, tagsByBookmark.get(row.id) || [], []),

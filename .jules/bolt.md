@@ -7,3 +7,7 @@
 ## 2025-04-28 - Avoid Using .push() to Optimize .map()
 **Learning:** JS engines like V8 optimize `.map()` by pre-allocating an array of the exact known size. Blindly replacing `.map()` with a procedural loop that uses `.push()` on an empty array forces dynamic reallocation and increases overhead, creating a micro-optimization with negative impact.
 **Action:** Only replace `.map()` with a procedural loop when it eliminates the need to allocate an intermediate array entirely, such as populating a `Map` or directly aggregating results.
+
+## 2025-05-02 - Fetching Subsets of Resources Based on IDs
+**Learning:** In `searchItems`, the system was performing an O(N) operation by fetching all bookmarks using `listBookmarks(env, userId)` and then applying filters in memory to find the searched items. This loads unnecessary data and impacts memory performance.
+**Action:** When filtering a known set of IDs from a broader list, refactor the fetching function (e.g., `listBookmarks`) to accept an array of IDs and generate a `WHERE id IN (...)` clause dynamically. Ensure you split large ID lists into manageable chunks (e.g., 50 items) to respect SQLite variable limits. This pushes the filtering down to the database level and significantly reduces memory footprint and computational overhead.

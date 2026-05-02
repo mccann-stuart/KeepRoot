@@ -209,7 +209,9 @@ export async function searchItems(env: StorageEnv, userId: string, options: Item
 		return { items: [] };
 	}
 
-	const allItems = await listBookmarks(env, userId);
+	// ⚡ Bolt: Fetch only the matching bookmarks rather than all user bookmarks to prevent O(N) memory load and excessive DB scanning.
+	// Impact: Significantly reduces DB compute and memory footprint during search operations.
+	const allItems = await listBookmarks(env, userId, { ids: matches.map(m => m.id) });
 	const filtered = applyItemFilters(allItems, options);
 
 	// ⚡ Bolt: Using a procedural loop to initialize the Map prevents the allocation of a large intermediate array of tuples.
