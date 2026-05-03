@@ -137,8 +137,34 @@ async function resolveYouTubePollUrl(identifier: string): Promise<{ normalizedId
 	}
 
 	try {
-		const response = await fetch(normalizedUrl);
-		if (response.ok) {
+		let currentUrl = normalizedUrl;
+		let response: Response | null = null;
+		let redirectCount = 0;
+
+		while (redirectCount < 5) {
+			if (!await validateSafeUrl(currentUrl)) {
+				break;
+			}
+
+			response = await fetch(currentUrl, { redirect: 'manual' });
+
+			if ([301, 302, 303, 307, 308].includes(response.status)) {
+				await response.body?.cancel().catch(() => {
+					// Safely ignore cancellation errors during redirect body cleanup
+				});
+				const location = response.headers.get('location');
+				if (!location) {
+					break;
+				}
+				currentUrl = new URL(location, currentUrl).toString();
+				redirectCount += 1;
+				continue;
+			}
+
+			break;
+		}
+
+		if (response && response.ok) {
 			const html = await response.text();
 			const rssMatch = html.match(/https:\/\/www\.youtube\.com\/feeds\/videos\.xml\?channel_id=[A-Za-z0-9_-]+/);
 			if (rssMatch?.[0]) {
