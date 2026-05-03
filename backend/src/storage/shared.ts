@@ -1,3 +1,5 @@
+import * as dns from 'node:dns/promises';
+
 const TRACKING_QUERY_KEYS = new Set([
 	'fbclid',
 	'gclid',
@@ -420,6 +422,13 @@ export async function validateSafeUrl(url: string): Promise<boolean> {
 
 		if (isUnsafeIpAddress(hostname)) {
 			return false;
+		}
+
+		const addresses = await dns.lookup(hostname, { all: true }).catch(() => []);
+		for (const addr of addresses) {
+			if (isUnsafeIpAddress(addr.address)) {
+				return false;
+			}
 		}
 
 		return true;
