@@ -77,7 +77,7 @@ async function ensureSafeHttpUrl(value: string): Promise<string> {
 	if (url.protocol !== 'http:' && url.protocol !== 'https:') {
 		throw validationError('Source URL must use http or https');
 	}
-	if (!await validateSafeUrl(url.toString())) {
+	if (!(await validateSafeUrl(url.toString()))) {
 		throw validationError('Source URL must not point to local, private, or reserved network addresses');
 	}
 	return url.toString();
@@ -109,11 +109,12 @@ async function resolveYouTubePollUrl(identifier: string): Promise<{ normalizedId
 		};
 	}
 
-	const normalizedUrl = raw.startsWith('http://') || raw.startsWith('https://')
-		? await ensureSafeHttpUrl(raw)
-		: raw.startsWith('@')
-			? `https://www.youtube.com/${raw}`
-			: `https://www.youtube.com/${raw.replace(/^\/+/, '')}`;
+	const normalizedUrl =
+		raw.startsWith('http://') || raw.startsWith('https://')
+			? await ensureSafeHttpUrl(raw)
+			: raw.startsWith('@')
+				? `https://www.youtube.com/${raw}`
+				: `https://www.youtube.com/${raw.replace(/^\/+/, '')}`;
 	const parsedUrl = new URL(normalizedUrl);
 	if (parsedUrl.hostname !== 'youtube.com' && !parsedUrl.hostname.endsWith('.youtube.com')) {
 		throw validationError('YouTube sources must use a youtube.com URL, handle, or channel id');
@@ -218,7 +219,11 @@ async function normalizeSourceInput(
 	};
 }
 
-export async function listSources(env: StorageEnv, userId: string, options: SourceListOptions = {}): Promise<{ nextCursor: string | null; sources: Array<Record<string, unknown>> }> {
+export async function listSources(
+	env: StorageEnv,
+	userId: string,
+	options: SourceListOptions = {},
+): Promise<{ nextCursor: string | null; sources: Array<Record<string, unknown>> }> {
 	const limit = normalizeLimit(options.limit);
 	const offset = decodeCursor(options.cursor);
 	const result = await env.KEEPROOT_DB.prepare(
@@ -231,15 +236,7 @@ export async function listSources(env: StorageEnv, userId: string, options: Sour
 		ORDER BY created_at DESC
 		LIMIT ? OFFSET ?`,
 	)
-		.bind(
-			userId,
-			options.status ?? null,
-			options.status ?? null,
-			options.kind ?? null,
-			options.kind ?? null,
-			limit + 1,
-			offset,
-		)
+		.bind(userId, options.status ?? null, options.status ?? null, options.kind ?? null, options.kind ?? null, limit + 1, offset)
 		.all<SourceRow>();
 
 	const hasMore = result.results.length > limit;
@@ -247,21 +244,23 @@ export async function listSources(env: StorageEnv, userId: string, options: Sour
 
 	return {
 		nextCursor: hasMore ? String(offset + limit) : null,
-		sources: rows.map((row) => compactObject({
-			config: parseConfig(row.config_json),
-			createdAt: row.created_at,
-			emailAlias: row.email_alias,
-			id: row.id,
-			kind: row.kind,
-			lastError: row.last_error,
-			lastPolledAt: row.last_polled_at,
-			lastSuccessAt: row.last_success_at,
-			name: row.name,
-			normalizedIdentifier: row.normalized_identifier,
-			pollUrl: row.poll_url,
-			status: row.status,
-			updatedAt: row.updated_at,
-		})),
+		sources: rows.map((row) =>
+			compactObject({
+				config: parseConfig(row.config_json),
+				createdAt: row.created_at,
+				emailAlias: row.email_alias,
+				id: row.id,
+				kind: row.kind,
+				lastError: row.last_error,
+				lastPolledAt: row.last_polled_at,
+				lastSuccessAt: row.last_success_at,
+				name: row.name,
+				normalizedIdentifier: row.normalized_identifier,
+				pollUrl: row.poll_url,
+				status: row.status,
+				updatedAt: row.updated_at,
+			}),
+		),
 	};
 }
 
@@ -288,9 +287,8 @@ export async function addSource(
 
 	const now = new Date().toISOString();
 	const id = existing?.id ?? crypto.randomUUID();
-	const emailAlias = input.kind === 'email'
-		? existing?.email_alias ?? `save+${id.slice(0, 12)}@${env.MCP_EMAIL_DOMAIN}`
-		: normalized.emailAlias;
+	const emailAlias =
+		input.kind === 'email' ? (existing?.email_alias ?? `save+${id.slice(0, 12)}@${env.MCP_EMAIL_DOMAIN}`) : normalized.emailAlias;
 
 	await env.KEEPROOT_DB.prepare(
 		`INSERT OR REPLACE INTO sources
@@ -340,29 +338,32 @@ export async function addSource(
 }
 
 export async function getSourceById(env: StorageEnv, userId: string, sourceId: string): Promise<Record<string, unknown> | null> {
-	const source = await env.KEEPROOT_DB.prepare(
-		`SELECT id, kind, name, normalized_identifier, poll_url, email_alias, status, config_json,
-			last_polled_at, last_success_at, last_error, created_at, updated_at
-		FROM sources
-		WHERE id = ? AND user_id = ?
-		LIMIT 1`,
-	)
-		.bind(sourceId, userId)
-		.first<SourceRow>();
+	// ⚡ Bolt: Using D1Database.batch() replaces multiple sequential database reads with a single roundtrip.
+	// Impact: Significantly reduces network latency overhead when fetching source details and its recent runs.
+	const [sourceResult, recentRunsResult] = (await env.KEEPROOT_DB.batch<SourceRow | SourceRunRow>([
+		env.KEEPROOT_DB.prepare(
+			`SELECT id, kind, name, normalized_identifier, poll_url, email_alias, status, config_json,
+				last_polled_at, last_success_at, last_error, created_at, updated_at
+			FROM sources
+			WHERE id = ? AND user_id = ?
+			LIMIT 1`,
+		).bind(sourceId, userId),
+		env.KEEPROOT_DB.prepare(
+			`SELECT id, run_type, status, discovered_count, saved_count, error_count, started_at, finished_at, error_text
+			FROM source_runs
+			WHERE source_id = ?
+			ORDER BY started_at DESC
+			LIMIT 5`,
+		).bind(sourceId),
+	])) as [D1Result<SourceRow>, D1Result<SourceRunRow>];
+
+	const source = sourceResult.results[0];
 
 	if (!source) {
 		return null;
 	}
 
-	const recentRuns = await env.KEEPROOT_DB.prepare(
-		`SELECT id, run_type, status, discovered_count, saved_count, error_count, started_at, finished_at, error_text
-		FROM source_runs
-		WHERE source_id = ?
-		ORDER BY started_at DESC
-		LIMIT 5`,
-	)
-		.bind(sourceId)
-		.all<SourceRunRow>();
+	const recentRuns = recentRunsResult;
 
 	return compactObject({
 		config: parseConfig(source.config_json),
@@ -376,23 +377,28 @@ export async function getSourceById(env: StorageEnv, userId: string, sourceId: s
 		name: source.name,
 		normalizedIdentifier: source.normalized_identifier,
 		pollUrl: source.poll_url,
-		recentRuns: recentRuns.results.map((run) => compactObject({
-			discoveredCount: run.discovered_count,
-			errorCount: run.error_count,
-			errorText: run.error_text,
-			finishedAt: run.finished_at,
-			id: run.id,
-			runType: run.run_type,
-			savedCount: run.saved_count,
-			startedAt: run.started_at,
-			status: run.status,
-		})),
+		recentRuns: recentRuns.results.map((run) =>
+			compactObject({
+				discoveredCount: run.discovered_count,
+				errorCount: run.error_count,
+				errorText: run.error_text,
+				finishedAt: run.finished_at,
+				id: run.id,
+				runType: run.run_type,
+				savedCount: run.saved_count,
+				startedAt: run.started_at,
+				status: run.status,
+			}),
+		),
 		status: source.status,
 		updatedAt: source.updated_at,
 	});
 }
 
-export async function getSourceByEmailAlias(env: StorageEnv, emailAlias: string): Promise<{ config: Record<string, unknown>; id: string; kind: SourceKind; name: string; userId: string } | null> {
+export async function getSourceByEmailAlias(
+	env: StorageEnv,
+	emailAlias: string,
+): Promise<{ config: Record<string, unknown>; id: string; kind: SourceKind; name: string; userId: string } | null> {
 	const source = await env.KEEPROOT_DB.prepare(
 		`SELECT id, user_id, kind, name, config_json
 		FROM sources
@@ -415,13 +421,16 @@ export async function getSourceByEmailAlias(env: StorageEnv, emailAlias: string)
 	};
 }
 
-export async function listActivePollableSources(env: StorageEnv): Promise<Array<{ config: Record<string, unknown>; id: string; kind: SourceKind; lastPolledAt: string | null; pollUrl: string; userId: string }>> {
+export async function listActivePollableSources(
+	env: StorageEnv,
+): Promise<
+	Array<{ config: Record<string, unknown>; id: string; kind: SourceKind; lastPolledAt: string | null; pollUrl: string; userId: string }>
+> {
 	const result = await env.KEEPROOT_DB.prepare(
 		`SELECT id, user_id, kind, poll_url, config_json, last_polled_at
 		FROM sources
 		WHERE status = 'active' AND poll_url IS NOT NULL`,
-	)
-		.all<{ config_json: string; id: string; kind: SourceKind; last_polled_at: string | null; poll_url: string; user_id: string }>();
+	).all<{ config_json: string; id: string; kind: SourceKind; last_polled_at: string | null; poll_url: string; user_id: string }>();
 
 	return result.results.map((row) => ({
 		config: parseConfig(row.config_json),
@@ -471,7 +480,7 @@ export async function markSourcePollingResult(
 		).bind(
 			now,
 			input.status === 'success' ? now : null,
-			input.status === 'error' ? input.errorText ?? 'Unknown source sync error' : null,
+			input.status === 'error' ? (input.errorText ?? 'Unknown source sync error') : null,
 			now,
 			input.id,
 		),
