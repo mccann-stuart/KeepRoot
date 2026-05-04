@@ -209,7 +209,10 @@ export async function searchItems(env: StorageEnv, userId: string, options: Item
 		return { items: [] };
 	}
 
-	const allItems = await listBookmarks(env, userId);
+	// ⚡ Bolt: Extract matching IDs and pass them to listBookmarks to avoid fetching all user records into memory.
+	// Impact: Prevents O(N) database reads and memory allocations where N is the total number of user bookmarks.
+	const matchIds = matches.map((m) => m.id);
+	const allItems = await listBookmarks(env, userId, { bookmarkIds: matchIds });
 	const filtered = applyItemFilters(allItems, options);
 
 	// ⚡ Bolt: Using a procedural loop to initialize the Map prevents the allocation of a large intermediate array of tuples.
