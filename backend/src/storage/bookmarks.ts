@@ -351,12 +351,38 @@ async function fetchImageAsPayload(imageUrl: string, pageUrl: string): Promise<B
 		return parseDataUrl(absoluteUrl);
 	}
 
-	if (!await validateSafeUrl(absoluteUrl)) {
-		return null;
+	let currentUrl = absoluteUrl;
+	let response: Response | null = null;
+	let redirectCount = 0;
+
+	while (redirectCount < 5) {
+		if (!await validateSafeUrl(currentUrl)) {
+			return null;
+		}
+
+		response = await fetch(currentUrl, { redirect: 'manual' });
+
+		if ([301, 302, 303, 307, 308].includes(response.status)) {
+			await response.body?.cancel().catch(() => {
+				// Safely ignore cancellation errors during redirect body cleanup
+			});
+			const location = response.headers.get('location');
+			if (!location) {
+				return null;
+			}
+			try {
+				currentUrl = new URL(location, currentUrl).toString();
+			} catch {
+				return null;
+			}
+			redirectCount += 1;
+			continue;
+		}
+
+		break;
 	}
 
-	const response = await fetch(absoluteUrl);
-	if (!response.ok) {
+	if (!response || !response.ok) {
 		return null;
 	}
 
