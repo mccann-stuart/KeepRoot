@@ -344,67 +344,78 @@ export async function searchBookmarkIds(
 	const semanticScores = new Map<string, number>();
 	const bookmarkMeta = new Map<string, { domain: string | null; sourceId: string | null; status: string; tags: string[] }>();
 
-	const ftsQuery = buildFtsQuery(query);
-	if (ftsQuery) {
-		try {
-			const ftsMatches = await env.KEEPROOT_DB.prepare(
-				`SELECT bookmark_id, bm25(item_search_fts) AS rank
-				FROM item_search_fts
-				WHERE item_search_fts MATCH ? AND user_id = ?
-				LIMIT ?`,
-			)
-				.bind(ftsQuery, userId, limit * 4)
-				.all<FtsMatchRow>();
+	// ⚡ Bolt: Execute FTS and Vector search concurrently since they are independent operations.
+	// Impact: Significantly reduces overall search latency by parallelizing database and AI model queries.
+	await Promise.all([
+		(async () => {
+			const ftsQuery = buildFtsQuery(query);
+			if (ftsQuery) {
+				try {
+					const ftsMatches = await env.KEEPROOT_DB.prepare(
+						`SELECT bookmark_id, bm25(item_search_fts) AS rank
+						FROM item_search_fts
+						WHERE item_search_fts MATCH ? AND user_id = ?
+						LIMIT ?`,
+					)
+						.bind(ftsQuery, userId, limit * 4)
+						.all<FtsMatchRow>();
 
-			ftsMatches.results.forEach((row, index) => {
-				const score = 1 / (1 + Math.max(index, 0) + Math.max(row.rank, 0));
-				keywordScores.set(row.bookmark_id, score);
-			});
-		} catch (error) {
-			console.warn('FTS query failed', error);
-		}
-	}
+					// ⚡ Bolt: Replace forEach with procedural for loop
+					for (let index = 0; index < ftsMatches.results.length; index += 1) {
+						const row = ftsMatches.results[index];
+						const score = 1 / (1 + index + Math.max(row.rank, 0));
+						keywordScores.set(row.bookmark_id, score);
+					}
+				} catch (error) {
+					console.warn('FTS query failed', error);
+				}
+			}
+		})(),
+		(async () => {
+			if (env.AI && env.KEEPROOT_VECTOR_INDEX) {
+				const embedding = await generateEmbedding(env, query);
+				if (embedding) {
+					try {
+						const vectorMatches = await env.KEEPROOT_VECTOR_INDEX.query(embedding, {
+							filter: {
+								userId: { $eq: userId },
+							},
+							returnMetadata: 'all',
+							topK: limit * 4,
+						});
 
-	if (env.AI && env.KEEPROOT_VECTOR_INDEX) {
-		const embedding = await generateEmbedding(env, query);
-		if (embedding) {
-			try {
-				const vectorMatches = await env.KEEPROOT_VECTOR_INDEX.query(embedding, {
-					filter: {
-						userId: { $eq: userId },
-					},
-					returnMetadata: 'all',
-					topK: limit * 4,
-				});
-
-				vectorMatches.matches.forEach((match, index) => {
-					const metadata = match.metadata as Record<string, unknown> | undefined;
-					const tags: string[] = [];
-					const metadataTags = metadata?.tags;
-					if (Array.isArray(metadataTags)) {
-						for (let i = 0; i < metadataTags.length; i += 1) {
-							const tag = metadataTags[i];
-							if (typeof tag === 'string') {
-								tags.push(tag);
+						// ⚡ Bolt: Replace forEach with procedural for loop
+						for (let index = 0; index < vectorMatches.matches.length; index += 1) {
+							const match = vectorMatches.matches[index];
+							const metadata = match.metadata as Record<string, unknown> | undefined;
+							const tags: string[] = [];
+							const metadataTags = metadata?.tags;
+							if (Array.isArray(metadataTags)) {
+								for (let i = 0; i < metadataTags.length; i += 1) {
+									const tag = metadataTags[i];
+									if (typeof tag === 'string') {
+										tags.push(tag);
+									}
+								}
+							}
+							const record = {
+								domain: typeof metadata?.domain === 'string' ? metadata.domain : null,
+								sourceId: typeof metadata?.sourceId === 'string' && metadata.sourceId !== '' ? metadata.sourceId : null,
+								status: typeof metadata?.status === 'string' ? metadata.status : 'saved',
+								tags,
+							};
+							bookmarkMeta.set(match.id, record);
+							if (matchesSearchFilters(record, options)) {
+								semanticScores.set(match.id, 1 / (1 + index) + match.score);
 							}
 						}
+					} catch (error) {
+						console.warn('Vector search failed', error);
 					}
-					const record = {
-						domain: typeof metadata?.domain === 'string' ? metadata.domain : null,
-						sourceId: typeof metadata?.sourceId === 'string' && metadata.sourceId !== '' ? metadata.sourceId : null,
-						status: typeof metadata?.status === 'string' ? metadata.status : 'saved',
-						tags,
-					};
-					bookmarkMeta.set(match.id, record);
-					if (matchesSearchFilters(record, options)) {
-						semanticScores.set(match.id, 1 / (1 + index) + match.score);
-					}
-				});
-			} catch (error) {
-				console.warn('Vector search failed', error);
+				}
 			}
-		}
-	}
+		})(),
+	]);
 
 	if (semanticScores.size === 0) {
 		const candidates = await env.KEEPROOT_DB.prepare(
