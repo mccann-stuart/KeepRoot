@@ -721,14 +721,34 @@ export async function saveBookmark(
 	};
 
 	if (hydratedImages.length) {
-		for (const image of hydratedImages) {
+		// ⚡ Bolt: Execute image hash generation in parallel to reduce sequential waiting time,
+		// but process the results sequentially to preserve the original array order.
+		const imagePromises = [];
+		for (let i = 0; i < hydratedImages.length; i += 1) {
+			const image = hydratedImages[i];
 			if (!image.dataBase64) {
 				continue;
 			}
 			const bytes = base64ToUint8Array(image.dataBase64);
-			const imageHash = await sha256Hex(bytes);
+			imagePromises.push(
+				sha256Hex(bytes).then((imageHash) => ({
+					image,
+					imageHash,
+				}))
+			);
+		}
+
+		const processedImages = await Promise.all(imagePromises);
+
+		// ⚡ Bolt: Consolidate URL rewrites into a single Map using a procedural loop to avoid
+		// O(N*M) document scans for multiple images.
+		const rewriteMap = new Map<string, string>();
+
+		for (let i = 0; i < processedImages.length; i += 1) {
+			const { image, imageHash } = processedImages[i];
 			const variant = normalizeVariant(image.variant);
 			const imageKey = variant === 'original' ? `images/${imageHash}` : `thumbs/${imageHash}/${variant}`;
+
 			contentDocument.images.push({
 				height: image.height ?? null,
 				imageHash,
@@ -746,11 +766,17 @@ export async function saveBookmark(
 
 			if (sourceCandidates.length) {
 				const rewrittenImagePath = `/${imageKey}`;
-				const rewriteMap = new Map(sourceCandidates.map((candidate) => [candidate, rewrittenImagePath]));
-				rewrittenMarkdownData = rewriteMarkdownImageUrls(rewrittenMarkdownData, rewriteMap);
-				if (rewrittenHtmlData) {
-					rewrittenHtmlData = rewriteHtmlImageUrls(rewrittenHtmlData, rewriteMap);
+				for (let j = 0; j < sourceCandidates.length; j += 1) {
+					rewriteMap.set(sourceCandidates[j], rewrittenImagePath);
 				}
+			}
+		}
+
+		// ⚡ Bolt: Apply string replacements exactly once rather than in a nested loop.
+		if (rewriteMap.size > 0) {
+			rewrittenMarkdownData = rewriteMarkdownImageUrls(rewrittenMarkdownData, rewriteMap);
+			if (rewrittenHtmlData) {
+				rewrittenHtmlData = rewriteHtmlImageUrls(rewrittenHtmlData, rewriteMap);
 			}
 		}
 	}
