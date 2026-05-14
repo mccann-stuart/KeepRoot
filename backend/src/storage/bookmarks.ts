@@ -721,36 +721,57 @@ export async function saveBookmark(
 	};
 
 	if (hydratedImages.length) {
-		for (const image of hydratedImages) {
-			if (!image.dataBase64) {
-				continue;
-			}
-			const bytes = base64ToUint8Array(image.dataBase64);
-			const imageHash = await sha256Hex(bytes);
-			const variant = normalizeVariant(image.variant);
-			const imageKey = variant === 'original' ? `images/${imageHash}` : `thumbs/${imageHash}/${variant}`;
-			contentDocument.images.push({
-				height: image.height ?? null,
-				imageHash,
-				key: imageKey,
-				type: image.contentType ?? null,
-				variant: image.variant ?? null,
-				width: image.width ?? null,
-			});
-
-			const sourceCandidates = image.sourceCandidates?.length
-				? image.sourceCandidates
-				: image.sourceUrl
-					? buildImageSourceCandidates(image.sourceUrl, normalizedUrl)
-					: [];
-
-			if (sourceCandidates.length) {
-				const rewrittenImagePath = `/${imageKey}`;
-				const rewriteMap = new Map(sourceCandidates.map((candidate) => [candidate, rewrittenImagePath]));
-				rewrittenMarkdownData = rewriteMarkdownImageUrls(rewrittenMarkdownData, rewriteMap);
-				if (rewrittenHtmlData) {
-					rewrittenHtmlData = rewriteHtmlImageUrls(rewrittenHtmlData, rewriteMap);
+		// ⚡ Bolt: Parallelize image hashing and consolidate rewrite maps to avoid O(N*M) document scans
+		const processedImages = await Promise.all(
+			hydratedImages.map(async (image) => {
+				if (!image.dataBase64) {
+					return null;
 				}
+				const bytes = base64ToUint8Array(image.dataBase64);
+				const imageHash = await sha256Hex(bytes);
+				const variant = normalizeVariant(image.variant);
+				const imageKey = variant === 'original' ? `images/${imageHash}` : `thumbs/${imageHash}/${variant}`;
+
+				const sourceCandidates = image.sourceCandidates?.length
+					? image.sourceCandidates
+					: image.sourceUrl
+						? buildImageSourceCandidates(image.sourceUrl, normalizedUrl)
+						: [];
+
+				return {
+					documentImage: {
+						height: image.height ?? null,
+						imageHash,
+						key: imageKey,
+						type: image.contentType ?? null,
+						variant: image.variant ?? null,
+						width: image.width ?? null,
+					},
+					imageKey,
+					sourceCandidates,
+				};
+			})
+		);
+
+		const consolidatedRewriteMap = new Map<string, string>();
+
+		for (const processed of processedImages) {
+			if (!processed) continue;
+
+			contentDocument.images.push(processed.documentImage);
+
+			if (processed.sourceCandidates.length) {
+				const rewrittenImagePath = `/${processed.imageKey}`;
+				for (const candidate of processed.sourceCandidates) {
+					consolidatedRewriteMap.set(candidate, rewrittenImagePath);
+				}
+			}
+		}
+
+		if (consolidatedRewriteMap.size > 0) {
+			rewrittenMarkdownData = rewriteMarkdownImageUrls(rewrittenMarkdownData, consolidatedRewriteMap);
+			if (rewrittenHtmlData) {
+				rewrittenHtmlData = rewriteHtmlImageUrls(rewrittenHtmlData, consolidatedRewriteMap);
 			}
 		}
 	}
