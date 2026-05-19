@@ -79,7 +79,7 @@ export function resolveCorsOrigin(request: Request, env?: StorageEnv): string | 
 	}
 
 	const requestUrlOrigin = new URL(request.url).origin;
-	return isAllowedRequestOrigin(origin, requestUrlOrigin, env) ? origin : requestUrlOrigin;
+	return isAllowedRequestOrigin(origin, requestUrlOrigin, env) ? origin : null;
 }
 
 export function applyCorsHeaders(request: Request, headers: Headers, env?: StorageEnv): Headers {

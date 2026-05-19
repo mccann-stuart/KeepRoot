@@ -430,7 +430,7 @@ describe('KeepRoot Worker', () => {
 		expect(text).toBe('');
 	});
 
-	it('falls back to the request origin for unapproved extension origins', async () => {
+	it('does not return an allowed origin for unapproved extension origins', async () => {
 		const request = new Request('http://example.com/bookmarks', {
 			method: 'OPTIONS',
 			headers: {
@@ -442,10 +442,10 @@ describe('KeepRoot Worker', () => {
 		await waitOnExecutionContext(ctx);
 
 		expect(response.status).toBe(200);
-		expect(response.headers.get('Access-Control-Allow-Origin')).toBe('http://example.com');
+		expect(response.headers.has('Access-Control-Allow-Origin')).toBe(false);
 	});
 
-	it('returns the request origin as the allowed origin if the origin is not allowed', async () => {
+	it('does not return an allowed origin if the origin is not allowed', async () => {
 		const request = new Request('http://example.com/bookmarks', {
 			method: 'OPTIONS',
 			headers: {
@@ -457,7 +457,7 @@ describe('KeepRoot Worker', () => {
 		await waitOnExecutionContext(ctx);
 
 		expect(response.status).toBe(200);
-		expect(response.headers.get('Access-Control-Allow-Origin')).toBe('http://example.com');
+		expect(response.headers.has('Access-Control-Allow-Origin')).toBe(false);
 	});
 
 	it('authenticates with a valid API key', async () => {
