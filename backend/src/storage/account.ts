@@ -76,13 +76,14 @@ async function deleteVectorEntries(env: StorageEnv, vectorIds: string[]): Promis
 		return;
 	}
 
-	for (const chunk of chunkValues(vectorIds, 100)) {
-		try {
-			await env.KEEPROOT_VECTOR_INDEX.deleteByIds(chunk);
-		} catch (error) {
-			console.warn('Vector delete failed during user data clear', error);
-		}
-	}
+	// Optimization: Execute vector index chunk deletions concurrently to avoid N+1 network delays.
+	await Promise.all(
+		chunkValues(vectorIds, 100).map((chunk) =>
+			env.KEEPROOT_VECTOR_INDEX!.deleteByIds(chunk).catch((error) => {
+				console.warn('Vector delete failed during user data clear', error);
+			}),
+		),
+	);
 }
 
 async function deleteUnreferencedBucketObjects(env: StorageEnv, target: BucketReferenceTarget): Promise<void> {
