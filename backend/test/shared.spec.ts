@@ -1,7 +1,14 @@
 import { describe, expect, it } from 'vitest';
-import { bufferToBase64URL, base64URLToUint8Array, normalizeCanonicalUrl, validateSafeUrl } from '../src/storage/shared';
+import { bufferToBase64URL, base64URLToUint8Array, normalizeCanonicalUrl, validateSafeUrl, MAX_AUTO_FETCH_IMAGES } from '../src/storage/shared';
 
 describe('shared storage utilities', () => {
+	describe('Constants', () => {
+		it('exports MAX_AUTO_FETCH_IMAGES correctly', () => {
+			expect(MAX_AUTO_FETCH_IMAGES).toBe(12);
+			expect(typeof MAX_AUTO_FETCH_IMAGES).toBe('number');
+		});
+	});
+
 	describe('bufferToBase64URL', () => {
 		it('handles empty input', () => {
 			expect(bufferToBase64URL(new Uint8Array(0))).toBe('');
