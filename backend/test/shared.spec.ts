@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { bufferToBase64URL, base64URLToUint8Array, normalizeCanonicalUrl, validateSafeUrl } from '../src/storage/shared';
+import { bufferToBase64URL, base64URLToUint8Array, normalizeCanonicalUrl, validateSafeUrl, encoder } from '../src/storage/shared';
 
 describe('shared storage utilities', () => {
 	describe('bufferToBase64URL', () => {
@@ -155,6 +155,35 @@ describe('shared storage utilities', () => {
 			await expect(validateSafeUrl('http://224.0.0.1/feed')).resolves.toBe(false);
 			await expect(validateSafeUrl('http://240.0.0.1/feed')).resolves.toBe(false);
 			await expect(validateSafeUrl('http://0.0.0.0/feed')).resolves.toBe(false);
+		});
+	});
+
+	describe('encoder', () => {
+		it('is an instance of TextEncoder', () => {
+			expect(encoder).toBeInstanceOf(TextEncoder);
+		});
+
+		it('correctly encodes strings to Uint8Array', () => {
+			const text = 'Hello, world!';
+			const encoded = encoder.encode(text);
+			expect(encoded).toBeInstanceOf(Uint8Array);
+			expect(encoded.length).toBe(13);
+			// "Hello, world!" -> [72, 101, 108, 108, 111, 44, 32, 119, 111, 114, 108, 100, 33]
+			expect(encoded).toEqual(new Uint8Array([72, 101, 108, 108, 111, 44, 32, 119, 111, 114, 108, 100, 33]));
+		});
+
+		it('handles empty strings', () => {
+			const encoded = encoder.encode('');
+			expect(encoded).toBeInstanceOf(Uint8Array);
+			expect(encoded.length).toBe(0);
+		});
+
+		it('handles multi-byte unicode characters', () => {
+			const text = '👋🌍';
+			const encoded = encoder.encode(text);
+			expect(encoded).toBeInstanceOf(Uint8Array);
+			expect(encoded.length).toBe(8); // 4 bytes for wave, 4 bytes for earth
+			expect(encoded).toEqual(new Uint8Array([240, 159, 145, 139, 240, 159, 140, 141]));
 		});
 	});
 });
