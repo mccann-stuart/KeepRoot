@@ -16,3 +16,9 @@
 ## 2025-07-28 - Speculative Batching for D1 Queries
 **Learning:** In Cloudflare Workers, retrieving a record and its associated relational data (like a source and its recent runs) is often written sequentially: fetch parent -> if parent exists, fetch children. Because D1 queries carry significant HTTP overhead, this sequential approach forces two full network roundtrips. By executing both queries speculatively in a single `D1Database.batch()` call, an entire network roundtrip is eliminated. The trade-off is minor: if the parent query returns null, the speculative child query data is simply discarded.
 **Action:** When a secondary D1 read depends entirely on the initial input parameters (e.g., `sourceId`) and not the result of the primary query, execute them speculatively in a single `D1Database.batch()` call.
+## 2026-05-20 - Concurrent Vector Index Deletions
+**Learning:** Sequential network calls inside a loop ( chunk by chunk) create significant N+1 network latency delays.
+**Action:** Refactor these operations into concurrent executions using `Promise.all()` mapped directly over the chunks, which preserves error-handling per chunk while drastically reducing overall execution time.
+## 2026-05-20 - Concurrent Vector Index Deletions
+**Learning:** Sequential network calls inside a loop (`deleteByIds` chunk by chunk) create significant N+1 network latency delays.
+**Action:** Refactor these operations into concurrent executions using `Promise.all()` mapped directly over the chunks, which preserves error-handling per chunk while drastically reducing overall execution time.
