@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { bufferToBase64URL, base64URLToUint8Array, normalizeCanonicalUrl, validateSafeUrl } from '../src/storage/shared';
+import { bufferToBase64URL, base64URLToUint8Array, normalizeCanonicalUrl, validateSafeUrl, SESSION_TTL_SECONDS, MAX_AUTO_FETCH_IMAGES, encoder } from '../src/storage/shared';
 
 describe('shared storage utilities', () => {
 	describe('bufferToBase64URL', () => {
@@ -155,6 +155,22 @@ describe('shared storage utilities', () => {
 			await expect(validateSafeUrl('http://224.0.0.1/feed')).resolves.toBe(false);
 			await expect(validateSafeUrl('http://240.0.0.1/feed')).resolves.toBe(false);
 			await expect(validateSafeUrl('http://0.0.0.0/feed')).resolves.toBe(false);
+		});
+	});
+
+	describe('exported constants', () => {
+		it('SESSION_TTL_SECONDS should be 7 days in seconds', () => {
+			const expected = 60 * 60 * 24 * 7;
+			expect(SESSION_TTL_SECONDS).toBe(expected);
+		});
+
+		it('MAX_AUTO_FETCH_IMAGES should be 12', () => {
+			expect(MAX_AUTO_FETCH_IMAGES).toBe(12);
+		});
+
+		it('encoder should be an instance of TextEncoder', () => {
+			expect(encoder).toBeInstanceOf(TextEncoder);
+			expect(encoder.encode('test')).toEqual(new Uint8Array([116, 101, 115, 116]));
 		});
 	});
 });
