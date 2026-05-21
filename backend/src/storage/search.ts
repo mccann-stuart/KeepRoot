@@ -45,11 +45,12 @@ interface SearchResultRow {
 	score: number;
 }
 
+// ⚡ Bolt: Combined two regex replacements into a single pass that matches any sequence of non-alphanumeric characters (including whitespace) and replaces them with a single space.
+// Impact: Reduces regex execution time and intermediate string allocations when tokenizing large documents for Full-Text Search and semantic comparison.
 function normalizeText(value: string): string {
 	return value
 		.toLowerCase()
-		.replace(/[^a-z0-9\s]+/g, ' ')
-		.replace(/\s+/g, ' ')
+		.replace(/[^a-z0-9]+/g, ' ')
 		.trim();
 }
 

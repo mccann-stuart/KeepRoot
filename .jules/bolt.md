@@ -22,3 +22,6 @@
 ## 2026-05-20 - Concurrent Vector Index Deletions
 **Learning:** Sequential network calls inside a loop (`deleteByIds` chunk by chunk) create significant N+1 network latency delays.
 **Action:** Refactor these operations into concurrent executions using `Promise.all()` mapped directly over the chunks, which preserves error-handling per chunk while drastically reducing overall execution time.
+## 2024-05-18 - Single-Pass Regex Optimization for Tokenization
+**Learning:** Sequential `.replace()` operations (e.g., stripping non-alphanumeric characters and then collapsing whitespace) create unnecessary intermediate strings and require multiple full passes over the text, which is an overhead for large documents.
+**Action:** Combine them into a single regex pass (e.g., `/[^a-z0-9]+/g`) to match and replace sequences of targets (including native whitespace) in one go, dramatically reducing intermediate allocations.
