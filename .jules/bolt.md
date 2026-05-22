@@ -25,3 +25,6 @@
 ## 2024-05-18 - Single-Pass Regex Optimization for Tokenization
 **Learning:** Sequential `.replace()` operations (e.g., stripping non-alphanumeric characters and then collapsing whitespace) create unnecessary intermediate strings and require multiple full passes over the text, which is an overhead for large documents.
 **Action:** Combine them into a single regex pass (e.g., `/[^a-z0-9]+/g`) to match and replace sequences of targets (including native whitespace) in one go, dramatically reducing intermediate allocations.
+## 2024-11-20 - Fast String Tokenization
+**Learning:** Chaining string methods like `.replace(/[^a-z0-9]+/g, ' ').split(' ').filter(...)` in hot paths (like search indexing or semantic similarity) creates unnecessary intermediate string and array allocations. These allocations drastically increase Garbage Collection pressure and CPU time in memory-constrained environments like Cloudflare Workers.
+**Action:** Replace chained string operations with single-pass procedural loops using `charCodeAt` checks when extracting basic alphanumeric tokens to skip all intermediate allocations.
