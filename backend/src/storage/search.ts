@@ -45,19 +45,9 @@ interface SearchResultRow {
 	score: number;
 }
 
-// ⚡ Bolt: Combined two regex replacements into a single pass that matches any sequence of non-alphanumeric characters (including whitespace) and replaces them with a single space.
-// Impact: Reduces regex execution time and intermediate string allocations when tokenizing large documents for Full-Text Search and semantic comparison.
-function normalizeText(value: string): string {
-	return value
-		.toLowerCase()
-		.replace(/[^a-z0-9]+/g, ' ')
-		.trim();
-}
-
+// ⚡ Bolt: Replaced normalizeText, split, and filter with a single regex match to significantly reduce intermediate allocations and improve tokenization performance.
 function tokenize(value: string): string[] {
-	return normalizeText(value)
-		.split(' ')
-		.filter((token) => token.length > 1);
+	return value.toLowerCase().match(/[a-z0-9]{2,}/g) || [];
 }
 
 function buildFtsQuery(query: string): string | null {
