@@ -91,27 +91,34 @@ async function deleteUnreferencedBucketObjects(env: StorageEnv, target: BucketRe
 		return;
 	}
 
-	const removableKeys = new Set<string>();
+	const statements = [];
 	for (const chunk of chunkValues(target.keys, 50)) {
 		const placeholders = chunk.map(() => '?').join(', ');
-		const result = await env.KEEPROOT_DB.prepare(
-			`SELECT ${target.column} AS key
-			FROM ${target.table}
-			WHERE ${target.column} IN (${placeholders})`,
-		)
-			.bind(...chunk)
-			.all<{ key: string | null }>();
-
-		const referencedKeys = new Set(
-			result.results
-				.map((row) => row.key)
-				.filter((key): key is string => Boolean(key)),
+		statements.push(
+			env.KEEPROOT_DB.prepare(
+				`SELECT ${target.column} AS key
+				FROM ${target.table}
+				WHERE ${target.column} IN (${placeholders})`,
+			).bind(...chunk)
 		);
+	}
 
-		for (const key of chunk) {
-			if (!referencedKeys.has(key)) {
-				removableKeys.add(key);
+	// ⚡ Bolt: Execute reference checks in a single batch roundtrip to minimize network latency and use procedural loops to minimize memory allocations
+	const batchResults = await env.KEEPROOT_DB.batch<{ key: string | null }>(statements);
+
+	const referencedKeys = new Set<string>();
+	for (const result of batchResults) {
+		for (const row of result.results) {
+			if (row.key) {
+				referencedKeys.add(row.key);
 			}
+		}
+	}
+
+	const removableKeys = new Set<string>();
+	for (const key of target.keys) {
+		if (!referencedKeys.has(key)) {
+			removableKeys.add(key);
 		}
 	}
 
