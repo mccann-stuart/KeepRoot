@@ -91,27 +91,36 @@ async function deleteUnreferencedBucketObjects(env: StorageEnv, target: BucketRe
 		return;
 	}
 
-	const removableKeys = new Set<string>();
-	for (const chunk of chunkValues(target.keys, 50)) {
+	// ⚡ Bolt: Use D1Database.batch() to execute all chunked queries in a single network roundtrip, reducing N+1 latency.
+	const chunks = chunkValues(target.keys, 50);
+	const statements = chunks.map((chunk) => {
 		const placeholders = chunk.map(() => '?').join(', ');
-		const result = await env.KEEPROOT_DB.prepare(
+		return env.KEEPROOT_DB.prepare(
 			`SELECT ${target.column} AS key
 			FROM ${target.table}
 			WHERE ${target.column} IN (${placeholders})`,
-		)
-			.bind(...chunk)
-			.all<{ key: string | null }>();
+		).bind(...chunk);
+	});
 
-		const referencedKeys = new Set(
-			result.results
-				.map((row) => row.key)
-				.filter((key): key is string => Boolean(key)),
-		);
+	const results = await env.KEEPROOT_DB.batch<{ key: string | null }>(statements);
 
-		for (const key of chunk) {
-			if (!referencedKeys.has(key)) {
-				removableKeys.add(key);
+	// ⚡ Bolt: Aggregate results using a procedural loop to avoid intermediate array allocations.
+	const referencedKeys = new Set<string>();
+	for (let i = 0; i < results.length; i += 1) {
+		const chunkResults = results[i].results;
+		for (let j = 0; j < chunkResults.length; j += 1) {
+			const key = chunkResults[j].key;
+			if (key) {
+				referencedKeys.add(key);
 			}
+		}
+	}
+
+	const removableKeys = new Set<string>();
+	for (let i = 0; i < target.keys.length; i += 1) {
+		const key = target.keys[i];
+		if (!referencedKeys.has(key)) {
+			removableKeys.add(key);
 		}
 	}
 

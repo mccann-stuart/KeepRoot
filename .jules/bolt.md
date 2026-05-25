@@ -25,3 +25,6 @@
 ## 2024-05-18 - Single-Pass Regex Optimization for Tokenization
 **Learning:** Sequential `.replace()` operations (e.g., stripping non-alphanumeric characters and then collapsing whitespace) create unnecessary intermediate strings and require multiple full passes over the text, which is an overhead for large documents.
 **Action:** Combine them into a single regex pass (e.g., `/[^a-z0-9]+/g`) to match and replace sequences of targets (including native whitespace) in one go, dramatically reducing intermediate allocations.
+## 2024-05-25 - Batch Chunked Read Queries in D1
+**Learning:** Sequential network calls inside a loop evaluating chunked data blocks (`env.KEEPROOT_DB.prepare(..).all()`) causes N+1 latency issues with D1, particularly during multi-phase tasks like garbage collecting objects from buckets based on database references. Using `D1Database.batch` to issue all chunked queries upfront completely nullifies the iterative loop overhead.
+**Action:** When a dataset needs to be chunked to respect SQLite statement limitations (e.g. `IN (...)` bounds) for sequential reads, build the statement array iteratively but submit it all at once with `D1Database.batch`.
