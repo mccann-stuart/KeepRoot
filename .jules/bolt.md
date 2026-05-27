@@ -28,3 +28,6 @@
 ## 2024-05-25 - Batch Chunked Read Queries in D1
 **Learning:** Sequential network calls inside a loop evaluating chunked data blocks (`env.KEEPROOT_DB.prepare(..).all()`) causes N+1 latency issues with D1, particularly during multi-phase tasks like garbage collecting objects from buckets based on database references. Using `D1Database.batch` to issue all chunked queries upfront completely nullifies the iterative loop overhead.
 **Action:** When a dataset needs to be chunked to respect SQLite statement limitations (e.g. `IN (...)` bounds) for sequential reads, build the statement array iteratively but submit it all at once with `D1Database.batch`.
+## 2026-05-27 - Optimize ISO 8601 Date Sorting
+**Learning:** For optimal sorting of ISO 8601 date strings in performance-critical environments (like Cloudflare Workers), use native string comparison operators (`<` and `>`) instead of `String.prototype.localeCompare()`. Native operators execute significantly faster while yielding the exact same lexicographical sort order without the cultural collation overhead.
+**Action:** Replace `localeCompare()` with native operators when sorting strict ISO 8601 formatted date strings.

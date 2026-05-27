@@ -999,7 +999,13 @@ export async function listBookmarks(env: StorageEnv, userId: string, options?: {
 		resultBookmarks.sort((a, b) => {
 			if (a.pinned !== b.pinned) return b.pinned - a.pinned;
 			if (a.sort_order !== b.sort_order) return a.sort_order - b.sort_order;
-			return String(b.created_at).localeCompare(String(a.created_at));
+
+			// ⚡ Bolt: Using native string comparison operators for ISO 8601 date strings avoids the heavy performance overhead of String.prototype.localeCompare().
+			const sa = String(a.created_at);
+			const sb = String(b.created_at);
+			if (sa < sb) return 1;
+			if (sa > sb) return -1;
+			return 0;
 		});
 
 	} else {
