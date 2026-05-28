@@ -11,3 +11,8 @@
 **Vulnerability:** The `resolveCorsOrigin` function incorrectly returned the server's own request URL origin as a fallback when an incoming origin was not explicitly permitted (e.g., an unapproved browser extension or malicious origin).
 **Learning:** This implementation caused any unapproved origin to receive a valid, seemingly permissive CORS response (if the frontend implicitly trusted its own origin logic without strict validation), creating a false sense of security or potential bypass in environments that rely solely on `Access-Control-Allow-Origin` presence. It violated the principle of least privilege.
 **Prevention:** Always default to explicitly returning `null` or refusing to set the `Access-Control-Allow-Origin` header entirely when an origin is not explicitly approved, rather than falling back to the server's own origin.
+
+## 2025-05-28 - SSRF Bypass via Alternate IP Encodings
+**Vulnerability:** The application's `isUnsafeIpAddress` function blocked private IP ranges (like 127.0.0.1) but failed to block alternate encodings like decimal integer (e.g., `2130706433`), hexadecimal, or octal IPs. Since the underlying `fetch` implementation resolves these encodings back to local IP addresses, this permitted a full Server-Side Request Forgery (SSRF) bypass.
+**Learning:** URL string normalization doesn't always automatically expand or simplify IP encodings before validation logic executes unless explicitly parsed down to the individual numerical values.
+**Prevention:** Always implement IP parsing logic that handles alternate encodings (decimal, hex, octal formats) and converts them into standard quad-dotted representations before evaluating them against safety blocklists.
