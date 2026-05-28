@@ -81,8 +81,13 @@ function tokenFrequency(tokens: string[]): Map<string, number> {
 
 // ⚡ Bolt: By accepting pre-calculated query frequencies and magnitude, we avoid redundant calculations in a hot loop.
 // Impact: Significantly reduces the CPU overhead of hydrating candidate search scores.
-function cosineSimilarity(queryFrequencies: Map<string, number>, queryMagnitude: number, right: string): number {
+function cosineSimilarity(queryFrequencies: Map<string, number>, queryMagnitude: number, right: string, queryRegex: RegExp | null): number {
 	if (queryMagnitude === 0) {
+		return 0;
+	}
+
+	// ⚡ Bolt: Fast-path regex check prevents expensive tokenization and string allocations for documents with no matching tokens.
+	if (queryRegex && !queryRegex.test(right)) {
 		return 0;
 	}
 
@@ -93,14 +98,20 @@ function cosineSimilarity(queryFrequencies: Map<string, number>, queryMagnitude:
 
 	const rightFrequencies = tokenFrequency(rightTokens);
 	let dotProduct = 0;
-	let rightMagnitude = 0;
 
-	for (const value of rightFrequencies.values()) {
-		rightMagnitude += value * value;
-	}
 	for (const [token, queryValue] of queryFrequencies.entries()) {
 		const rightValue = rightFrequencies.get(token) ?? 0;
 		dotProduct += queryValue * rightValue;
+	}
+
+	// ⚡ Bolt: Early return before calculating document magnitude if dot product is 0 (no shared tokens despite regex match).
+	if (dotProduct === 0) {
+		return 0;
+	}
+
+	let rightMagnitude = 0;
+	for (const value of rightFrequencies.values()) {
+		rightMagnitude += value * value;
 	}
 
 	if (rightMagnitude === 0) {
@@ -425,6 +436,9 @@ export async function searchBookmarkIds(
 			queryMagnitude += value * value;
 		}
 
+		const queryTokensArr = [...queryFrequencies.keys()];
+		const queryRegex = queryTokensArr.length > 0 ? new RegExp(queryTokensArr.join('|'), 'i') : null;
+
 		for (const row of candidates.results) {
 			const documentText = [
 				row.title ?? '',
@@ -433,7 +447,7 @@ export async function searchBookmarkIds(
 				row.excerpt ?? '',
 				row.body_text ?? '',
 			].join('\n');
-			const score = cosineSimilarity(queryFrequencies, queryMagnitude, documentText);
+			const score = cosineSimilarity(queryFrequencies, queryMagnitude, documentText, queryRegex);
 			if (score > 0) {
 				semanticScores.set(row.bookmark_id, score);
 			}
