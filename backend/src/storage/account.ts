@@ -129,12 +129,9 @@ async function deleteUnreferencedBucketObjects(env: StorageEnv, target: BucketRe
 	);
 }
 
-export async function ensureAccountSettings(
-	env: StorageEnv,
-	user: Pick<AuthenticatedUser, 'userId' | 'username'>,
-): Promise<void> {
+export function getEnsureAccountSettingsStatement(env: StorageEnv, user: Pick<AuthenticatedUser, 'userId' | 'username'>): D1PreparedStatement {
 	const now = new Date().toISOString();
-	await env.KEEPROOT_DB.prepare(
+	return env.KEEPROOT_DB.prepare(
 		`INSERT OR IGNORE INTO account_settings
 		(user_id, plan_code, display_name, limits_json, features_json, created_at, updated_at)
 		VALUES (?, 'self_hosted', ?, ?, ?, ?, ?)`,
@@ -146,24 +143,33 @@ export async function ensureAccountSettings(
 			JSON.stringify(getDefaultFeatures(env)),
 			now,
 			now,
-		)
-		.run();
+		);
+}
+
+export async function ensureAccountSettings(
+	env: StorageEnv,
+	user: Pick<AuthenticatedUser, 'userId' | 'username'>,
+): Promise<void> {
+	await getEnsureAccountSettingsStatement(env, user).run();
 }
 
 export async function getWhoAmI(
 	env: StorageEnv,
 	user: AuthenticatedUser,
 ): Promise<Record<string, unknown>> {
-	await ensureAccountSettings(env, user);
+	// ⚡ Bolt: Using D1Database.batch() replaces multiple separate HTTP network roundtrips with a single roundtrip.
+	// Impact: Significantly reduces latency when fetching user profile and ensuring default settings exist.
+	const [insertResult, selectResult] = await env.KEEPROOT_DB.batch([
+		getEnsureAccountSettingsStatement(env, user),
+		env.KEEPROOT_DB.prepare(
+			`SELECT user_id, plan_code, display_name, limits_json, features_json, created_at, updated_at
+			FROM account_settings
+			WHERE user_id = ?
+			LIMIT 1`,
+		).bind(user.userId),
+	]);
 
-	const settings = await env.KEEPROOT_DB.prepare(
-		`SELECT user_id, plan_code, display_name, limits_json, features_json, created_at, updated_at
-		FROM account_settings
-		WHERE user_id = ?
-		LIMIT 1`,
-	)
-		.bind(user.userId)
-		.first<AccountSettingsRow>();
+	const settings = selectResult.results[0] as AccountSettingsRow | undefined;
 
 	const features = settings ? parseJsonObject(settings.features_json, getDefaultFeatures(env)) : getDefaultFeatures(env);
 	const limits = settings ? parseJsonObject(settings.limits_json, getDefaultLimits()) : getDefaultLimits();
