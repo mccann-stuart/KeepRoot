@@ -31,3 +31,6 @@
 ## 2026-05-27 - Optimize ISO 8601 Date Sorting
 **Learning:** For optimal sorting of ISO 8601 date strings in performance-critical environments (like Cloudflare Workers), use native string comparison operators (`<` and `>`) instead of `String.prototype.localeCompare()`. Native operators execute significantly faster while yielding the exact same lexicographical sort order without the cultural collation overhead.
 **Action:** Replace `localeCompare()` with native operators when sorting strict ISO 8601 formatted date strings.
+## 2026-05-29 - Speculative Batching for D1 Write and Read
+**Learning:** Sequential network calls where a default settings `INSERT OR IGNORE` is followed by a `SELECT` fetch create N+1 latency delays with D1 databases. The two statements can be safely batched together using `D1Database.batch()`, saving an entire network roundtrip.
+**Action:** When initializing and fetching default configurations, execute the `INSERT OR IGNORE` and `SELECT` queries concurrently using `D1Database.batch()` to avoid sequential HTTP overhead.
