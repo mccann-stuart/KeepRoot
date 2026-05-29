@@ -156,7 +156,11 @@ async function resolveYouTubePollUrl(identifier: string): Promise<{ normalizedId
 				if (!location) {
 					break;
 				}
-				currentUrl = new URL(location, currentUrl).toString();
+				try {
+					currentUrl = new URL(location, currentUrl).toString();
+				} catch {
+					break;
+				}
 				redirectCount += 1;
 				continue;
 			}
