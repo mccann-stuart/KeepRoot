@@ -105,12 +105,23 @@ export async function getUsageStats(env: StorageEnv, userId: string): Promise<Re
 		).bind(userId),
 	]);
 
+	// ⚡ Bolt: Using procedural loops to populate dictionaries directly avoids intermediate array allocations and function execution context overhead created by .map() followed by Object.fromEntries().
+	const itemsByStatus: Record<string, number> = {};
+	for (const row of itemsByStatusResult.results as SourceKindCountRow[]) {
+		itemsByStatus[row.kind] = row.count;
+	}
+
+	const sourcesByKind: Record<string, number> = {};
+	for (const row of sourcesByKindResult.results as SourceKindCountRow[]) {
+		sourcesByKind[row.kind] = row.count;
+	}
+
 	return compactObject({
 		inbox: {
 			pending: (pendingInboxResult.results[0] as CountRow | undefined)?.count ?? 0,
 		},
 		items: {
-			byStatus: Object.fromEntries((itemsByStatusResult.results as SourceKindCountRow[]).map((row) => [row.kind, row.count])),
+			byStatus: itemsByStatus,
 			total: (totalItemsResult.results[0] as CountRow | undefined)?.count ?? 0,
 		},
 		recentToolUsage: (toolUsageResult.results as ToolUsageRow[]).map((row) => ({
@@ -128,7 +139,7 @@ export async function getUsageStats(env: StorageEnv, userId: string): Promise<Re
 			status: row.status,
 		})),
 		sources: {
-			byKind: Object.fromEntries((sourcesByKindResult.results as SourceKindCountRow[]).map((row) => [row.kind, row.count])),
+			byKind: sourcesByKind,
 			total: (totalSourcesResult.results[0] as CountRow | undefined)?.count ?? 0,
 		},
 	});
