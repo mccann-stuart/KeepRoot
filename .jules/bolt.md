@@ -34,3 +34,6 @@
 ## 2026-05-29 - Speculative Batching for D1 Write and Read
 **Learning:** Sequential network calls where a default settings `INSERT OR IGNORE` is followed by a `SELECT` fetch create N+1 latency delays with D1 databases. The two statements can be safely batched together using `D1Database.batch()`, saving an entire network roundtrip.
 **Action:** When initializing and fetching default configurations, execute the `INSERT OR IGNORE` and `SELECT` queries concurrently using `D1Database.batch()` to avoid sequential HTTP overhead.
+## 2026-05-31 - [Avoid intermediate object allocation and tuple arrays for .map() inside Object.fromEntries()]
+**Learning:** Chaining `.map()` directly inside `Object.fromEntries()` creates intermediate arrays and tuple arrays (e.g., `[[key1, val1], [key2, val2]]`) that must immediately be GC'd. In Cloudflare Workers where memory allocation can be slow, this generates unnecessary GC pressure, especially when hydrating search results or building complex payload records.
+**Action:** Replace `Object.fromEntries(array.map(...))` and chained `.map()` array assignments with a pre-initialized Record or Array and a standard `for...of` loop, significantly cutting down on function execution context overhead and intermediate tuple array allocations.

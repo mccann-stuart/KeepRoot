@@ -105,20 +105,20 @@ export async function getUsageStats(env: StorageEnv, userId: string): Promise<Re
 		).bind(userId),
 	]);
 
-	return compactObject({
-		inbox: {
-			pending: (pendingInboxResult.results[0] as CountRow | undefined)?.count ?? 0,
-		},
-		items: {
-			byStatus: Object.fromEntries((itemsByStatusResult.results as SourceKindCountRow[]).map((row) => [row.kind, row.count])),
-			total: (totalItemsResult.results[0] as CountRow | undefined)?.count ?? 0,
-		},
-		recentToolUsage: (toolUsageResult.results as ToolUsageRow[]).map((row) => ({
-			count: row.count,
-			status: row.status,
-			toolName: row.tool_name,
-		})),
-		sourceHealth: (sourceHealthResult.results as SourceHealthRow[]).map((row) => compactObject({
+	// ⚡ Bolt: Using procedural for...of loops instead of Object.fromEntries(array.map(...)) and array.map(...) prevents intermediate array and tuple allocations, significantly reducing GC pressure.
+	const itemsByStatus: Record<string, number> = {};
+	for (const row of itemsByStatusResult.results as SourceKindCountRow[]) {
+		itemsByStatus[row.kind] = row.count;
+	}
+
+	const recentToolUsage: Array<{ count: number; status: string; toolName: string }> = [];
+	for (const row of toolUsageResult.results as ToolUsageRow[]) {
+		recentToolUsage.push({ count: row.count, status: row.status, toolName: row.tool_name });
+	}
+
+	const sourceHealth: Array<Record<string, unknown>> = [];
+	for (const row of sourceHealthResult.results as SourceHealthRow[]) {
+		sourceHealth.push(compactObject({
 			id: row.id,
 			kind: row.kind,
 			lastError: row.last_error,
@@ -126,9 +126,26 @@ export async function getUsageStats(env: StorageEnv, userId: string): Promise<Re
 			lastSuccessAt: row.last_success_at,
 			name: row.name,
 			status: row.status,
-		})),
+		}));
+	}
+
+	const sourcesByKind: Record<string, number> = {};
+	for (const row of sourcesByKindResult.results as SourceKindCountRow[]) {
+		sourcesByKind[row.kind] = row.count;
+	}
+
+	return compactObject({
+		inbox: {
+			pending: (pendingInboxResult.results[0] as CountRow | undefined)?.count ?? 0,
+		},
+		items: {
+			byStatus: itemsByStatus,
+			total: (totalItemsResult.results[0] as CountRow | undefined)?.count ?? 0,
+		},
+		recentToolUsage,
+		sourceHealth,
 		sources: {
-			byKind: Object.fromEntries((sourcesByKindResult.results as SourceKindCountRow[]).map((row) => [row.kind, row.count])),
+			byKind: sourcesByKind,
 			total: (totalSourcesResult.results[0] as CountRow | undefined)?.count ?? 0,
 		},
 	});
