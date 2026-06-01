@@ -34,3 +34,6 @@
 ## 2026-05-29 - Speculative Batching for D1 Write and Read
 **Learning:** Sequential network calls where a default settings `INSERT OR IGNORE` is followed by a `SELECT` fetch create N+1 latency delays with D1 databases. The two statements can be safely batched together using `D1Database.batch()`, saving an entire network roundtrip.
 **Action:** When initializing and fetching default configurations, execute the `INSERT OR IGNORE` and `SELECT` queries concurrently using `D1Database.batch()` to avoid sequential HTTP overhead.
+## $(date +%Y-%m-%d) - Object Initialization Allocation Overhead
+**Learning:** In V8 and Cloudflare Workers, chaining `.map()` inside `Object.fromEntries()` (e.g., `Object.fromEntries(array.map(row => [row.key, row.value]))`) is an anti-pattern for performance-critical functions. It forces the allocation of intermediate tuple arrays and executes a callback function for every element, just to build an object. This significantly increases memory footprint, garbage collection pressure, and CPU cycles overhead.
+**Action:** Always replace `Object.fromEntries(array.map(...))` with a procedural `for...of` loop that directly assigns keys and values to a locally initialized `Record` object to eliminate intermediate array allocations.
