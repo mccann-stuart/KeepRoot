@@ -34,3 +34,6 @@
 ## 2026-05-29 - Speculative Batching for D1 Write and Read
 **Learning:** Sequential network calls where a default settings `INSERT OR IGNORE` is followed by a `SELECT` fetch create N+1 latency delays with D1 databases. The two statements can be safely batched together using `D1Database.batch()`, saving an entire network roundtrip.
 **Action:** When initializing and fetching default configurations, execute the `INSERT OR IGNORE` and `SELECT` queries concurrently using `D1Database.batch()` to avoid sequential HTTP overhead.
+## 2026-05-30 - Concurrent Cloudflare Worker Queue Consumers
+**Learning:** Sequential `for (const message of batch.messages)` loops inside Cloudflare Worker Queue consumer handlers create massive N+1 latency blocks, especially when processing items that require network-bound operations (like fetching URLs or calling AI models for embeddings).
+**Action:** When a batch of queue messages can be processed independently, use `Promise.allSettled()` to process them concurrently. This overlaps the network I/O wait times. Throwing the first encountered rejection ensures the batch is still safely retried by the CF Queue mechanism without losing any data integrity.
