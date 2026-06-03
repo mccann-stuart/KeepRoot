@@ -223,21 +223,21 @@ export async function searchItems(env: StorageEnv, userId: string, options: Item
 		itemMap.set(item.id, item);
 	}
 
-	return {
-		items: matches
-			.map<SearchItemResult | null>((match) => {
-				const item = itemMap.get(match.id);
-				if (!item) {
-					return null;
-				}
+	// ⚡ Bolt: Use a procedural loop to construct the search result array directly.
+	// Impact: Eliminates the allocation of an intermediate tuple array (from .map()) that would otherwise contain multiple nulls before .filter()
+	const items: SearchItemResult[] = [];
+	for (let i = 0; i < matches.length; i += 1) {
+		const match = matches[i];
+		const item = itemMap.get(match.id);
+		if (item) {
+			items.push(compactObject({
+				id: item.id,
+				matchReason: match.matchReason,
+				score: match.score,
+				metadata: item.metadata,
+			}));
+		}
+	}
 
-				return compactObject({
-					id: item.id,
-					matchReason: match.matchReason,
-					score: match.score,
-					metadata: item.metadata,
-				});
-			})
-			.filter((item): item is SearchItemResult => item !== null),
-	};
+	return { items };
 }

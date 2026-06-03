@@ -504,12 +504,12 @@ export async function searchBookmarkIds(
 		}
 	}
 
-	const ranked = [...candidateIds]
-		.filter((id) => {
-			const metadata = bookmarkMeta.get(id);
-			return metadata ? matchesSearchFilters(metadata, options) : false;
-		})
-		.map<SearchResultRow & { keywordScore: number }>((id) => {
+	// ⚡ Bolt: Using a procedural loop replaces a 5-step array method chain (.filter, .map, .sort, .slice, .map)
+	// Impact: Prevents the allocation of multiple intermediate tuple arrays, significantly reducing GC pressure.
+	const candidates: Array<SearchResultRow & { keywordScore: number }> = [];
+	for (const id of candidateIds) {
+		const metadata = bookmarkMeta.get(id);
+		if (metadata && matchesSearchFilters(metadata, options)) {
 			const keywordScore = keywordScores.get(id) ?? 0;
 			const semanticScore = semanticScores.get(id) ?? 0;
 			const matchReason: MatchReason = keywordScore > 0 && semanticScore > 0
@@ -517,19 +517,27 @@ export async function searchBookmarkIds(
 				: keywordScore > 0
 					? 'keyword'
 					: 'semantic';
-			return {
+			candidates.push({
 				id,
 				keywordScore,
 				matchReason,
 				score: keywordScore + semanticScore,
-			};
-		})
-		.sort((left, right) => right.score - left.score)
-		.slice(0, limit);
+			});
+		}
+	}
 
-	return ranked.map((entry) => ({
-		id: entry.id,
-		matchReason: entry.matchReason,
-		score: entry.score,
-	}));
+	candidates.sort((left, right) => right.score - left.score);
+
+	const ranked = candidates.slice(0, limit);
+	const results: SearchResultRow[] = [];
+	for (let i = 0; i < ranked.length; i += 1) {
+		const entry = ranked[i];
+		results.push({
+			id: entry.id,
+			matchReason: entry.matchReason,
+			score: entry.score,
+		});
+	}
+
+	return results;
 }
