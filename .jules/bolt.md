@@ -37,3 +37,6 @@
 ## $(date +%Y-%m-%d) - Object Initialization Allocation Overhead
 **Learning:** In V8 and Cloudflare Workers, chaining `.map()` inside `Object.fromEntries()` (e.g., `Object.fromEntries(array.map(row => [row.key, row.value]))`) is an anti-pattern for performance-critical functions. It forces the allocation of intermediate tuple arrays and executes a callback function for every element, just to build an object. This significantly increases memory footprint, garbage collection pressure, and CPU cycles overhead.
 **Action:** Always replace `Object.fromEntries(array.map(...))` with a procedural `for...of` loop that directly assigns keys and values to a locally initialized `Record` object to eliminate intermediate array allocations.
+## $(date +%Y-%m-%d) - Type-Safe PromiseSettledResult Filtering
+**Learning:** In older TypeScript versions (< 5.5), using `.find()` or `.filter()` on an array of `PromiseSettledResult` (e.g., from `Promise.allSettled()`) to find rejected promises does not automatically narrow the type. `result.reason` will throw a compilation error because it expects `result` could still be fulfilled.
+**Action:** When filtering or finding rejected promises from `Promise.allSettled()`, always use a type predicate callback (e.g., `(result): result is PromiseRejectedResult => result.status === 'rejected'`) to ensure type safety.

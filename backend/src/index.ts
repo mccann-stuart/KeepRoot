@@ -159,8 +159,16 @@ export default {
 
 	async queue(batch: MessageBatch<IngestJob>, env: Env): Promise<void> {
 		await assertOrganizationSchemaReady(env);
-		for (const message of batch.messages) {
-			await processIngestJob(env, message.body);
+		// ⚡ Bolt: Execute batch jobs concurrently using Promise.allSettled() to avoid sequential processing latency,
+		// while ensuring that one failure doesn't prematurely terminate the worker for the remaining jobs.
+		const results = await Promise.allSettled(
+			batch.messages.map((message) => processIngestJob(env, message.body)),
+		);
+
+		const firstError = results.find((result): result is PromiseRejectedResult => result.status === 'rejected');
+		if (firstError) {
+			// Throw the first error to trigger Cloudflare's built-in queue retry mechanism.
+			throw firstError.reason;
 		}
 	},
 
