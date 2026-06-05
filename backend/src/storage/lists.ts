@@ -13,7 +13,13 @@ export async function listUserLists(env: StorageEnv, userId: string): Promise<Ar
 	const rows = await env.KEEPROOT_DB.prepare(
 		'SELECT id, name, sort_order FROM lists WHERE user_id = ? ORDER BY sort_order ASC, created_at ASC',
 	).bind(userId).all<{ id: string; name: string; sort_order: number }>();
-	return rows.results.map((row) => ({ id: row.id, name: row.name, sortOrder: row.sort_order }));
+
+	// ⚡ Bolt: Using procedural for loops avoids intermediate array allocations and function execution context overhead created by .map().
+	const results: Array<{ id: string; name: string; sortOrder: number }> = [];
+	for (const row of rows.results) {
+		results.push({ id: row.id, name: row.name, sortOrder: row.sort_order });
+	}
+	return results;
 }
 
 export async function updateList(env: StorageEnv, userId: string, listId: string, payload: Partial<ListPayload>): Promise<boolean> {
@@ -66,7 +72,13 @@ export async function listUserSmartLists(env: StorageEnv, userId: string): Promi
 	const rows = await env.KEEPROOT_DB.prepare(
 		'SELECT id, name, icon, rules, sort_order FROM smart_lists WHERE user_id = ? ORDER BY sort_order ASC, created_at ASC',
 	).bind(userId).all<{ icon: string | null; id: string; name: string; rules: string; sort_order: number }>();
-	return rows.results.map((row) => ({ icon: row.icon, id: row.id, name: row.name, rules: row.rules, sortOrder: row.sort_order }));
+
+	// ⚡ Bolt: Using procedural for loops avoids intermediate array allocations and function execution context overhead created by .map().
+	const results: Array<{ icon: string | null; id: string; name: string; rules: string; sortOrder: number }> = [];
+	for (const row of rows.results) {
+		results.push({ icon: row.icon, id: row.id, name: row.name, rules: row.rules, sortOrder: row.sort_order });
+	}
+	return results;
 }
 
 export async function updateSmartList(env: StorageEnv, userId: string, listId: string, payload: Partial<SmartListPayload>): Promise<boolean> {
