@@ -37,3 +37,7 @@
 ## $(date +%Y-%m-%d) - Object Initialization Allocation Overhead
 **Learning:** In V8 and Cloudflare Workers, chaining `.map()` inside `Object.fromEntries()` (e.g., `Object.fromEntries(array.map(row => [row.key, row.value]))`) is an anti-pattern for performance-critical functions. It forces the allocation of intermediate tuple arrays and executes a callback function for every element, just to build an object. This significantly increases memory footprint, garbage collection pressure, and CPU cycles overhead.
 **Action:** Always replace `Object.fromEntries(array.map(...))` with a procedural `for...of` loop that directly assigns keys and values to a locally initialized `Record` object to eliminate intermediate array allocations.
+
+## 2024-06-05 - Avoid .map() for single-pass object transformation in performance-critical paths
+**Learning:** In Cloudflare Workers/V8 environments, using `.map()` on an array of results to restructure properties causes unnecessary intermediate object generation and incurs function execution context overhead compared to standard iteration methods, increasing Garbage Collection pressure when invoked on large datasets or in high-traffic endpoints like listing objects.
+**Action:** Replace `.map()` with procedural `for...of` loops, assigning properties directly when structuring return dictionaries or transformed arrays. Always avoid `.map()` in highly invoked functions without breaking functionality.
