@@ -504,12 +504,11 @@ export async function searchBookmarkIds(
 		}
 	}
 
-	const ranked = [...candidateIds]
-		.filter((id) => {
-			const metadata = bookmarkMeta.get(id);
-			return metadata ? matchesSearchFilters(metadata, options) : false;
-		})
-		.map<SearchResultRow & { keywordScore: number }>((id) => {
+	// ⚡ Bolt: Using procedural loops instead of chained .filter().map().sort().slice().map() avoids multiple intermediate array allocations and GC overhead in the hot path.
+	const rankedCandidates: (SearchResultRow & { keywordScore: number })[] = [];
+	for (const id of candidateIds) {
+		const metadata = bookmarkMeta.get(id);
+		if (metadata && matchesSearchFilters(metadata, options)) {
 			const keywordScore = keywordScores.get(id) ?? 0;
 			const semanticScore = semanticScores.get(id) ?? 0;
 			const matchReason: MatchReason = keywordScore > 0 && semanticScore > 0
@@ -517,19 +516,28 @@ export async function searchBookmarkIds(
 				: keywordScore > 0
 					? 'keyword'
 					: 'semantic';
-			return {
+
+			rankedCandidates.push({
 				id,
 				keywordScore,
 				matchReason,
 				score: keywordScore + semanticScore,
-			};
-		})
-		.sort((left, right) => right.score - left.score)
-		.slice(0, limit);
+			});
+		}
+	}
 
-	return ranked.map((entry) => ({
-		id: entry.id,
-		matchReason: entry.matchReason,
-		score: entry.score,
-	}));
+	rankedCandidates.sort((left, right) => right.score - left.score);
+
+	const finalLimit = Math.min(limit, rankedCandidates.length);
+	const results: SearchResultRow[] = [];
+	for (let i = 0; i < finalLimit; i++) {
+		const entry = rankedCandidates[i];
+		results.push({
+			id: entry.id,
+			matchReason: entry.matchReason,
+			score: entry.score,
+		});
+	}
+
+	return results;
 }
