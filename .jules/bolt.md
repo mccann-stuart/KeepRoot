@@ -1,7 +1,7 @@
 ## 2024-05-18 - Parallelizing D1 and R2 Reads
 **Learning:** In Cloudflare Workers, retrieving a complex entity like a bookmark often requires querying D1 for metadata and R2 for object storage content. Previously, `getBookmark` executed a sequential chain: fetch `bookmarkRow` -> fetch `contentRow` -> fetch `[contentDocument, tags, images]` via `Promise.all`. However, because the queries for `contentRow`, `tags`, and `images` all only depend on `bookmarkId`, they can be batched together into a single `D1Database.batch()` call. This eliminates two sequential HTTP network roundtrips to the D1 database. Furthermore, the R2 fetches (`getContentDocument` and `htmlObject.text()`) can then be parallelized via `Promise.all()` directly after the combined D1 batch returns.
 **Action:** Always identify independent database reads that depend on the same parent ID (like `bookmarkId`) and group them into a single `D1Database.batch()` call before firing parallel object storage fetches.
-## $(date +%Y-%m-%d) - Preserve Ordering When Parallelizing Network Requests
+## 2025-06-08 - Preserve Ordering When Parallelizing Network Requests
 **Learning:** When refactoring sequential loops that populate an array into concurrent `Promise.all()` executions (like fetching multiple images), mutating the shared array inside the async callbacks using `.push()` destroys the original ordering because it appends results as they complete. In contexts where order is critical (e.g., preserving the prioritized `og:image` as the first thumbnail), this creates a functional regression.
 **Action:** When parallelizing ordered processing, always map to an array of promises, `await Promise.all()` on that array, and then process the results sequentially to build the final array, preserving the initial order.
 ## 2025-04-28 - Avoid Using .push() to Optimize .map()
@@ -34,10 +34,13 @@
 ## 2026-05-29 - Speculative Batching for D1 Write and Read
 **Learning:** Sequential network calls where a default settings `INSERT OR IGNORE` is followed by a `SELECT` fetch create N+1 latency delays with D1 databases. The two statements can be safely batched together using `D1Database.batch()`, saving an entire network roundtrip.
 **Action:** When initializing and fetching default configurations, execute the `INSERT OR IGNORE` and `SELECT` queries concurrently using `D1Database.batch()` to avoid sequential HTTP overhead.
-## $(date +%Y-%m-%d) - Object Initialization Allocation Overhead
+## 2025-06-08 - Object Initialization Allocation Overhead
 **Learning:** In V8 and Cloudflare Workers, chaining `.map()` inside `Object.fromEntries()` (e.g., `Object.fromEntries(array.map(row => [row.key, row.value]))`) is an anti-pattern for performance-critical functions. It forces the allocation of intermediate tuple arrays and executes a callback function for every element, just to build an object. This significantly increases memory footprint, garbage collection pressure, and CPU cycles overhead.
 **Action:** Always replace `Object.fromEntries(array.map(...))` with a procedural `for...of` loop that directly assigns keys and values to a locally initialized `Record` object to eliminate intermediate array allocations.
 
 ## 2024-06-05 - Avoid .map() for single-pass object transformation in performance-critical paths
 **Learning:** In Cloudflare Workers/V8 environments, using `.map()` on an array of results to restructure properties causes unnecessary intermediate object generation and incurs function execution context overhead compared to standard iteration methods, increasing Garbage Collection pressure when invoked on large datasets or in high-traffic endpoints like listing objects.
 **Action:** Replace `.map()` with procedural `for...of` loops, assigning properties directly when structuring return dictionaries or transformed arrays. Always avoid `.map()` in highly invoked functions without breaking functionality.
+## 2025-06-08 - Optimize chained array methods
+**Learning:** In V8 and Cloudflare Workers, chaining array methods like `.map().filter()` or `.filter().map().sort()` forces the allocation of multiple intermediate tuple arrays. This significantly increases memory footprint, garbage collection pressure, and CPU cycles overhead, particularly in performance-critical paths.
+**Action:** Always replace chained array methods like `.map().filter()` with single-pass procedural loops (e.g., `for...of` loops) that directly build the final array or result to eliminate intermediate array allocations.

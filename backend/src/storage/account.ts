@@ -215,7 +215,14 @@ export async function clearUserData(env: StorageEnv, userId: string): Promise<vo
 	const contentKeys = new Set<string>();
 	const htmlKeys = new Set<string>();
 	const imageKeys = new Set<string>();
-	const vectorIds = embeddingRows.results.map((row) => row.vector_id).filter(Boolean);
+
+	// ⚡ Bolt: Replaced chained .map().filter() with a procedural loop to avoid allocating multiple intermediate tuple arrays, reducing GC pressure and execution overhead in V8.
+	const vectorIds: string[] = [];
+	for (const row of embeddingRows.results) {
+		if (row.vector_id) {
+			vectorIds.push(row.vector_id);
+		}
+	}
 
 	for (const row of contentRows.results) {
 		if (row.content_ref) {

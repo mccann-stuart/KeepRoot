@@ -38,7 +38,15 @@ function normalizeLimit(limit?: number): number {
 
 function normalizeStatuses(status?: string | string[]): string[] {
 	if (Array.isArray(status)) {
-		return status.map((entry) => entry.trim().toLowerCase()).filter(Boolean);
+		// ⚡ Bolt: Replaced chained .map().filter() with a procedural loop to avoid allocating multiple intermediate tuple arrays, reducing GC pressure and execution overhead in V8.
+		const normalizedStatuses: string[] = [];
+		for (const entry of status) {
+			const trimmed = entry.trim().toLowerCase();
+			if (trimmed) {
+				normalizedStatuses.push(trimmed);
+			}
+		}
+		return normalizedStatuses;
 	}
 
 	if (typeof status === 'string') {
@@ -50,7 +58,16 @@ function normalizeStatuses(status?: string | string[]): string[] {
 }
 
 function normalizeTags(tags?: string[]): string[] {
-	return (tags ?? []).map((tag) => tag.trim().toLowerCase()).filter(Boolean);
+	// ⚡ Bolt: Replaced chained .map().filter() with a procedural loop to avoid allocating multiple intermediate tuple arrays, reducing GC pressure and execution overhead in V8.
+	const normalizedTags: string[] = [];
+	const inputTags = tags ?? [];
+	for (const tag of inputTags) {
+		const trimmed = tag.trim().toLowerCase();
+		if (trimmed) {
+			normalizedTags.push(trimmed);
+		}
+	}
+	return normalizedTags;
 }
 
 // ⚡ Bolt: Using procedural for loops avoids intermediate array allocations and function execution context overhead created by .map().filter().
