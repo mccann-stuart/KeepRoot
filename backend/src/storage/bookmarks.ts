@@ -1055,23 +1055,16 @@ export async function listBookmarks(env: StorageEnv, userId: string, options?: {
 }
 
 export async function getBookmark(env: StorageEnv, userId: string, bookmarkId: string): Promise<BookmarkRecord | null> {
-	const bookmarkRow = await env.KEEPROOT_DB.prepare(
-		`SELECT id, url, canonical_url, title, site_name, domain, status, notes, source_id, processing_state, search_updated_at, embedding_updated_at, created_at, updated_at, last_fetched_at,
-			content_hash, content_ref, content_type, content_length, excerpt, word_count, lang, list_id, pinned, sort_order, is_read
-		FROM bookmarks
-		WHERE id = ? AND user_id = ?
-		LIMIT 1`,
-	)
-		.bind(bookmarkId, userId)
-		.first<BookmarkRow>();
-
-	if (!bookmarkRow) {
-		return null;
-	}
-
-	// ⚡ Bolt: Using D1Database.batch() for multiple reads replaces multiple separate HTTP network roundtrips with a single roundtrip.
-	// Impact: Significantly reduces latency when fetching a bookmark by batching the content, tags, and images queries together.
-	const [contentResult, tagsResult, imagesResult] = await env.KEEPROOT_DB.batch<BookmarkContentRow | { name: string } | BookmarkImageRow>([
+	// ⚡ Bolt: Using Speculative Batching replaces multiple separate HTTP network roundtrips with a single roundtrip.
+	// Impact: Significantly reduces latency when fetching a bookmark by batching the parent, content, tags, and images queries together.
+	const [bookmarkResult, contentResult, tagsResult, imagesResult] = await env.KEEPROOT_DB.batch<BookmarkRow | BookmarkContentRow | { name: string } | BookmarkImageRow>([
+		env.KEEPROOT_DB.prepare(
+			`SELECT id, url, canonical_url, title, site_name, domain, status, notes, source_id, processing_state, search_updated_at, embedding_updated_at, created_at, updated_at, last_fetched_at,
+				content_hash, content_ref, content_type, content_length, excerpt, word_count, lang, list_id, pinned, sort_order, is_read
+			FROM bookmarks
+			WHERE id = ? AND user_id = ?
+			LIMIT 1`,
+		).bind(bookmarkId, userId),
 		env.KEEPROOT_DB.prepare(
 			`SELECT content_hash, r2_key, html_r2_key, excerpt, word_count, lang, content_type, content_length, fetched_at
 			FROM bookmark_contents
@@ -1080,7 +1073,12 @@ export async function getBookmark(env: StorageEnv, userId: string, bookmarkId: s
 		).bind(bookmarkId),
 		prepareBookmarkTagsQuery(env, bookmarkId),
 		prepareBookmarkImagesQuery(env, bookmarkId),
-	]) as [D1Result<BookmarkContentRow>, D1Result<{ name: string }>, D1Result<BookmarkImageRow>];
+	]) as [D1Result<BookmarkRow>, D1Result<BookmarkContentRow>, D1Result<{ name: string }>, D1Result<BookmarkImageRow>];
+
+	const bookmarkRow = bookmarkResult.results[0] ?? null;
+	if (!bookmarkRow) {
+		return null;
+	}
 
 	const contentRow = contentResult.results[0] ?? null;
 	const tags = tagsResult.results.map((row) => row.name);

@@ -41,3 +41,6 @@
 ## 2024-06-05 - Avoid .map() for single-pass object transformation in performance-critical paths
 **Learning:** In Cloudflare Workers/V8 environments, using `.map()` on an array of results to restructure properties causes unnecessary intermediate object generation and incurs function execution context overhead compared to standard iteration methods, increasing Garbage Collection pressure when invoked on large datasets or in high-traffic endpoints like listing objects.
 **Action:** Replace `.map()` with procedural `for...of` loops, assigning properties directly when structuring return dictionaries or transformed arrays. Always avoid `.map()` in highly invoked functions without breaking functionality.
+## $(date +%Y-%m-%d) - Speculative Batching with D1 Queries
+**Learning:** In Cloudflare Workers with D1, retrieving a record and its relational data (like content, tags, images) is frequently written sequentially: fetch parent -> if exists, fetch children. This incurs multiple HTTP network roundtrips.
+**Action:** Always verify if child queries depend only on the same parent ID and not the parent row data. If they do, fetch them all speculatively in a single `env.KEEPROOT_DB.batch()`. If the parent returns null, simply discard the child data. This saves entire network roundtrips.
