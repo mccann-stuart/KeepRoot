@@ -504,32 +504,43 @@ export async function searchBookmarkIds(
 		}
 	}
 
-	const ranked = [...candidateIds]
-		.filter((id) => {
-			const metadata = bookmarkMeta.get(id);
-			return metadata ? matchesSearchFilters(metadata, options) : false;
-		})
-		.map<SearchResultRow & { keywordScore: number }>((id) => {
-			const keywordScore = keywordScores.get(id) ?? 0;
-			const semanticScore = semanticScores.get(id) ?? 0;
-			const matchReason: MatchReason = keywordScore > 0 && semanticScore > 0
-				? 'hybrid'
-				: keywordScore > 0
-					? 'keyword'
-					: 'semantic';
-			return {
-				id,
-				keywordScore,
-				matchReason,
-				score: keywordScore + semanticScore,
-			};
-		})
-		.sort((left, right) => right.score - left.score)
-		.slice(0, limit);
+	// ⚡ Bolt: Replace [...Set].filter().map().sort().slice().map() with a procedural loop
+	// to eliminate intermediate array allocations and reduce GC pressure.
+	const results: Array<{ id: string; keywordScore: number; matchReason: MatchReason; score: number }> = [];
+	for (const id of candidateIds) {
+		const metadata = bookmarkMeta.get(id);
+		if (!metadata || !matchesSearchFilters(metadata, options)) {
+			continue;
+		}
 
-	return ranked.map((entry) => ({
-		id: entry.id,
-		matchReason: entry.matchReason,
-		score: entry.score,
-	}));
+		const keywordScore = keywordScores.get(id) ?? 0;
+		const semanticScore = semanticScores.get(id) ?? 0;
+		const matchReason: MatchReason = keywordScore > 0 && semanticScore > 0
+			? 'hybrid'
+			: keywordScore > 0
+				? 'keyword'
+				: 'semantic';
+
+		results.push({
+			id,
+			keywordScore,
+			matchReason,
+			score: keywordScore + semanticScore,
+		});
+	}
+
+	results.sort((left, right) => right.score - left.score);
+	const ranked = results.slice(0, limit);
+
+	const finalResults: SearchResultRow[] = [];
+	for (let i = 0; i < ranked.length; i += 1) {
+		const entry = ranked[i];
+		finalResults.push({
+			id: entry.id,
+			matchReason: entry.matchReason,
+			score: entry.score,
+		});
+	}
+
+	return finalResults;
 }
