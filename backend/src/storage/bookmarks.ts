@@ -561,7 +561,17 @@ function prepareBookmarkTagsQuery(env: StorageEnv, bookmarkId: string): D1Prepar
 }
 
 async function syncTags(env: StorageEnv, userId: string, bookmarkId: string, tags: string[], createdAt: string): Promise<void> {
-	const rawTags = [...new Set(tags.map((tag) => tag.trim()).filter(Boolean))];
+	// ⚡ Bolt: Replaced .map().filter() with a single-pass loop over the Set.
+	// Impact: Prevents multiple intermediate array allocations to reduce GC pressure.
+	const rawTagsSet = new Set<string>();
+	for (const tag of tags) {
+		const trimmed = tag.trim();
+		if (trimmed) {
+			rawTagsSet.add(trimmed);
+		}
+	}
+	const rawTags = [...rawTagsSet];
+
 	if (rawTags.length === 0) {
 		await env.KEEPROOT_DB.prepare('DELETE FROM bookmark_tags WHERE bookmark_id = ?').bind(bookmarkId).run();
 		return;

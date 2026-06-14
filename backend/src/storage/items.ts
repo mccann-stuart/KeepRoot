@@ -36,9 +36,18 @@ function normalizeLimit(limit?: number): number {
 	return Math.min(Math.max(Math.trunc(limit ?? 20), 1), 100);
 }
 
+// ⚡ Bolt: Replaced .map().filter() with single-pass procedural loops
+// Impact: Prevents intermediate array allocations and reduces garbage collection (GC) pressure in the hot path.
 function normalizeStatuses(status?: string | string[]): string[] {
 	if (Array.isArray(status)) {
-		return status.map((entry) => entry.trim().toLowerCase()).filter(Boolean);
+		const normalized: string[] = [];
+		for (const entry of status) {
+			const trimmed = entry.trim().toLowerCase();
+			if (trimmed) {
+				normalized.push(trimmed);
+			}
+		}
+		return normalized;
 	}
 
 	if (typeof status === 'string') {
@@ -49,8 +58,18 @@ function normalizeStatuses(status?: string | string[]): string[] {
 	return [];
 }
 
+// ⚡ Bolt: Replaced .map().filter() with a single-pass procedural loop
+// Impact: Prevents intermediate array allocations and reduces garbage collection (GC) pressure in the hot path.
 function normalizeTags(tags?: string[]): string[] {
-	return (tags ?? []).map((tag) => tag.trim().toLowerCase()).filter(Boolean);
+	if (!tags) return [];
+	const normalized: string[] = [];
+	for (const tag of tags) {
+		const trimmed = tag.trim().toLowerCase();
+		if (trimmed) {
+			normalized.push(trimmed);
+		}
+	}
+	return normalized;
 }
 
 // ⚡ Bolt: Using procedural for loops avoids intermediate array allocations and function execution context overhead created by .map().filter().
