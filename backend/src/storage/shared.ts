@@ -468,6 +468,11 @@ export async function validateSafeUrl(url: string): Promise<boolean> {
 			return false;
 		}
 
+		// Prevent SSRF bypasses using credential embedding (e.g., http://user:pass@127.0.0.1/)
+		if (parsedUrl.username || parsedUrl.password) {
+			return false;
+		}
+
 		let hostname = parsedUrl.hostname.toLowerCase();
 		if (hostname.startsWith('[') && hostname.endsWith(']')) {
 			hostname = hostname.slice(1, -1);
