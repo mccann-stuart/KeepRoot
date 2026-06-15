@@ -454,13 +454,20 @@ export async function searchBookmarkIds(
 		}
 	}
 
-	const candidateIds = new Set<string>([
-		...keywordScores.keys(),
-		...semanticScores.keys(),
-	]);
+	// ⚡ Bolt: Using explicit .add() calls instead of array spreads prevents large intermediate tuple allocation.
+	const candidateIds = new Set<string>();
+	for (const id of keywordScores.keys()) candidateIds.add(id);
+	for (const id of semanticScores.keys()) candidateIds.add(id);
+
+	// ⚡ Bolt: Procedural loop instead of array spread + filter to prevent intermediate array allocation
+	const missingCandidateIds: string[] = [];
+	for (const id of candidateIds) {
+		if (!bookmarkMeta.has(id)) {
+			missingCandidateIds.push(id);
+		}
+	}
 
 	// ⚡ Bolt: Batch D1 queries to prevent N+1 overhead when hydating multiple search candidates
-	const missingCandidateIds = [...candidateIds].filter((id) => !bookmarkMeta.has(id));
 	if (missingCandidateIds.length > 0) {
 		const batchSize = 50;
 		for (let i = 0; i < missingCandidateIds.length; i += batchSize) {
@@ -504,12 +511,11 @@ export async function searchBookmarkIds(
 		}
 	}
 
-	const ranked = [...candidateIds]
-		.filter((id) => {
-			const metadata = bookmarkMeta.get(id);
-			return metadata ? matchesSearchFilters(metadata, options) : false;
-		})
-		.map<SearchResultRow & { keywordScore: number }>((id) => {
+	// ⚡ Bolt: Procedural loop instead of array spread + filter + map prevents intermediate array allocations
+	const ranked: Array<SearchResultRow & { keywordScore: number }> = [];
+	for (const id of candidateIds) {
+		const metadata = bookmarkMeta.get(id);
+		if (metadata && matchesSearchFilters(metadata, options)) {
 			const keywordScore = keywordScores.get(id) ?? 0;
 			const semanticScore = semanticScores.get(id) ?? 0;
 			const matchReason: MatchReason = keywordScore > 0 && semanticScore > 0
@@ -517,19 +523,28 @@ export async function searchBookmarkIds(
 				: keywordScore > 0
 					? 'keyword'
 					: 'semantic';
-			return {
+			ranked.push({
 				id,
 				keywordScore,
 				matchReason,
 				score: keywordScore + semanticScore,
-			};
-		})
-		.sort((left, right) => right.score - left.score)
-		.slice(0, limit);
+			});
+		}
+	}
 
-	return ranked.map((entry) => ({
-		id: entry.id,
-		matchReason: entry.matchReason,
-		score: entry.score,
-	}));
+	ranked.sort((left, right) => right.score - left.score);
+	const topRanked = ranked.slice(0, limit);
+
+	// ⚡ Bolt: Extract final properties directly in a pre-sized loop to avoid another .map() allocation
+	const result: SearchResultRow[] = new Array(topRanked.length);
+	for (let i = 0; i < topRanked.length; i += 1) {
+		const entry = topRanked[i];
+		result[i] = {
+			id: entry.id,
+			matchReason: entry.matchReason,
+			score: entry.score,
+		};
+	}
+
+	return result;
 }
