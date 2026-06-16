@@ -41,3 +41,6 @@
 ## 2024-06-05 - Avoid .map() for single-pass object transformation in performance-critical paths
 **Learning:** In Cloudflare Workers/V8 environments, using `.map()` on an array of results to restructure properties causes unnecessary intermediate object generation and incurs function execution context overhead compared to standard iteration methods, increasing Garbage Collection pressure when invoked on large datasets or in high-traffic endpoints like listing objects.
 **Action:** Replace `.map()` with procedural `for...of` loops, assigning properties directly when structuring return dictionaries or transformed arrays. Always avoid `.map()` in highly invoked functions without breaking functionality.
+## $(date +%Y-%m-%d) - Array processing chain optimization
+**Learning:** In Cloudflare Workers/V8 environments, using chained array methods like `[...set].filter().map().sort().slice().map()` creates multiple intermediate arrays, causing significant GC pressure and unnecessary function execution contexts overhead.
+**Action:** Replace complex array processing chains with a pre-allocated array (or an empty array with `.push()`) inside a single procedural `for...of` loop to eliminate intermediate tuple generation and minimize execution time.

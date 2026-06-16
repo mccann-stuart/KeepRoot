@@ -504,32 +504,29 @@ export async function searchBookmarkIds(
 		}
 	}
 
-	const ranked = [...candidateIds]
-		.filter((id) => {
-			const metadata = bookmarkMeta.get(id);
-			return metadata ? matchesSearchFilters(metadata, options) : false;
-		})
-		.map<SearchResultRow & { keywordScore: number }>((id) => {
-			const keywordScore = keywordScores.get(id) ?? 0;
-			const semanticScore = semanticScores.get(id) ?? 0;
-			const matchReason: MatchReason = keywordScore > 0 && semanticScore > 0
-				? 'hybrid'
-				: keywordScore > 0
-					? 'keyword'
-					: 'semantic';
-			return {
-				id,
-				keywordScore,
-				matchReason,
-				score: keywordScore + semanticScore,
-			};
-		})
-		.sort((left, right) => right.score - left.score)
-		.slice(0, limit);
+	// ⚡ Bolt: Using procedural for loops avoids intermediate array allocations and function execution context overhead created by [...set].filter().map().sort().slice().map().
+	const ranked: Array<{ id: string; matchReason: MatchReason; score: number }> = [];
 
-	return ranked.map((entry) => ({
-		id: entry.id,
-		matchReason: entry.matchReason,
-		score: entry.score,
-	}));
+	for (const id of candidateIds) {
+		const metadata = bookmarkMeta.get(id);
+		if (!metadata || !matchesSearchFilters(metadata, options)) {
+			continue;
+		}
+
+		const keywordScore = keywordScores.get(id) ?? 0;
+		const semanticScore = semanticScores.get(id) ?? 0;
+		const matchReason: MatchReason = keywordScore > 0 && semanticScore > 0
+			? 'hybrid'
+			: keywordScore > 0
+				? 'keyword'
+				: 'semantic';
+		ranked.push({
+			id,
+			matchReason,
+			score: keywordScore + semanticScore,
+		});
+	}
+
+	ranked.sort((left, right) => right.score - left.score);
+	return ranked.length > limit ? ranked.slice(0, limit) : ranked;
 }
