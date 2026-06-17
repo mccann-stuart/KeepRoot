@@ -504,12 +504,11 @@ export async function searchBookmarkIds(
 		}
 	}
 
-	const ranked = [...candidateIds]
-		.filter((id) => {
-			const metadata = bookmarkMeta.get(id);
-			return metadata ? matchesSearchFilters(metadata, options) : false;
-		})
-		.map<SearchResultRow & { keywordScore: number }>((id) => {
+	// ⚡ Bolt: Using procedural for loops avoids intermediate array allocations and function execution context overhead created by chained .filter().map()
+	const ranked: Array<SearchResultRow & { keywordScore: number }> = [];
+	for (const id of candidateIds) {
+		const metadata = bookmarkMeta.get(id);
+		if (metadata && matchesSearchFilters(metadata, options)) {
 			const keywordScore = keywordScores.get(id) ?? 0;
 			const semanticScore = semanticScores.get(id) ?? 0;
 			const matchReason: MatchReason = keywordScore > 0 && semanticScore > 0
@@ -517,19 +516,27 @@ export async function searchBookmarkIds(
 				: keywordScore > 0
 					? 'keyword'
 					: 'semantic';
-			return {
+			ranked.push({
 				id,
 				keywordScore,
 				matchReason,
 				score: keywordScore + semanticScore,
-			};
-		})
-		.sort((left, right) => right.score - left.score)
-		.slice(0, limit);
+			});
+		}
+	}
 
-	return ranked.map((entry) => ({
-		id: entry.id,
-		matchReason: entry.matchReason,
-		score: entry.score,
-	}));
+	ranked.sort((left, right) => right.score - left.score);
+	const topRanked = ranked.slice(0, limit);
+
+	const result: SearchResultRow[] = [];
+	for (let i = 0; i < topRanked.length; i += 1) {
+		const entry = topRanked[i];
+		result.push({
+			id: entry.id,
+			matchReason: entry.matchReason,
+			score: entry.score,
+		});
+	}
+
+	return result;
 }

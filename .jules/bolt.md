@@ -41,3 +41,6 @@
 ## 2024-06-05 - Avoid .map() for single-pass object transformation in performance-critical paths
 **Learning:** In Cloudflare Workers/V8 environments, using `.map()` on an array of results to restructure properties causes unnecessary intermediate object generation and incurs function execution context overhead compared to standard iteration methods, increasing Garbage Collection pressure when invoked on large datasets or in high-traffic endpoints like listing objects.
 **Action:** Replace `.map()` with procedural `for...of` loops, assigning properties directly when structuring return dictionaries or transformed arrays. Always avoid `.map()` in highly invoked functions without breaking functionality.
+## 2026-06-17 - Avoid Set-to-Array Conversion Overhead
+**Learning:** When applying filters and mapping over a `Set` in performance-critical paths, converting the `Set` into an array using the spread operator (e.g., `[...candidateIds].filter().map()`) creates a large, completely unnecessary intermediate array before iteration even begins. In Cloudflare Workers, this dramatically increases memory spikes and garbage collection pressure when the set is large (like search candidates).
+**Action:** Instead of spreading the `Set` into an array, always iterate directly over the `Set` using a procedural `for...of` loop to eliminate the redundant allocation entirely.

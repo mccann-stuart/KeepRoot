@@ -223,21 +223,20 @@ export async function searchItems(env: StorageEnv, userId: string, options: Item
 		itemMap.set(item.id, item);
 	}
 
-	return {
-		items: matches
-			.map<SearchItemResult | null>((match) => {
-				const item = itemMap.get(match.id);
-				if (!item) {
-					return null;
-				}
+	// ⚡ Bolt: Using procedural for loops avoids intermediate array allocations and function execution context overhead created by chained .map().filter()
+	const items: SearchItemResult[] = [];
+	for (let i = 0; i < matches.length; i += 1) {
+		const match = matches[i];
+		const item = itemMap.get(match.id);
+		if (item) {
+			items.push(compactObject({
+				id: item.id,
+				matchReason: match.matchReason,
+				score: match.score,
+				metadata: item.metadata,
+			}));
+		}
+	}
 
-				return compactObject({
-					id: item.id,
-					matchReason: match.matchReason,
-					score: match.score,
-					metadata: item.metadata,
-				});
-			})
-			.filter((item): item is SearchItemResult => item !== null),
-	};
+	return { items };
 }
