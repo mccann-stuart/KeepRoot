@@ -141,6 +141,12 @@ describe('shared storage utilities', () => {
 	});
 
 	describe('validateSafeUrl', () => {
+		it('rejects URLs with embedded credentials to prevent SSRF bypasses', async () => {
+			await expect(validateSafeUrl('http://admin:password@127.0.0.1')).resolves.toBe(false);
+			await expect(validateSafeUrl('http://user@127.0.0.1')).resolves.toBe(false);
+			await expect(validateSafeUrl('http://admin:password@example.com')).resolves.toBe(false);
+		});
+
 		it('rejects non-http protocols', async () => {
 			await expect(validateSafeUrl('file:///etc/passwd')).resolves.toBe(false);
 			await expect(validateSafeUrl('javascript:alert(1)')).resolves.toBe(false);
