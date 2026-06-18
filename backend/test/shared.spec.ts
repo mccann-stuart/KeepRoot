@@ -146,6 +146,13 @@ describe('shared storage utilities', () => {
 			await expect(validateSafeUrl('javascript:alert(1)')).resolves.toBe(false);
 		});
 
+		it('rejects URLs with embedded credentials', async () => {
+			await expect(validateSafeUrl('http://user:pass@127.0.0.1/admin')).resolves.toBe(false);
+			await expect(validateSafeUrl('http://user@192.168.1.1/admin')).resolves.toBe(false);
+			await expect(validateSafeUrl('http://:pass@10.0.0.5/admin')).resolves.toBe(false);
+			await expect(validateSafeUrl('http://127.0.0.1@google.com')).resolves.toBe(false);
+		});
+
 		it('rejects local and private IPv4 targets', async () => {
 			await expect(validateSafeUrl('http://127.0.0.1/admin')).resolves.toBe(false);
 			await expect(validateSafeUrl('http://10.0.0.5/admin')).resolves.toBe(false);
