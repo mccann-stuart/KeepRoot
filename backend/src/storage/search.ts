@@ -454,13 +454,24 @@ export async function searchBookmarkIds(
 		}
 	}
 
-	const candidateIds = new Set<string>([
-		...keywordScores.keys(),
-		...semanticScores.keys(),
-	]);
+	// ⚡ Bolt: Iterate over iterables explicitly with .add() instead of creating large intermediate arrays via spread syntax.
+	// Impact: Reduces garbage collection pressure in V8/Cloudflare Workers by eliminating the redundant tuple array.
+	const candidateIds = new Set<string>();
+	for (const id of keywordScores.keys()) {
+		candidateIds.add(id);
+	}
+	for (const id of semanticScores.keys()) {
+		candidateIds.add(id);
+	}
 
+	// ⚡ Bolt: Use a procedural loop instead of [...candidateIds].filter() to avoid intermediate array allocation.
 	// ⚡ Bolt: Batch D1 queries to prevent N+1 overhead when hydating multiple search candidates
-	const missingCandidateIds = [...candidateIds].filter((id) => !bookmarkMeta.has(id));
+	const missingCandidateIds: string[] = [];
+	for (const id of candidateIds) {
+		if (!bookmarkMeta.has(id)) {
+			missingCandidateIds.push(id);
+		}
+	}
 	if (missingCandidateIds.length > 0) {
 		const batchSize = 50;
 		for (let i = 0; i < missingCandidateIds.length; i += batchSize) {
@@ -504,12 +515,12 @@ export async function searchBookmarkIds(
 		}
 	}
 
-	const ranked = [...candidateIds]
-		.filter((id) => {
-			const metadata = bookmarkMeta.get(id);
-			return metadata ? matchesSearchFilters(metadata, options) : false;
-		})
-		.map<SearchResultRow & { keywordScore: number }>((id) => {
+	// ⚡ Bolt: Replace [...candidateIds].filter().map() chain with a procedural for...of loop over the Set.
+	// Impact: Prevents the creation of intermediate tuple arrays and reduces V8 execution context overhead during the final candidate mapping phase.
+	const ranked: (SearchResultRow & { keywordScore: number })[] = [];
+	for (const id of candidateIds) {
+		const metadata = bookmarkMeta.get(id);
+		if (metadata && matchesSearchFilters(metadata, options)) {
 			const keywordScore = keywordScores.get(id) ?? 0;
 			const semanticScore = semanticScores.get(id) ?? 0;
 			const matchReason: MatchReason = keywordScore > 0 && semanticScore > 0
@@ -517,17 +528,19 @@ export async function searchBookmarkIds(
 				: keywordScore > 0
 					? 'keyword'
 					: 'semantic';
-			return {
+			ranked.push({
 				id,
 				keywordScore,
 				matchReason,
 				score: keywordScore + semanticScore,
-			};
-		})
-		.sort((left, right) => right.score - left.score)
-		.slice(0, limit);
+			});
+		}
+	}
 
-	return ranked.map((entry) => ({
+	ranked.sort((left, right) => right.score - left.score);
+	const results = ranked.slice(0, limit);
+
+	return results.map((entry) => ({
 		id: entry.id,
 		matchReason: entry.matchReason,
 		score: entry.score,
