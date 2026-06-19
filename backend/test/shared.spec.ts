@@ -163,5 +163,15 @@ describe('shared storage utilities', () => {
 			await expect(validateSafeUrl('http://240.0.0.1/feed')).resolves.toBe(false);
 			await expect(validateSafeUrl('http://0.0.0.0/feed')).resolves.toBe(false);
 		});
+
+		it('rejects URLs with embedded credentials to prevent SSRF bypasses', async () => {
+			await expect(validateSafeUrl('http://user:pass@example.com')).resolves.toBe(false);
+			await expect(validateSafeUrl('http://admin@example.com')).resolves.toBe(false);
+			await expect(validateSafeUrl('https://:@example.com')).resolves.toBe(false);
+		});
+
+		it('allows valid URLs containing @ in the path', async () => {
+			await expect(validateSafeUrl('https://example.com/@user/feed')).resolves.toBe(true);
+		});
 	});
 });
