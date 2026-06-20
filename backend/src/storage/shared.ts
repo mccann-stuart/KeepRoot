@@ -468,6 +468,20 @@ export async function validateSafeUrl(url: string): Promise<boolean> {
 			return false;
 		}
 
+		// Prevent SSRF bypasses via embedded credentials tricking hostname parsers
+		if (parsedUrl.username !== '' || parsedUrl.password !== '') {
+			return false;
+		}
+
+		// Some malformed URLs trick the URL constructor into leaving credentials in the host/pathname.
+		// We extract strictly the authority string (everything before the first /, ?, or #) to check for @
+		const withoutProtocol = url.substring(parsedUrl.protocol.length + 2);
+		const authorityEndIndex = withoutProtocol.match(/[\/\?\#]/)?.index ?? withoutProtocol.length;
+		const authority = withoutProtocol.substring(0, authorityEndIndex);
+		if (authority.includes('@')) {
+			return false;
+		}
+
 		let hostname = parsedUrl.hostname.toLowerCase();
 		if (hostname.startsWith('[') && hostname.endsWith(']')) {
 			hostname = hostname.slice(1, -1);
