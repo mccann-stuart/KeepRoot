@@ -41,3 +41,9 @@
 ## 2024-06-05 - Avoid .map() for single-pass object transformation in performance-critical paths
 **Learning:** In Cloudflare Workers/V8 environments, using `.map()` on an array of results to restructure properties causes unnecessary intermediate object generation and incurs function execution context overhead compared to standard iteration methods, increasing Garbage Collection pressure when invoked on large datasets or in high-traffic endpoints like listing objects.
 **Action:** Replace `.map()` with procedural `for...of` loops, assigning properties directly when structuring return dictionaries or transformed arrays. Always avoid `.map()` in highly invoked functions without breaking functionality.
+## 2024-05-18 - Avoid Using .push() to Optimize .map()
+**Learning:** JS engines like V8 optimize `.map()` by pre-allocating an array of the exact known size. Blindly replacing `.map()` with a procedural loop that uses `.push()` on an empty array forces dynamic reallocation and increases overhead, creating a micro-optimization with negative impact.
+**Action:** Only replace `.map()` with a procedural loop when it eliminates the need to allocate an intermediate array entirely, such as populating a `Map` or directly aggregating results.
+## 2025-05-18 - Cloudflare Worker Queue concurrent execution
+**Learning:** When processing Cloudflare Worker Queue batches concurrently, using `Promise.all()` is unsafe because a single rejection will fail fast, skipping the remaining operations and causing the serverless environment to prematurely terminate the execution context while background tasks are still pending.
+**Action:** Use `Promise.allSettled()` instead of `Promise.all()` for batch processing in queues to ensure all operations complete, allowing for graceful error handling (like throwing the first rejection afterward) without aborting the batch prematurely.
