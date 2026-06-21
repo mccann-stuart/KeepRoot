@@ -468,6 +468,22 @@ export async function validateSafeUrl(url: string): Promise<boolean> {
 			return false;
 		}
 
+		if (parsedUrl.username || parsedUrl.password) {
+			return false;
+		}
+
+		const urlString = url.toString();
+		const schemeEnd = urlString.indexOf('://');
+		if (schemeEnd !== -1) {
+			const authorityStart = schemeEnd + 3;
+			const pathStartMatch = urlString.substring(authorityStart).match(/[/?#]/);
+			const authorityEnd = pathStartMatch ? authorityStart + pathStartMatch.index : urlString.length;
+			const authority = urlString.substring(authorityStart, authorityEnd);
+			if (authority.includes('@')) {
+				return false;
+			}
+		}
+
 		let hostname = parsedUrl.hostname.toLowerCase();
 		if (hostname.startsWith('[') && hostname.endsWith(']')) {
 			hostname = hostname.slice(1, -1);

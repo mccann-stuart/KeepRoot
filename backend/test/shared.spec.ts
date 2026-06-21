@@ -141,6 +141,16 @@ describe('shared storage utilities', () => {
 	});
 
 	describe('validateSafeUrl', () => {
+		it('rejects URLs with credentials or raw authority bypasses', async () => {
+			await expect(validateSafeUrl('http://127.0.0.1@example.com/admin')).resolves.toBe(false);
+			await expect(validateSafeUrl('http://user:pass@example.com/admin')).resolves.toBe(false);
+			await expect(validateSafeUrl('http://user@example.com/admin')).resolves.toBe(false);
+			await expect(validateSafeUrl('http://user:pass@127.0.0.1/admin')).resolves.toBe(false);
+			// Legitimate use of @ in path or query should be allowed
+			await expect(validateSafeUrl('http://example.com/path?email=test@example.com')).resolves.toBe(true);
+			await expect(validateSafeUrl('http://example.com/path/@username')).resolves.toBe(true);
+		});
+
 		it('rejects non-http protocols', async () => {
 			await expect(validateSafeUrl('file:///etc/passwd')).resolves.toBe(false);
 			await expect(validateSafeUrl('javascript:alert(1)')).resolves.toBe(false);
