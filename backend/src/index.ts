@@ -159,8 +159,16 @@ export default {
 
 	async queue(batch: MessageBatch<IngestJob>, env: Env): Promise<void> {
 		await assertOrganizationSchemaReady(env);
-		for (const message of batch.messages) {
-			await processIngestJob(env, message.body);
+		// ⚡ Bolt: Execute queue messages concurrently to maximize throughput and reduce total batch latency.
+		// Using Promise.allSettled ensures all messages are processed even if one fails. We throw the first rejection
+		// to allow the queue consumer to retry the failed messages while preventing the entire batch from hanging.
+		const results = await Promise.allSettled(
+			batch.messages.map((message) => processIngestJob(env, message.body)),
+		);
+
+		const failed = results.find((result): result is PromiseRejectedResult => result.status === 'rejected');
+		if (failed) {
+			throw failed.reason;
 		}
 	},
 
