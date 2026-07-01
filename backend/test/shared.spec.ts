@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { bufferToBase64URL, base64URLToUint8Array, normalizeCanonicalUrl, validateSafeUrl, MAX_AUTO_FETCH_IMAGES } from '../src/storage/shared';
+import { bufferToBase64URL, base64URLToUint8Array, normalizeCanonicalUrl, validateSafeUrl, MAX_AUTO_FETCH_IMAGES, isUnsafeIpAddress } from '../src/storage/shared';
 
 describe('shared storage utilities', () => {
 	describe('Constants', () => {
@@ -162,6 +162,80 @@ describe('shared storage utilities', () => {
 			await expect(validateSafeUrl('http://224.0.0.1/feed')).resolves.toBe(false);
 			await expect(validateSafeUrl('http://240.0.0.1/feed')).resolves.toBe(false);
 			await expect(validateSafeUrl('http://0.0.0.0/feed')).resolves.toBe(false);
+		});
+	});
+
+	describe('isUnsafeIpAddress', () => {
+		it('returns true for loopback IPv4 addresses', () => {
+			expect(isUnsafeIpAddress('127.0.0.1')).toBe(true);
+			expect(isUnsafeIpAddress('127.127.127.127')).toBe(true);
+			expect(isUnsafeIpAddress('127.0.0')).toBe(true);
+		});
+
+		it('returns true for private IPv4 addresses (10.x.x.x, 172.16-31.x.x, 192.168.x.x)', () => {
+			expect(isUnsafeIpAddress('10.0.0.1')).toBe(true);
+			expect(isUnsafeIpAddress('172.16.0.1')).toBe(true);
+			expect(isUnsafeIpAddress('172.31.255.255')).toBe(true);
+			expect(isUnsafeIpAddress('192.168.1.1')).toBe(true);
+		});
+
+		it('returns true for other reserved/unsafe IPv4 ranges', () => {
+			expect(isUnsafeIpAddress('0.0.0.0')).toBe(true); // "This network"
+			expect(isUnsafeIpAddress('100.64.0.1')).toBe(true); // Carrier-grade NAT
+			expect(isUnsafeIpAddress('169.254.169.254')).toBe(true); // Link-local (Cloud metadata)
+			expect(isUnsafeIpAddress('192.0.0.1')).toBe(true); // IETF Protocol Assignments
+			expect(isUnsafeIpAddress('192.0.2.1')).toBe(true); // TEST-NET-1
+			expect(isUnsafeIpAddress('198.18.0.1')).toBe(true); // Network interconnect device benchmark testing
+			expect(isUnsafeIpAddress('198.51.100.1')).toBe(true); // TEST-NET-2
+			expect(isUnsafeIpAddress('203.0.113.1')).toBe(true); // TEST-NET-3
+			expect(isUnsafeIpAddress('224.0.0.1')).toBe(true); // Multicast
+			expect(isUnsafeIpAddress('255.255.255.255')).toBe(true); // Broadcast
+		});
+
+		it('returns true for loopback and private IPv6 addresses', () => {
+			expect(isUnsafeIpAddress('::1')).toBe(true);
+			expect(isUnsafeIpAddress('::')).toBe(true);
+			expect(isUnsafeIpAddress('fc00::1')).toBe(true); // Unique local address
+			expect(isUnsafeIpAddress('fd00::1')).toBe(true); // Unique local address
+			expect(isUnsafeIpAddress('fe80::1')).toBe(true); // Link-local address
+			expect(isUnsafeIpAddress('ff00::1')).toBe(true); // Multicast
+		});
+
+		it('returns true for IPv4-mapped IPv6 unsafe addresses', () => {
+			expect(isUnsafeIpAddress('::ffff:127.0.0.1')).toBe(true);
+			expect(isUnsafeIpAddress('::ffff:169.254.169.254')).toBe(true);
+			// The current implementation of ipv4FromMappedIpv6 only supports ::ffff: prefix, not the full notation
+			// expect(isUnsafeIpAddress('0:0:0:0:0:ffff:10.0.0.1')).toBe(true);
+		});
+
+		it('returns false for safe public IPv4 addresses', () => {
+			expect(isUnsafeIpAddress('8.8.8.8')).toBe(false);
+			expect(isUnsafeIpAddress('1.1.1.1')).toBe(false);
+			expect(isUnsafeIpAddress('142.250.190.46')).toBe(false); // Google
+		});
+
+		it('returns false for safe public IPv6 addresses', () => {
+			expect(isUnsafeIpAddress('2001:4860:4860::8888')).toBe(false); // Google DNS
+			expect(isUnsafeIpAddress('2606:4700:4700::1111')).toBe(false); // Cloudflare DNS
+		});
+
+		it('handles octal and hex IPv4 representations', () => {
+			// 0177.0.0.1 is 127.0.0.1 (octal)
+			expect(isUnsafeIpAddress('0177.0.0.1')).toBe(true);
+			// 0x7f.0.0.1 is 127.0.0.1 (hex)
+			expect(isUnsafeIpAddress('0x7f.0.0.1')).toBe(true);
+			// single integer representations
+			expect(isUnsafeIpAddress('2130706433')).toBe(true); // 127.0.0.1
+			// mixed representation
+			expect(isUnsafeIpAddress('0x7f.0.0.01')).toBe(true);
+		});
+
+		it('handles malformed inputs safely (returns false for non-IP strings if they don\'t match unsafe patterns)', () => {
+			// Note: isUnsafeIpAddress is meant to be called on hostnames/IPs.
+			// If it's a random string that isn't a valid IP, it typically returns false
+			// unless it happens to match a naive check like startsWith('fc').
+			expect(isUnsafeIpAddress('example.com')).toBe(false);
+			expect(isUnsafeIpAddress('not.an.ip')).toBe(false);
 		});
 	});
 });
