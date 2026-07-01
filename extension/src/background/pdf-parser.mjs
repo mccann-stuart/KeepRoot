@@ -152,20 +152,21 @@ export async function extractPdfBookmark({ fallbackTitle, url, fetchImpl = fetch
   try {
     const document = await loadingTask.promise;
     const metadata = await loadPdfMetadata(document);
-    const pages = [];
-
+    const pagePromises = [];
     for (let pageNumber = 1; pageNumber <= document.numPages; pageNumber += 1) {
-      const page = await document.getPage(pageNumber);
-      try {
-        const textContent = await page.getTextContent();
-        const pageText = extractTextFromPdfItems(textContent.items ?? []);
-        if (pageText) {
-          pages.push({ pageNumber, text: pageText });
+      pagePromises.push((async () => {
+        const page = await document.getPage(pageNumber);
+        try {
+          const textContent = await page.getTextContent();
+          const pageText = extractTextFromPdfItems(textContent.items ?? []);
+          return { pageNumber, text: pageText };
+        } finally {
+          page.cleanup();
         }
-      } finally {
-        page.cleanup();
-      }
+      })());
     }
+
+    const pages = (await Promise.all(pagePromises)).filter((page) => page.text);
 
     return {
       title: derivePdfTitle({
