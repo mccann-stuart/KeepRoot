@@ -56,8 +56,11 @@ function parseConfig(value: string | null): Record<string, unknown> {
 			return {};
 		}
 		return parsed as Record<string, unknown>;
-	} catch {
-		return {};
+	} catch (error) {
+		if (error instanceof SyntaxError) {
+			return {};
+		}
+		throw error;
 	}
 }
 
