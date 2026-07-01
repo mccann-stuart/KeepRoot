@@ -178,7 +178,8 @@ async function resolveYouTubePollUrl(identifier: string): Promise<{ normalizedId
 				};
 			}
 		}
-	} catch {
+	} catch (error) {
+		console.warn('Failed to resolve YouTube poll URL', error);
 		// Best effort. The source can still be stored and synced manually later.
 	}
 
