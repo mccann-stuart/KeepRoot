@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { bufferToBase64URL, base64URLToUint8Array, normalizeCanonicalUrl, validateSafeUrl, MAX_AUTO_FETCH_IMAGES } from '../src/storage/shared';
+import { bufferToBase64URL, base64URLToUint8Array, normalizeCanonicalUrl, validateSafeUrl, MAX_AUTO_FETCH_IMAGES, compactObject } from '../src/storage/shared';
 
 describe('shared storage utilities', () => {
 	describe('Constants', () => {
@@ -162,6 +162,54 @@ describe('shared storage utilities', () => {
 			await expect(validateSafeUrl('http://224.0.0.1/feed')).resolves.toBe(false);
 			await expect(validateSafeUrl('http://240.0.0.1/feed')).resolves.toBe(false);
 			await expect(validateSafeUrl('http://0.0.0.0/feed')).resolves.toBe(false);
+		});
+	});
+
+	describe('compactObject', () => {
+		it('removes null, undefined, and empty string values', () => {
+			const input = {
+				a: 1,
+				b: null,
+				c: undefined,
+				d: '',
+				e: 'hello'
+			};
+			expect(compactObject(input)).toEqual({ a: 1, e: 'hello' });
+		});
+
+		it('preserves valid falsy values (0, false, NaN)', () => {
+			const input = {
+				a: 0,
+				b: false,
+				c: NaN,
+				d: 'hello'
+			};
+			expect(compactObject(input)).toEqual({ a: 0, b: false, c: NaN, d: 'hello' });
+		});
+
+		it('does not mutate the original object', () => {
+			const input = { a: 1, b: null, c: 'hello' };
+			const originalCopy = { ...input };
+			const result = compactObject(input);
+
+			expect(result).not.toBe(input);
+			expect(input).toEqual(originalCopy);
+			expect(result).toEqual({ a: 1, c: 'hello' });
+		});
+
+		it('handles empty objects correctly', () => {
+			expect(compactObject({})).toEqual({});
+		});
+
+		it('ignores properties inherited from prototype', () => {
+			const prototype = { inheritedProp: 'test' };
+			const input = Object.create(prototype);
+			input.ownProp = 123;
+			input.emptyOwnProp = '';
+
+			const result = compactObject(input);
+			expect(result).toEqual({ ownProp: 123 });
+			expect('inheritedProp' in result).toBe(false);
 		});
 	});
 });
