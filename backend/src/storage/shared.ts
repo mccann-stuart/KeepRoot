@@ -386,7 +386,7 @@ function parseIpPart(part: string): number | null {
 	return null;
 }
 
-function isUnsafeIpAddress(ip: string): boolean {
+export function isUnsafeIpAddress(ip: string): boolean {
 	const normalized = ip.toLowerCase();
 	const mappedIpv4 = ipv4FromMappedIpv6(normalized);
 	if (mappedIpv4) {
