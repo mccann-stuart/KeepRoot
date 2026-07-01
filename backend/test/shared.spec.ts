@@ -163,5 +163,23 @@ describe('shared storage utilities', () => {
 			await expect(validateSafeUrl('http://240.0.0.1/feed')).resolves.toBe(false);
 			await expect(validateSafeUrl('http://0.0.0.0/feed')).resolves.toBe(false);
 		});
+
+		it('accepts valid http and https URLs', async () => {
+			await expect(validateSafeUrl('http://example.com/path')).resolves.toBe(true);
+			await expect(validateSafeUrl('https://google.com/search?q=test')).resolves.toBe(true);
+			await expect(validateSafeUrl('https://1.1.1.1/')).resolves.toBe(true); // Public IP
+		});
+
+		it('rejects localhost and local domains', async () => {
+			await expect(validateSafeUrl('http://localhost:8080/')).resolves.toBe(false);
+			await expect(validateSafeUrl('http://app.localhost/')).resolves.toBe(false);
+			await expect(validateSafeUrl('http://my-service.local/')).resolves.toBe(false);
+			await expect(validateSafeUrl('http://db.internal/')).resolves.toBe(false);
+		});
+
+		it('rejects malformed URLs', async () => {
+			await expect(validateSafeUrl('not-a-valid-url')).resolves.toBe(false);
+			await expect(validateSafeUrl('http://')).resolves.toBe(false);
+		});
 	});
 });
