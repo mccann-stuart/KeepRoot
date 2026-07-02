@@ -146,6 +146,26 @@ describe('shared storage utilities', () => {
 			await expect(validateSafeUrl('javascript:alert(1)')).resolves.toBe(false);
 		});
 
+		it('rejects URLs with embedded credentials to prevent SSRF bypass', async () => {
+			await expect(validateSafeUrl('http://user:pass@example.com')).resolves.toBe(false);
+			await expect(validateSafeUrl('http://foo@bar.com/baz')).resolves.toBe(false);
+			await expect(validateSafeUrl('http:\\\\foo@bar.com/baz')).resolves.toBe(false);
+			await expect(validateSafeUrl('http:foo@bar.com')).resolves.toBe(false);
+			await expect(validateSafeUrl('http:/foo@bar.com')).resolves.toBe(false);
+			await expect(validateSafeUrl('http://127.0.0.1\\@example.com')).resolves.toBe(false);
+			await expect(validateSafeUrl('http://example.com@127.0.0.1')).resolves.toBe(false);
+			await expect(validateSafeUrl('http://127.0.0.1%20@example.com')).resolves.toBe(false);
+			await expect(validateSafeUrl('http://foo:@bar.com')).resolves.toBe(false);
+		});
+
+		it('allows valid URLs that contain @ in path or query or fragment', async () => {
+			await expect(validateSafeUrl('https://example.com/path?email=foo@bar.com')).resolves.toBe(true);
+			await expect(validateSafeUrl('http://127.0.0.1#@example.com/')).resolves.toBe(false); // Rejected by loopback check
+			await expect(validateSafeUrl('http://example.com/foo@bar.com')).resolves.toBe(true);
+			await expect(validateSafeUrl('http://example.com?foo@bar.com')).resolves.toBe(true);
+			await expect(validateSafeUrl('https://example.com/path#foo@bar.com')).resolves.toBe(true);
+		});
+
 		it('rejects local and private IPv4 targets', async () => {
 			await expect(validateSafeUrl('http://127.0.0.1/admin')).resolves.toBe(false);
 			await expect(validateSafeUrl('http://10.0.0.5/admin')).resolves.toBe(false);

@@ -468,6 +468,18 @@ export async function validateSafeUrl(url: string): Promise<boolean> {
 			return false;
 		}
 
+		// Sentinel: Prevent SSRF bypasses via URL parser discrepancies with embedded credentials
+		if (parsedUrl.username !== '' || parsedUrl.password !== '') {
+			return false;
+		}
+
+		const urlWithoutProtocol = url.substring(parsedUrl.protocol.length);
+		const match = urlWithoutProtocol.match(/^[\/\\]*([^\/\?#\\]*)/);
+		const authority = match ? match[1] : '';
+		if (authority.includes('@')) {
+			return false;
+		}
+
 		let hostname = parsedUrl.hostname.toLowerCase();
 		if (hostname.startsWith('[') && hostname.endsWith(']')) {
 			hostname = hostname.slice(1, -1);
