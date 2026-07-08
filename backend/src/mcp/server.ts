@@ -13,6 +13,13 @@ import type { AuthenticatedUser, StorageEnv } from '../storage/shared';
 type ToolHandler<TArgs> = (args: TArgs) => Promise<Record<string, unknown>>;
 type ToolSchema<TArgs extends Record<string, unknown>> = z.ZodType<TArgs>;
 
+export type RegisterToolFn = <TArgs extends Record<string, unknown>>(
+	name: string,
+	description: string,
+	inputSchema: ToolSchema<TArgs>,
+	handler: ToolHandler<TArgs>,
+) => void;
+
 function formatToolResult(payload: Record<string, unknown>) {
 	return {
 		content: [
@@ -29,45 +36,7 @@ function normalizeErrorMessage(error: unknown): string {
 	return error instanceof Error ? error.message : String(error);
 }
 
-export function buildKeepRootMcpServer(env: StorageEnv, user: AuthenticatedUser): McpServer {
-	const server = new McpServer({
-		name: 'keeproot-mcp',
-		version: '1.0.0',
-	});
-
-	function registerTool<TArgs extends Record<string, unknown>>(
-		name: string,
-		description: string,
-		inputSchema: ToolSchema<TArgs>,
-		handler: ToolHandler<TArgs>,
-	): void {
-		server.registerTool(name, {
-			description,
-			inputSchema,
-		}, async (args) => {
-			const startedAt = Date.now();
-			try {
-				const result = await handler(args);
-				await recordToolEvent(env, {
-					durationMs: Date.now() - startedAt,
-					status: 'success',
-					toolName: name,
-					userId: user.userId,
-				});
-				return formatToolResult(result);
-			} catch (error) {
-				await recordToolEvent(env, {
-					durationMs: Date.now() - startedAt,
-					errorText: normalizeErrorMessage(error),
-					status: 'error',
-					toolName: name,
-					userId: user.userId,
-				});
-				throw error;
-			}
-		});
-	}
-
+function registerItemTools(registerTool: RegisterToolFn, env: StorageEnv, user: AuthenticatedUser) {
 	registerTool(
 		'save_item',
 		'Save a new item from a URL.',
@@ -189,7 +158,9 @@ export function buildKeepRootMcpServer(env: StorageEnv, user: AuthenticatedUser)
 			return item;
 		},
 	);
+}
 
+function registerAccountTools(registerTool: RegisterToolFn, env: StorageEnv, user: AuthenticatedUser) {
 	registerTool(
 		'whoami',
 		'Get the current account and plan details.',
@@ -197,6 +168,15 @@ export function buildKeepRootMcpServer(env: StorageEnv, user: AuthenticatedUser)
 		async () => getWhoAmI(env, user),
 	);
 
+	registerTool(
+		'get_stats',
+		'Get usage stats for the current account.',
+		z.object({}),
+		async () => getUsageStats(env, user.userId),
+	);
+}
+
+function registerSourceTools(registerTool: RegisterToolFn, env: StorageEnv, user: AuthenticatedUser) {
 	registerTool(
 		'list_sources',
 		'List configured content sources and subscriptions.',
@@ -257,14 +237,9 @@ export function buildKeepRootMcpServer(env: StorageEnv, user: AuthenticatedUser)
 			};
 		},
 	);
+}
 
-	registerTool(
-		'get_stats',
-		'Get usage stats for the current account.',
-		z.object({}),
-		async () => getUsageStats(env, user.userId),
-	);
-
+function registerInboxTools(registerTool: RegisterToolFn, env: StorageEnv, user: AuthenticatedUser) {
 	registerTool(
 		'list_inbox',
 		'List unprocessed inbox items.',
@@ -293,6 +268,51 @@ export function buildKeepRootMcpServer(env: StorageEnv, user: AuthenticatedUser)
 			};
 		},
 	);
+}
+
+export function buildKeepRootMcpServer(env: StorageEnv, user: AuthenticatedUser): McpServer {
+	const server = new McpServer({
+		name: 'keeproot-mcp',
+		version: '1.0.0',
+	});
+
+	function registerTool<TArgs extends Record<string, unknown>>(
+		name: string,
+		description: string,
+		inputSchema: ToolSchema<TArgs>,
+		handler: ToolHandler<TArgs>,
+	): void {
+		server.registerTool(name, {
+			description,
+			inputSchema,
+		}, async (args) => {
+			const startedAt = Date.now();
+			try {
+				const result = await handler(args);
+				await recordToolEvent(env, {
+					durationMs: Date.now() - startedAt,
+					status: 'success',
+					toolName: name,
+					userId: user.userId,
+				});
+				return formatToolResult(result);
+			} catch (error) {
+				await recordToolEvent(env, {
+					durationMs: Date.now() - startedAt,
+					errorText: normalizeErrorMessage(error),
+					status: 'error',
+					toolName: name,
+					userId: user.userId,
+				});
+				throw error;
+			}
+		});
+	}
+
+	registerItemTools(registerTool, env, user);
+	registerAccountTools(registerTool, env, user);
+	registerSourceTools(registerTool, env, user);
+	registerInboxTools(registerTool, env, user);
 
 	return server;
 }
