@@ -1,4 +1,4 @@
-import { compactObject, validateSafeUrl, type PaginationInput, type SourceKind, type SourceListOptions, type StorageEnv } from './shared';
+import { compactObject, validateSafeUrl, type SourceKind, type SourceListOptions, type StorageEnv } from './shared';
 
 interface SourceRow {
 	config_json: string;
