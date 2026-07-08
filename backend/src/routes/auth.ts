@@ -1,5 +1,10 @@
-import type { AuthenticatorTransportFuture } from '@simplewebauthn/server';
-import type { VerifiedAuthenticationResponse, VerifiedRegistrationResponse } from '@simplewebauthn/server';
+import type {
+	AuthenticationResponseJSON,
+	AuthenticatorTransportFuture,
+	RegistrationResponseJSON,
+	VerifiedAuthenticationResponse,
+	VerifiedRegistrationResponse,
+} from '@simplewebauthn/server';
 import { errorResponse, isAllowedRequestOrigin, jsonResponse, parseJson, type RouteContext } from '../http';
 import {
 	createSession,
@@ -73,7 +78,7 @@ export async function handleAuthRoute(context: RouteContext): Promise<Response |
 
 	if (context.request.method === 'POST' && context.pathname === '/auth/verify-registration') {
 		try {
-			const body = await parseJson<{ response: any; username?: string }>(context.request);
+			const body = await parseJson<{ response: RegistrationResponseJSON; username?: string }>(context.request);
 			const normalizedUsername = body.username?.trim();
 			if (!normalizedUsername || !body.response) {
 				return errorResponse(context.request, 'Invalid registration payload', 400);
@@ -171,7 +176,7 @@ export async function handleAuthRoute(context: RouteContext): Promise<Response |
 
 	if (context.request.method === 'POST' && context.pathname === '/auth/verify-authentication') {
 		try {
-			const body = await parseJson<{ response: any; username?: string }>(context.request);
+			const body = await parseJson<{ response: AuthenticationResponseJSON; username?: string }>(context.request);
 			const normalizedUsername = body.username?.trim();
 			if (!normalizedUsername || !body.response) {
 				return errorResponse(context.request, 'Invalid authentication payload', 400);
