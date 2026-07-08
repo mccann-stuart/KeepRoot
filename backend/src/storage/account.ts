@@ -91,6 +91,14 @@ async function deleteUnreferencedBucketObjects(env: StorageEnv, target: BucketRe
 		return;
 	}
 
+	// Prevent SQLi from untrusted target objects passing TypeScript checks
+	if (target.table !== 'bookmark_contents' && target.table !== 'bookmark_images') {
+		throw new Error(`Invalid table for bucket object reference: ${target.table}`);
+	}
+	if (target.column !== 'html_r2_key' && target.column !== 'r2_key') {
+		throw new Error(`Invalid column for bucket object reference: ${target.column}`);
+	}
+
 	// ⚡ Bolt: Use D1Database.batch() to execute all chunked queries in a single network roundtrip, reducing N+1 latency.
 	const chunks = chunkValues(target.keys, 50);
 	const statements = chunks.map((chunk) => {
