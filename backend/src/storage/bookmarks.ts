@@ -1140,47 +1140,40 @@ export async function deleteBookmark(env: StorageEnv, userId: string, bookmarkId
 }
 
 export async function patchBookmark(env: StorageEnv, userId: string, bookmarkId: string, payload: BookmarkPatchPayload): Promise<boolean> {
-	const updates: string[] = [];
-	const bindings: unknown[] = [];
 	const now = new Date().toISOString();
 
-	if (payload.isRead !== undefined) {
-		updates.push('is_read = ?');
-		bindings.push(payload.isRead ? 1 : 0);
-	}
-	if (payload.listId !== undefined) {
-		updates.push('list_id = ?');
-		bindings.push(payload.listId);
-	}
-	if (payload.pinned !== undefined) {
-		updates.push('pinned = ?');
-		bindings.push(payload.pinned ? 1 : 0);
-	}
-	if (payload.sortOrder !== undefined) {
-		updates.push('sort_order = ?');
-		bindings.push(payload.sortOrder);
-	}
-	if (payload.title !== undefined) {
-		updates.push('title = ?');
-		bindings.push(payload.title.trim() || 'Untitled');
-	}
-	if (payload.notes !== undefined) {
-		updates.push('notes = ?');
-		bindings.push(payload.notes?.trim() || null);
-	}
-	if (payload.status !== undefined) {
-		updates.push('status = ?');
-		bindings.push(normalizeStatus(payload.status));
-	}
+	const hasUpdates = payload.isRead !== undefined
+		|| payload.listId !== undefined
+		|| payload.pinned !== undefined
+		|| payload.sortOrder !== undefined
+		|| payload.title !== undefined
+		|| payload.notes !== undefined
+		|| payload.status !== undefined;
 
 	let bookmarkExists = true;
-	if (updates.length > 0) {
-		updates.push('updated_at = ?');
-		bindings.push(now);
-		bindings.push(bookmarkId, userId);
+	if (hasUpdates) {
 		const result = await env.KEEPROOT_DB.prepare(
-			`UPDATE bookmarks SET ${updates.join(', ')} WHERE id = ? AND user_id = ?`,
-		).bind(...bindings).run();
+			`UPDATE bookmarks SET
+				is_read = CASE WHEN ? = 1 THEN ? ELSE is_read END,
+				list_id = CASE WHEN ? = 1 THEN ? ELSE list_id END,
+				pinned = CASE WHEN ? = 1 THEN ? ELSE pinned END,
+				sort_order = CASE WHEN ? = 1 THEN ? ELSE sort_order END,
+				title = CASE WHEN ? = 1 THEN ? ELSE title END,
+				notes = CASE WHEN ? = 1 THEN ? ELSE notes END,
+				status = CASE WHEN ? = 1 THEN ? ELSE status END,
+				updated_at = ?
+			 WHERE id = ? AND user_id = ?`,
+		).bind(
+			payload.isRead !== undefined ? 1 : 0, payload.isRead ? 1 : 0,
+			payload.listId !== undefined ? 1 : 0, payload.listId ?? null,
+			payload.pinned !== undefined ? 1 : 0, payload.pinned ? 1 : 0,
+			payload.sortOrder !== undefined ? 1 : 0, payload.sortOrder ?? null,
+			payload.title !== undefined ? 1 : 0, payload.title !== undefined ? (payload.title.trim() || 'Untitled') : null,
+			payload.notes !== undefined ? 1 : 0, payload.notes !== undefined ? (payload.notes?.trim() || null) : null,
+			payload.status !== undefined ? 1 : 0, payload.status !== undefined ? normalizeStatus(payload.status) : null,
+			now,
+			bookmarkId, userId,
+		).run();
 		bookmarkExists = result.meta.changes > 0;
 		if (!bookmarkExists && payload.tags === undefined) {
 			return false;
