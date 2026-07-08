@@ -1139,10 +1139,9 @@ export async function deleteBookmark(env: StorageEnv, userId: string, bookmarkId
 	return Boolean(result.meta.changes);
 }
 
-export async function patchBookmark(env: StorageEnv, userId: string, bookmarkId: string, payload: BookmarkPatchPayload): Promise<boolean> {
+function buildBookmarkUpdates(payload: BookmarkPatchPayload): { updates: string[]; bindings: unknown[] } {
 	const updates: string[] = [];
 	const bindings: unknown[] = [];
-	const now = new Date().toISOString();
 
 	if (payload.isRead !== undefined) {
 		updates.push('is_read = ?');
@@ -1173,6 +1172,22 @@ export async function patchBookmark(env: StorageEnv, userId: string, bookmarkId:
 		bindings.push(normalizeStatus(payload.status));
 	}
 
+	return { updates, bindings };
+}
+
+async function checkBookmarkExists(env: StorageEnv, userId: string, bookmarkId: string): Promise<boolean> {
+	const existing = await env.KEEPROOT_DB.prepare(
+		'SELECT id FROM bookmarks WHERE id = ? AND user_id = ? LIMIT 1',
+	)
+		.bind(bookmarkId, userId)
+		.first<{ id: string }>();
+	return Boolean(existing);
+}
+
+export async function patchBookmark(env: StorageEnv, userId: string, bookmarkId: string, payload: BookmarkPatchPayload): Promise<boolean> {
+	const { updates, bindings } = buildBookmarkUpdates(payload);
+	const now = new Date().toISOString();
+
 	let bookmarkExists = true;
 	if (updates.length > 0) {
 		updates.push('updated_at = ?');
@@ -1186,12 +1201,7 @@ export async function patchBookmark(env: StorageEnv, userId: string, bookmarkId:
 			return false;
 		}
 	} else if (payload.tags !== undefined) {
-		const existing = await env.KEEPROOT_DB.prepare(
-			'SELECT id FROM bookmarks WHERE id = ? AND user_id = ? LIMIT 1',
-		)
-			.bind(bookmarkId, userId)
-			.first<{ id: string }>();
-		bookmarkExists = Boolean(existing);
+		bookmarkExists = await checkBookmarkExists(env, userId, bookmarkId);
 		if (!bookmarkExists) {
 			return false;
 		}
