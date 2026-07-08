@@ -331,139 +331,134 @@ export async function removeBookmarkIndexes(env: StorageEnv, bookmarkId: string)
 	}
 }
 
-export async function searchBookmarkIds(
+
+async function executeFtsSearch(
 	env: StorageEnv,
+	ftsQuery: string,
 	userId: string,
-	options: ItemSearchOptions,
-): Promise<SearchResultRow[]> {
-	const query = options.query?.trim();
-	if (!query) {
-		return [];
+	limit: number,
+	keywordScores: Map<string, number>,
+) {
+	try {
+		const ftsMatches = await env.KEEPROOT_DB.prepare(
+			`SELECT bookmark_id, bm25(item_search_fts) AS rank
+			FROM item_search_fts
+			WHERE item_search_fts MATCH ? AND user_id = ?
+			LIMIT ?`,
+		)
+			.bind(ftsQuery, userId, limit * 4)
+			.all<FtsMatchRow>();
+
+		ftsMatches.results.forEach((row, index) => {
+			const score = 1 / (1 + Math.max(index, 0) + Math.max(row.rank, 0));
+			keywordScores.set(row.bookmark_id, score);
+		});
+	} catch (error) {
+		console.warn('FTS query failed', error);
 	}
+}
 
-	const limit = Math.min(Math.max(Math.trunc(options.limit ?? 10), 1), 50);
-	const keywordScores = new Map<string, number>();
-	const semanticScores = new Map<string, number>();
-	const bookmarkMeta = new Map<string, { domain: string | null; sourceId: string | null; status: string; tags: string[] }>();
+async function executeVectorSearch(
+	env: StorageEnv,
+	query: string,
+	userId: string,
+	limit: number,
+	options: ItemSearchOptions,
+	bookmarkMeta: Map<string, { domain: string | null; sourceId: string | null; status: string; tags: string[] }>,
+	semanticScores: Map<string, number>,
+) {
+	if (!env.AI || !env.KEEPROOT_VECTOR_INDEX) return;
+	const embedding = await generateEmbedding(env, query);
+	if (!embedding) return;
 
-	const ftsQuery = buildFtsQuery(query);
+	try {
+		const vectorMatches = await env.KEEPROOT_VECTOR_INDEX.query(embedding, {
+			filter: {
+				userId: { $eq: userId },
+			},
+			returnMetadata: 'all',
+			topK: limit * 4,
+		});
 
-	// ⚡ Bolt: Execute FTS and Vector searches concurrently to reduce latency
-	await Promise.all([
-		(async () => {
-			if (ftsQuery) {
-				try {
-					const ftsMatches = await env.KEEPROOT_DB.prepare(
-						`SELECT bookmark_id, bm25(item_search_fts) AS rank
-						FROM item_search_fts
-						WHERE item_search_fts MATCH ? AND user_id = ?
-						LIMIT ?`,
-					)
-						.bind(ftsQuery, userId, limit * 4)
-						.all<FtsMatchRow>();
-
-					ftsMatches.results.forEach((row, index) => {
-						const score = 1 / (1 + Math.max(index, 0) + Math.max(row.rank, 0));
-						keywordScores.set(row.bookmark_id, score);
-					});
-				} catch (error) {
-					console.warn('FTS query failed', error);
-				}
-			}
-		})(),
-		(async () => {
-			if (env.AI && env.KEEPROOT_VECTOR_INDEX) {
-				const embedding = await generateEmbedding(env, query);
-				if (embedding) {
-					try {
-						const vectorMatches = await env.KEEPROOT_VECTOR_INDEX.query(embedding, {
-							filter: {
-								userId: { $eq: userId },
-							},
-							returnMetadata: 'all',
-							topK: limit * 4,
-						});
-
-						vectorMatches.matches.forEach((match, index) => {
-							const metadata = match.metadata as Record<string, unknown> | undefined;
-							const tags: string[] = [];
-							const metadataTags = metadata?.tags;
-							if (Array.isArray(metadataTags)) {
-								for (let i = 0; i < metadataTags.length; i += 1) {
-									const tag = metadataTags[i];
-									if (typeof tag === 'string') {
-										tags.push(tag);
-									}
-								}
-							}
-							const record = {
-								domain: typeof metadata?.domain === 'string' ? metadata.domain : null,
-								sourceId: typeof metadata?.sourceId === 'string' && metadata.sourceId !== '' ? metadata.sourceId : null,
-								status: typeof metadata?.status === 'string' ? metadata.status : 'saved',
-								tags,
-							};
-							bookmarkMeta.set(match.id, record);
-							if (matchesSearchFilters(record, options)) {
-								semanticScores.set(match.id, 1 / (1 + index) + match.score);
-							}
-						});
-					} catch (error) {
-						console.warn('Vector search failed', error);
+		vectorMatches.matches.forEach((match, index) => {
+			const metadata = match.metadata as Record<string, unknown> | undefined;
+			const tags: string[] = [];
+			const metadataTags = metadata?.tags;
+			if (Array.isArray(metadataTags)) {
+				for (let i = 0; i < metadataTags.length; i += 1) {
+					const tag = metadataTags[i];
+					if (typeof tag === 'string') {
+						tags.push(tag);
 					}
 				}
 			}
-		})(),
-	]);
-
-	if (semanticScores.size === 0) {
-		const candidates = await env.KEEPROOT_DB.prepare(
-			`SELECT item_search_documents.bookmark_id, item_search_documents.title, item_search_documents.notes,
-				item_search_documents.tags_text, item_search_documents.excerpt, item_search_documents.body_text
-			FROM item_search_documents
-			WHERE item_search_documents.user_id = ?
-			ORDER BY item_search_documents.updated_at DESC
-			LIMIT ?`,
-		)
-			.bind(userId, Math.max(limit * 8, 50))
-			.all<SearchDocumentCandidateRow>();
-
-		// ⚡ Bolt: Pre-calculate the query's token frequency and magnitude outside the loop.
-		// Impact: Eliminates O(n) redundant work where n is the number of search candidates.
-		const queryTokens = tokenize(query);
-		const queryFrequencies = tokenFrequency(queryTokens);
-		let queryMagnitude = 0;
-		for (const value of queryFrequencies.values()) {
-			queryMagnitude += value * value;
-		}
-
-		const queryTokensArr = [...queryFrequencies.keys()];
-		const queryRegex = queryTokensArr.length > 0 ? new RegExp(queryTokensArr.join('|'), 'i') : null;
-
-		for (const row of candidates.results) {
-			const documentText = [
-				row.title ?? '',
-				row.notes ?? '',
-				row.tags_text ?? '',
-				row.excerpt ?? '',
-				row.body_text ?? '',
-			].join('\n');
-			const score = cosineSimilarity(queryFrequencies, queryMagnitude, documentText, queryRegex);
-			if (score > 0) {
-				semanticScores.set(row.bookmark_id, score);
+			const record = {
+				domain: typeof metadata?.domain === 'string' ? metadata.domain : null,
+				sourceId: typeof metadata?.sourceId === 'string' && metadata.sourceId !== '' ? metadata.sourceId : null,
+				status: typeof metadata?.status === 'string' ? metadata.status : 'saved',
+				tags,
+			};
+			bookmarkMeta.set(match.id, record);
+			if (matchesSearchFilters(record, options)) {
+				semanticScores.set(match.id, 1 / (1 + index) + match.score);
 			}
+		});
+	} catch (error) {
+		console.warn('Vector search failed', error);
+	}
+}
+
+async function executeFallbackSemanticSearch(
+	env: StorageEnv,
+	query: string,
+	userId: string,
+	limit: number,
+	semanticScores: Map<string, number>,
+) {
+	const candidates = await env.KEEPROOT_DB.prepare(
+		`SELECT item_search_documents.bookmark_id, item_search_documents.title, item_search_documents.notes,
+			item_search_documents.tags_text, item_search_documents.excerpt, item_search_documents.body_text
+		FROM item_search_documents
+		WHERE item_search_documents.user_id = ?
+		ORDER BY item_search_documents.updated_at DESC
+		LIMIT ?`,
+	)
+		.bind(userId, Math.max(limit * 8, 50))
+		.all<SearchDocumentCandidateRow>();
+
+	// ⚡ Bolt: Pre-calculate the query's token frequency and magnitude outside the loop.
+	// Impact: Eliminates O(n) redundant work where n is the number of search candidates.
+	const queryTokens = tokenize(query);
+	const queryFrequencies = tokenFrequency(queryTokens);
+	let queryMagnitude = 0;
+	for (const value of queryFrequencies.values()) {
+		queryMagnitude += value * value;
+	}
+
+	const queryTokensArr = [...queryFrequencies.keys()];
+	const queryRegex = queryTokensArr.length > 0 ? new RegExp(queryTokensArr.join('|'), 'i') : null;
+
+	for (const row of candidates.results) {
+		const documentText = [
+			row.title ?? '',
+			row.notes ?? '',
+			row.tags_text ?? '',
+			row.excerpt ?? '',
+			row.body_text ?? '',
+		].join('\n');
+		const score = cosineSimilarity(queryFrequencies, queryMagnitude, documentText, queryRegex);
+		if (score > 0) {
+			semanticScores.set(row.bookmark_id, score);
 		}
 	}
+}
 
-	// ⚡ Bolt: Iterate over iterables explicitly with .add() instead of creating large intermediate arrays via spread syntax.
-	// Impact: Reduces garbage collection pressure in V8/Cloudflare Workers by eliminating the redundant tuple array.
-	const candidateIds = new Set<string>();
-	for (const id of keywordScores.keys()) {
-		candidateIds.add(id);
-	}
-	for (const id of semanticScores.keys()) {
-		candidateIds.add(id);
-	}
-
+async function hydrateCandidatesMetadata(
+	env: StorageEnv,
+	userId: string,
+	candidateIds: Set<string>,
+	bookmarkMeta: Map<string, { domain: string | null; sourceId: string | null; status: string; tags: string[] }>,
+) {
 	// ⚡ Bolt: Use a procedural loop instead of [...candidateIds].filter() to avoid intermediate array allocation.
 	// ⚡ Bolt: Batch D1 queries to prevent N+1 overhead when hydating multiple search candidates
 	const missingCandidateIds: string[] = [];
@@ -514,6 +509,51 @@ export async function searchBookmarkIds(
 			}
 		}
 	}
+}
+export async function searchBookmarkIds(
+	env: StorageEnv,
+	userId: string,
+	options: ItemSearchOptions,
+): Promise<SearchResultRow[]> {
+	const query = options.query?.trim();
+	if (!query) {
+		return [];
+	}
+
+	const limit = Math.min(Math.max(Math.trunc(options.limit ?? 10), 1), 50);
+	const keywordScores = new Map<string, number>();
+	const semanticScores = new Map<string, number>();
+	const bookmarkMeta = new Map<string, { domain: string | null; sourceId: string | null; status: string; tags: string[] }>();
+
+	const ftsQuery = buildFtsQuery(query);
+
+	// ⚡ Bolt: Execute FTS and Vector searches concurrently to reduce latency
+	await Promise.all([
+		(async () => {
+			if (ftsQuery) {
+				await executeFtsSearch(env, ftsQuery, userId, limit, keywordScores);
+			}
+		})(),
+		(async () => {
+			await executeVectorSearch(env, query, userId, limit, options, bookmarkMeta, semanticScores);
+		})(),
+	]);
+
+	if (semanticScores.size === 0) {
+		await executeFallbackSemanticSearch(env, query, userId, limit, semanticScores);
+	}
+
+	// ⚡ Bolt: Iterate over iterables explicitly with .add() instead of creating large intermediate arrays via spread syntax.
+	// Impact: Reduces garbage collection pressure in V8/Cloudflare Workers by eliminating the redundant tuple array.
+	const candidateIds = new Set<string>();
+	for (const id of keywordScores.keys()) {
+		candidateIds.add(id);
+	}
+	for (const id of semanticScores.keys()) {
+		candidateIds.add(id);
+	}
+
+	await hydrateCandidatesMetadata(env, userId, candidateIds, bookmarkMeta);
 
 	// ⚡ Bolt: Replace [...candidateIds].filter().map() chain with a procedural for...of loop over the Set.
 	// Impact: Prevents the creation of intermediate tuple arrays and reduces V8 execution context overhead during the final candidate mapping phase.
