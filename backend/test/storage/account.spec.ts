@@ -1,8 +1,142 @@
 import { env } from 'cloudflare:test';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
-import { clearUserData } from '../../src/storage/account';
+import { clearUserData, getWhoAmI } from '../../src/storage/account';
+import type { AuthenticatedUser } from '../../src/storage/shared';
 
 describe('account storage', () => {
+    describe('getWhoAmI', () => {
+        beforeEach(() => {
+            vi.restoreAllMocks();
+        });
+
+        it('returns default settings for new user with no db records', async () => {
+            const batchSpy = vi.spyOn(env.KEEPROOT_DB, 'batch').mockImplementation(async () => {
+                // Return an empty array for the select query to simulate no existing settings
+                return [
+                    { results: [] }, // insertResult
+                    { results: [] }, // selectResult
+                ] as any;
+            });
+            const prepareSpy = vi.spyOn(env.KEEPROOT_DB, 'prepare');
+            const runSpy = vi.spyOn(Object.getPrototypeOf(env.KEEPROOT_DB.prepare('')), 'run').mockResolvedValue({} as any);
+
+            const user: AuthenticatedUser = {
+                userId: 'test-user-id',
+                username: 'testuser',
+                tokenType: 'webauthn',
+                roles: [],
+            };
+
+            const result = await getWhoAmI(env as any, user);
+
+            expect(batchSpy).toHaveBeenCalledTimes(1);
+            expect(result).toEqual({
+                account: {
+                    createdAt: null,
+                    displayName: 'testuser', // fallbacks to username
+                    plan: 'self_hosted',
+                    updatedAt: null,
+                    userId: 'test-user-id',
+                    username: 'testuser',
+                },
+                features: {
+                    email: false,
+                    rss: true,
+                    x: false,
+                    youtube: true,
+                },
+                limits: {
+                    maxItems: null,
+                    maxSources: null,
+                    maxToolCallsPerDay: null,
+                },
+                tokenType: 'webauthn',
+            });
+        });
+
+        it('returns custom settings when they exist in db', async () => {
+            const batchSpy = vi.spyOn(env.KEEPROOT_DB, 'batch').mockImplementation(async () => {
+                return [
+                    { results: [] }, // insertResult
+                    {
+                        results: [{
+                            created_at: '2023-01-01T00:00:00Z',
+                            display_name: 'Custom Name',
+                            features_json: JSON.stringify({ customFeature: true }),
+                            limits_json: JSON.stringify({ maxItems: 100 }),
+                            plan_code: 'pro',
+                            updated_at: '2023-01-02T00:00:00Z',
+                            user_id: 'test-user-id',
+                        }],
+                    }, // selectResult
+                ] as any;
+            });
+
+            const user: AuthenticatedUser = {
+                userId: 'test-user-id',
+                username: 'testuser',
+                tokenType: 'webauthn',
+                roles: [],
+            };
+
+            const result = await getWhoAmI(env as any, user);
+
+            expect(result).toEqual({
+                account: {
+                    createdAt: '2023-01-01T00:00:00Z',
+                    displayName: 'Custom Name',
+                    plan: 'pro',
+                    updatedAt: '2023-01-02T00:00:00Z',
+                    userId: 'test-user-id',
+                    username: 'testuser',
+                },
+                features: { customFeature: true },
+                limits: { maxItems: 100 },
+                tokenType: 'webauthn',
+            });
+        });
+
+        it('gracefully handles invalid json in db and falls back to defaults', async () => {
+            const batchSpy = vi.spyOn(env.KEEPROOT_DB, 'batch').mockImplementation(async () => {
+                return [
+                    { results: [] }, // insertResult
+                    {
+                        results: [{
+                            created_at: '2023-01-01T00:00:00Z',
+                            display_name: 'Custom Name',
+                            features_json: '{invalid-json',
+                            limits_json: 'null',
+                            plan_code: 'pro',
+                            updated_at: '2023-01-02T00:00:00Z',
+                            user_id: 'test-user-id',
+                        }],
+                    }, // selectResult
+                ] as any;
+            });
+
+            const user: AuthenticatedUser = {
+                userId: 'test-user-id',
+                username: 'testuser',
+                tokenType: 'webauthn',
+                roles: [],
+            };
+
+            const result = await getWhoAmI(env as any, user);
+
+            expect(result.features).toEqual({
+                email: false,
+                rss: true,
+                x: false,
+                youtube: true,
+            });
+            expect(result.limits).toEqual({
+                maxItems: null,
+                maxSources: null,
+                maxToolCallsPerDay: null,
+            });
+        });
+    });
+
     describe('clearUserData', () => {
         beforeEach(() => {
             vi.restoreAllMocks();
