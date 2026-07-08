@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { bufferToBase64URL, base64URLToUint8Array, normalizeCanonicalUrl, validateSafeUrl, MAX_AUTO_FETCH_IMAGES, isUnsafeIpAddress } from '../src/storage/shared';
+import { bufferToBase64URL, base64URLToUint8Array, normalizeCanonicalUrl, validateSafeUrl, MAX_AUTO_FETCH_IMAGES, isUnsafeIpAddress, parseStringArray } from '../src/storage/shared';
 
 describe('shared storage utilities', () => {
 	describe('Constants', () => {
@@ -274,6 +274,33 @@ describe('shared storage utilities', () => {
 			// unless it happens to match a naive check like startsWith('fc').
 			expect(isUnsafeIpAddress('example.com')).toBe(false);
 			expect(isUnsafeIpAddress('not.an.ip')).toBe(false);
+		});
+	});
+
+	describe('parseStringArray', () => {
+		it('returns an empty array for null or empty input', () => {
+			expect(parseStringArray(null)).toEqual([]);
+			expect(parseStringArray('')).toEqual([]);
+		});
+
+		it('parses a valid JSON array of strings', () => {
+			expect(parseStringArray('["a", "b", "c"]')).toEqual(['a', 'b', 'c']);
+		});
+
+		it('returns an empty array for invalid JSON', () => {
+			expect(parseStringArray('not json')).toEqual([]);
+			expect(parseStringArray('["a", "b"')).toEqual([]);
+		});
+
+		it('returns an empty array if the parsed JSON is not an array', () => {
+			expect(parseStringArray('{"a": "b"}')).toEqual([]);
+			expect(parseStringArray('"string"')).toEqual([]);
+			expect(parseStringArray('123')).toEqual([]);
+			expect(parseStringArray('true')).toEqual([]);
+		});
+
+		it('filters out non-string elements from a mixed-type array', () => {
+			expect(parseStringArray('["a", 1, true, null, {}, [], "b"]')).toEqual(['a', 'b']);
 		});
 	});
 });
