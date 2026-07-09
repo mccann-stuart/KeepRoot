@@ -1,7 +1,23 @@
 import { env } from 'cloudflare:test';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
-import { clearUserData, getWhoAmI } from '../../src/storage/account';
+import { clearUserData, ensureAccountSettings, getWhoAmI } from '../../src/storage/account';
 import type { AuthenticatedUser } from '../../src/storage/shared';
+
+function createAccountSettingsEnv(overrides: Record<string, string> = {}) {
+    const run = vi.fn().mockResolvedValue({});
+    const bind = vi.fn().mockReturnValue({ run });
+    const prepare = vi.fn().mockReturnValue({ bind });
+    const storageEnv = {
+        KEEPROOT_DB: { prepare },
+        EMAIL_SOURCE_DOMAIN: '',
+        ENABLE_X_SOURCES: '0',
+        MCP_EMAIL_DOMAIN: '',
+        X_SOURCE_BRIDGE_BASE_URL: '',
+        ...overrides,
+    };
+
+    return { bind, prepare, run, storageEnv };
+}
 
 describe('account storage', () => {
     describe('getWhoAmI', () => {
@@ -205,6 +221,59 @@ describe('account storage', () => {
             if (deleteIndexSpy) {
                 expect(deleteIndexSpy).not.toHaveBeenCalled();
             }
+        });
+    });
+
+    describe('ensureAccountSettings', () => {
+        beforeEach(() => {
+            vi.restoreAllMocks();
+        });
+
+        it('creates default account settings when they do not exist', async () => {
+            const { bind, prepare, run, storageEnv } = createAccountSettingsEnv();
+
+            await ensureAccountSettings(storageEnv as any, { userId: 'user-123', username: 'testuser' });
+
+            expect(prepare).toHaveBeenCalledWith(expect.stringContaining('INSERT OR IGNORE INTO account_settings'));
+            expect(bind).toHaveBeenCalledWith(
+                'user-123',
+                'testuser',
+                JSON.stringify({ maxItems: null, maxSources: null, maxToolCallsPerDay: null }),
+                JSON.stringify({ email: false, rss: true, x: false, youtube: true }),
+                expect.any(String),
+                expect.any(String),
+            );
+            expect(run).toHaveBeenCalledTimes(1);
+        });
+
+        it('enables email when an email domain is configured', async () => {
+            const { bind, storageEnv } = createAccountSettingsEnv({ MCP_EMAIL_DOMAIN: 'example.com' });
+
+            await ensureAccountSettings(storageEnv as any, { userId: 'user-123', username: 'testuser' });
+
+            expect(bind).toHaveBeenCalledWith(
+                'user-123',
+                'testuser',
+                expect.any(String),
+                JSON.stringify({ email: true, rss: true, x: false, youtube: true }),
+                expect.any(String),
+                expect.any(String),
+            );
+        });
+
+        it('enables X sources when the feature is configured', async () => {
+            const { bind, storageEnv } = createAccountSettingsEnv({ ENABLE_X_SOURCES: '1' });
+
+            await ensureAccountSettings(storageEnv as any, { userId: 'user-123', username: 'testuser' });
+
+            expect(bind).toHaveBeenCalledWith(
+                'user-123',
+                'testuser',
+                expect.any(String),
+                JSON.stringify({ email: false, rss: true, x: true, youtube: true }),
+                expect.any(String),
+                expect.any(String),
+            );
         });
     });
 });
