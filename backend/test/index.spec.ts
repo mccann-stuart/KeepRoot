@@ -13,10 +13,12 @@ const TEST_USERNAME = 'testuser';
 const TINY_PNG_BASE64 = 'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8Xw8AAoMBgQJ8i1QAAAAASUVORK5CYII=';
 const verifyRegistrationResponseMock = vi.fn();
 const verifyAuthenticationResponseMock = vi.fn();
+const generateAuthenticationOptionsMock = vi.fn();
+const generateRegistrationOptionsMock = vi.fn();
 
 vi.mock('@simplewebauthn/server', () => ({
-	generateAuthenticationOptions: vi.fn(),
-	generateRegistrationOptions: vi.fn(),
+	generateAuthenticationOptions: generateAuthenticationOptionsMock,
+	generateRegistrationOptions: generateRegistrationOptionsMock,
 	verifyAuthenticationResponse: verifyAuthenticationResponseMock,
 	verifyRegistrationResponse: verifyRegistrationResponseMock,
 }));
@@ -284,6 +286,394 @@ describe('KeepRoot Worker', () => {
 		expect(await response.json()).toEqual({ error: 'Unauthorized' });
 	});
 
+	describe('handleAuthRoute', () => {
+		it('responds with 400 if username is missing during registration generation', async () => {
+			const request = new Request('http://example.com/auth/generate-registration', {
+				method: 'POST',
+				headers: { 'Content-Type': 'application/json' },
+				body: JSON.stringify({}),
+			});
+			const ctx = createExecutionContext();
+			const response = await worker.fetch(request, env, ctx);
+			await waitOnExecutionContext(ctx);
+
+			expect(response.status).toBe(400);
+			expect(await response.json()).toEqual({ error: 'Username required' });
+		});
+
+		it('responds with 400 if user already exists during registration generation', async () => {
+			await createUserWithCredential(env, 'existing-user', 'user-id', {
+				backedUp: false,
+				counter: 0,
+				credentialId: 'cred-id',
+				deviceType: null,
+				publicKey: new Uint8Array([1]),
+				transports: ['internal'],
+			});
+
+			const request = new Request('http://example.com/auth/generate-registration', {
+				method: 'POST',
+				headers: { 'Content-Type': 'application/json' },
+				body: JSON.stringify({ username: 'existing-user' }),
+			});
+			const ctx = createExecutionContext();
+			const response = await worker.fetch(request, env, ctx);
+			await waitOnExecutionContext(ctx);
+
+			expect(response.status).toBe(400);
+			expect(await response.json()).toEqual({ error: 'User already exists' });
+		});
+
+		it('generates registration options successfully', async () => {
+			generateRegistrationOptionsMock.mockResolvedValue({
+				challenge: 'registration-challenge',
+			});
+
+			const request = new Request('http://example.com/auth/generate-registration', {
+				method: 'POST',
+				headers: { 'Content-Type': 'application/json' },
+				body: JSON.stringify({ username: 'new-user' }),
+			});
+			const ctx = createExecutionContext();
+			const response = await worker.fetch(request, env, ctx);
+			await waitOnExecutionContext(ctx);
+
+			expect(response.status).toBe(200);
+			expect(await response.json()).toEqual({ challenge: 'registration-challenge' });
+			expect(generateRegistrationOptionsMock).toHaveBeenCalledTimes(1);
+			const mockCalls = generateRegistrationOptionsMock.mock.calls;
+			expect(mockCalls[0][0].userName).toBe('new-user');
+		});
+
+		it('responds with 400 if invalid payload provided for verify registration', async () => {
+			const request = new Request('http://example.com/auth/verify-registration', {
+				method: 'POST',
+				headers: { 'Content-Type': 'application/json' },
+				body: JSON.stringify({ username: 'new-user' }), // missing response
+			});
+			const ctx = createExecutionContext();
+			const response = await worker.fetch(request, env, ctx);
+			await waitOnExecutionContext(ctx);
+
+			expect(response.status).toBe(400);
+			expect(await response.json()).toEqual({ error: 'Invalid registration payload' });
+		});
+
+		it('responds with 400 if session expired for verify registration', async () => {
+			const request = new Request('http://example.com/auth/verify-registration', {
+				method: 'POST',
+				headers: { 'Content-Type': 'application/json' },
+				body: JSON.stringify({ username: 'new-user', response: {} }),
+			});
+			const ctx = createExecutionContext();
+			const response = await worker.fetch(request, env, ctx);
+			await waitOnExecutionContext(ctx);
+
+			expect(response.status).toBe(400);
+			expect(await response.json()).toEqual({ error: 'Session expired' });
+		});
+
+		it('responds with 400 if user already exists during verify registration', async () => {
+			await storeAuthChallenge(env, {
+				challenge: 'registration-challenge',
+				type: 'registration',
+				userId: 'user-id',
+				username: 'existing-user',
+			});
+
+			await createUserWithCredential(env, 'existing-user', 'user-id', {
+				backedUp: false,
+				counter: 0,
+				credentialId: 'cred-id',
+				deviceType: null,
+				publicKey: new Uint8Array([1]),
+				transports: ['internal'],
+			});
+
+			verifyRegistrationResponseMock.mockResolvedValue({
+				registrationInfo: {
+					credential: {
+						counter: 0,
+						id: 'registration-credential',
+						publicKey: new Uint8Array([1, 2, 3]),
+						transports: ['internal'],
+					},
+					credentialBackedUp: false,
+					credentialDeviceType: 'singleDevice',
+				},
+				verified: true,
+			});
+
+			const request = new Request('http://example.com/auth/verify-registration', {
+				method: 'POST',
+				headers: { 'Content-Type': 'application/json' },
+				body: JSON.stringify({ username: 'existing-user', response: { rawId: 'registration-credential' } }),
+			});
+			const ctx = createExecutionContext();
+			const response = await worker.fetch(request, env, ctx);
+			await waitOnExecutionContext(ctx);
+
+			expect(response.status).toBe(400);
+			expect(await response.json()).toEqual({ error: 'User already exists' });
+		});
+
+		it('verifies registration successfully and creates a token', async () => {
+			await storeAuthChallenge(env, {
+				challenge: 'registration-challenge',
+				type: 'registration',
+				userId: 'registration-user-id',
+				username: 'new-user',
+			});
+
+			verifyRegistrationResponseMock.mockResolvedValue({
+				registrationInfo: {
+					credential: {
+						counter: 0,
+						id: 'registration-credential',
+						publicKey: new Uint8Array([1, 2, 3]),
+						transports: ['internal'],
+					},
+					credentialBackedUp: false,
+					credentialDeviceType: 'singleDevice',
+				},
+				verified: true,
+			});
+
+			const request = new Request('http://example.com/auth/verify-registration', {
+				method: 'POST',
+				headers: { 'Content-Type': 'application/json' },
+				body: JSON.stringify({
+					response: {
+						rawId: 'registration-credential',
+					},
+					username: 'new-user',
+				}),
+			});
+			const ctx = createExecutionContext();
+			const response = await worker.fetch(request, env, ctx);
+			await waitOnExecutionContext(ctx);
+
+			expect(response.status).toBe(200);
+			const data = await response.json();
+			expect(data).toHaveProperty('token');
+			expect(data).toHaveProperty('verified', true);
+		});
+
+		it('responds with 400 if username missing during generate authentication', async () => {
+			const request = new Request('http://example.com/auth/generate-authentication', {
+				method: 'POST',
+				headers: { 'Content-Type': 'application/json' },
+				body: JSON.stringify({}),
+			});
+			const ctx = createExecutionContext();
+			const response = await worker.fetch(request, env, ctx);
+			await waitOnExecutionContext(ctx);
+
+			expect(response.status).toBe(400);
+			expect(await response.json()).toEqual({ error: 'Username required' });
+		});
+
+		it('responds with 404 if user not found during generate authentication', async () => {
+			const request = new Request('http://example.com/auth/generate-authentication', {
+				method: 'POST',
+				headers: { 'Content-Type': 'application/json' },
+				body: JSON.stringify({ username: 'nonexistent-user' }),
+			});
+			const ctx = createExecutionContext();
+			const response = await worker.fetch(request, env, ctx);
+			await waitOnExecutionContext(ctx);
+
+			expect(response.status).toBe(404);
+			expect(await response.json()).toEqual({ error: 'User not found' });
+		});
+
+		it('generates authentication options successfully', async () => {
+			await createUserWithCredential(env, 'existing-user', 'user-id', {
+				backedUp: false,
+				counter: 0,
+				credentialId: 'cred-id',
+				deviceType: null,
+				publicKey: new Uint8Array([1]),
+				transports: ['internal'],
+			});
+
+			generateAuthenticationOptionsMock.mockResolvedValue({
+				challenge: 'auth-challenge',
+			});
+
+			const request = new Request('http://example.com/auth/generate-authentication', {
+				method: 'POST',
+				headers: { 'Content-Type': 'application/json' },
+				body: JSON.stringify({ username: 'existing-user' }),
+			});
+			const ctx = createExecutionContext();
+			const response = await worker.fetch(request, env, ctx);
+			await waitOnExecutionContext(ctx);
+
+			expect(response.status).toBe(200);
+			expect(await response.json()).toEqual({ challenge: 'auth-challenge' });
+			expect(generateAuthenticationOptionsMock).toHaveBeenCalledTimes(1);
+			const mockCalls = generateAuthenticationOptionsMock.mock.calls;
+			expect(mockCalls[0][0].allowCredentials).toEqual([
+				{
+					id: 'cred-id',
+					transports: ['internal'],
+				},
+			]);
+		});
+
+		it('responds with 400 if invalid payload provided for verify authentication', async () => {
+			const request = new Request('http://example.com/auth/verify-authentication', {
+				method: 'POST',
+				headers: { 'Content-Type': 'application/json' },
+				body: JSON.stringify({ username: 'existing-user' }),
+			});
+			const ctx = createExecutionContext();
+			const response = await worker.fetch(request, env, ctx);
+			await waitOnExecutionContext(ctx);
+
+			expect(response.status).toBe(400);
+			expect(await response.json()).toEqual({ error: 'Invalid authentication payload' });
+		});
+
+		it('responds with 400 if session expired for verify authentication', async () => {
+			const request = new Request('http://example.com/auth/verify-authentication', {
+				method: 'POST',
+				headers: { 'Content-Type': 'application/json' },
+				body: JSON.stringify({ username: 'existing-user', response: {} }),
+			});
+			const ctx = createExecutionContext();
+			const response = await worker.fetch(request, env, ctx);
+			await waitOnExecutionContext(ctx);
+
+			expect(response.status).toBe(400);
+			expect(await response.json()).toEqual({ error: 'Session expired' });
+		});
+
+		it('responds with 404 if user not found for verify authentication', async () => {
+			await storeAuthChallenge(env, {
+				challenge: 'auth-challenge',
+				type: 'authentication',
+				userId: 'user-id',
+				username: 'nonexistent-user',
+			});
+
+			const request = new Request('http://example.com/auth/verify-authentication', {
+				method: 'POST',
+				headers: { 'Content-Type': 'application/json' },
+				body: JSON.stringify({ username: 'nonexistent-user', response: {} }),
+			});
+			const ctx = createExecutionContext();
+			const response = await worker.fetch(request, env, ctx);
+			await waitOnExecutionContext(ctx);
+
+			expect(response.status).toBe(404);
+			expect(await response.json()).toEqual({ error: 'User not found' });
+		});
+
+		it('responds with 400 if authenticator not registered for verify authentication', async () => {
+			await createUserWithCredential(env, 'existing-user', 'user-id', {
+				backedUp: false,
+				counter: 0,
+				credentialId: 'cred-id',
+				deviceType: null,
+				publicKey: new Uint8Array([1]),
+				transports: ['internal'],
+			});
+
+			await storeAuthChallenge(env, {
+				challenge: 'auth-challenge',
+				type: 'authentication',
+				userId: 'user-id',
+				username: 'existing-user',
+			});
+
+			const request = new Request('http://example.com/auth/verify-authentication', {
+				method: 'POST',
+				headers: { 'Content-Type': 'application/json' },
+				body: JSON.stringify({ username: 'existing-user', response: { rawId: 'unregistered-cred-id' } }),
+			});
+			const ctx = createExecutionContext();
+			const response = await worker.fetch(request, env, ctx);
+			await waitOnExecutionContext(ctx);
+
+			expect(response.status).toBe(400);
+			expect(await response.json()).toEqual({ error: 'Authenticator not registered' });
+		});
+
+		it('responds with 400 if verification fails during verify authentication', async () => {
+			await createUserWithCredential(env, 'existing-user', 'user-id', {
+				backedUp: false,
+				counter: 0,
+				credentialId: 'cred-id',
+				deviceType: null,
+				publicKey: new Uint8Array([1]),
+				transports: ['internal'],
+			});
+
+			await storeAuthChallenge(env, {
+				challenge: 'auth-challenge',
+				type: 'authentication',
+				userId: 'user-id',
+				username: 'existing-user',
+			});
+
+			verifyAuthenticationResponseMock.mockResolvedValue({
+				verified: false,
+			});
+
+			const request = new Request('http://example.com/auth/verify-authentication', {
+				method: 'POST',
+				headers: { 'Content-Type': 'application/json' },
+				body: JSON.stringify({ username: 'existing-user', response: { rawId: 'cred-id' } }),
+			});
+			const ctx = createExecutionContext();
+			const response = await worker.fetch(request, env, ctx);
+			await waitOnExecutionContext(ctx);
+
+			expect(response.status).toBe(400);
+			expect(await response.json()).toEqual({ error: 'Verification failed' });
+		});
+
+		it('verifies authentication successfully and creates a token', async () => {
+			await createUserWithCredential(env, 'existing-user', 'user-id', {
+				backedUp: false,
+				counter: 0,
+				credentialId: 'cred-id',
+				deviceType: null,
+				publicKey: new Uint8Array([1]),
+				transports: ['internal'],
+			});
+
+			await storeAuthChallenge(env, {
+				challenge: 'auth-challenge',
+				type: 'authentication',
+				userId: 'user-id',
+				username: 'existing-user',
+			});
+
+			verifyAuthenticationResponseMock.mockResolvedValue({
+				authenticationInfo: {
+					newCounter: 1,
+				},
+				verified: true,
+			});
+
+			const request = new Request('http://example.com/auth/verify-authentication', {
+				method: 'POST',
+				headers: { 'Content-Type': 'application/json' },
+				body: JSON.stringify({ username: 'existing-user', response: { rawId: 'cred-id' } }),
+			});
+			const ctx = createExecutionContext();
+			const response = await worker.fetch(request, env, ctx);
+			await waitOnExecutionContext(ctx);
+
+			expect(response.status).toBe(200);
+			const data = await response.json();
+			expect(data).toHaveProperty('token');
+			expect(data).toHaveProperty('verified', true);
+		});
+	});
 	it('accepts browser extension origins during passkey registration verification', async () => {
 		verifyRegistrationResponseMock.mockResolvedValue({
 			registrationInfo: {

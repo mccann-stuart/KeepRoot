@@ -38,7 +38,7 @@ export class SchemaCompatibilityError extends Error {
 	}
 }
 
-async function validateOrganizationSchema(env: StorageEnv): Promise<void> {
+export async function validateOrganizationSchema(env: StorageEnv): Promise<void> {
 	const placeholders = REQUIRED_TABLE_NAMES.map(() => '?').join(', ');
 	const tableCount = await env.KEEPROOT_DB.prepare(
 		`SELECT COUNT(*) AS count
