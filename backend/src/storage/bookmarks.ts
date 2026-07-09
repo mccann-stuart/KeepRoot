@@ -957,11 +957,13 @@ export async function listBookmarks(env: StorageEnv, userId: string, options?: {
 
 		const uniqueIds = [...new Set(options.bookmarkIds)];
 		const batchSize = 50;
+		// ⚡ Bolt: Execute D1 batches concurrently via Promise.all() rather than looping sequentially to eliminate client-side loop overhead and network latency buildup.
+		const batchPromises = [];
 		for (let i = 0; i < uniqueIds.length; i += batchSize) {
 			const batchIds = uniqueIds.slice(i, i + batchSize);
 			const placeholders = batchIds.map(() => '?').join(', ');
 
-			const [rawBookmarks, tagRows] = await env.KEEPROOT_DB.batch<BookmarkRow | { bookmark_id: string; name: string }>([
+			batchPromises.push(env.KEEPROOT_DB.batch<BookmarkRow | { bookmark_id: string; name: string }>([
 				env.KEEPROOT_DB.prepare(
 					`SELECT bookmarks.id, bookmarks.url, bookmarks.canonical_url, bookmarks.title, bookmarks.site_name, bookmarks.domain, bookmarks.status, bookmarks.notes,
 						bookmarks.source_id, bookmarks.processing_state, bookmarks.search_updated_at, bookmarks.embedding_updated_at, bookmarks.created_at, bookmarks.updated_at,
@@ -983,8 +985,12 @@ export async function listBookmarks(env: StorageEnv, userId: string, options?: {
 					 WHERE tags.user_id = ? AND bookmark_tags.bookmark_id IN (${placeholders})`,
 				)
 					.bind(userId, ...batchIds),
-			]) as [D1Result<BookmarkRow>, D1Result<{ bookmark_id: string; name: string }>];
+			]) as Promise<[D1Result<BookmarkRow>, D1Result<{ bookmark_id: string; name: string }>]>);
+		}
 
+		const batchResults = await Promise.all(batchPromises);
+
+		for (const [rawBookmarks, tagRows] of batchResults) {
 			for (const row of rawBookmarks.results) {
 				resultBookmarks.push(row);
 			}
