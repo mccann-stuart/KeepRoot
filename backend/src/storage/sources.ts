@@ -56,8 +56,11 @@ function parseConfig(value: string | null): Record<string, unknown> {
 			return {};
 		}
 		return parsed as Record<string, unknown>;
-	} catch {
-		return {};
+	} catch (error) {
+		if (error instanceof SyntaxError) {
+			return {};
+		}
+		throw error;
 	}
 }
 
@@ -178,7 +181,8 @@ async function resolveYouTubePollUrl(identifier: string): Promise<{ normalizedId
 				};
 			}
 		}
-	} catch {
+	} catch (error) {
+		console.warn('Failed to resolve YouTube poll URL', error);
 		// Best effort. The source can still be stored and synced manually later.
 	}
 

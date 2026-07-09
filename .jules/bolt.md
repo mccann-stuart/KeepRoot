@@ -47,3 +47,6 @@
 ## 2025-05-18 - Cloudflare Worker Queue concurrent execution
 **Learning:** When processing Cloudflare Worker Queue batches concurrently, using `Promise.all()` is unsafe because a single rejection will fail fast, skipping the remaining operations and causing the serverless environment to prematurely terminate the execution context while background tasks are still pending.
 **Action:** Use `Promise.allSettled()` instead of `Promise.all()` for batch processing in queues to ensure all operations complete, allowing for graceful error handling (like throwing the first rejection afterward) without aborting the batch prematurely.
+## 2025-03-08 - Concurrent independent RSS Feed Entry processing
+**Learning:** Sequential processing of independent I/O tasks like saving RSS feed entries one by one incurs significant network/DB latency overhead by blocking execution on each iteration.
+**Action:** Use `Promise.allSettled()` mapped over the array to process these independent external API/DB calls concurrently instead of sequentially, drastically reducing ingestion time. Ensure per-item error handling continues to act in a "best effort" manner.

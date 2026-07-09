@@ -176,19 +176,21 @@ async function extractPdfBookmark(url: string, pdfBytes: Uint8Array, fallbackTit
 			metadataTitle = null;
 		}
 
-		const pages: Array<{ pageNumber: number; text: string }> = [];
-		for (let pageNumber = 1; pageNumber <= document.numPages; pageNumber += 1) {
+		const pagePromises = Array.from({ length: document.numPages }, async (_, index) => {
+			const pageNumber = index + 1;
 			const page = await document.getPage(pageNumber);
 			try {
 				const textContent = await page.getTextContent();
 				const pageText = extractTextFromPdfItems((textContent.items ?? []) as Array<{ hasEOL?: boolean; str?: string }>);
-				if (pageText) {
-					pages.push({ pageNumber, text: pageText });
-				}
+				return { pageNumber, text: pageText };
 			} finally {
 				page.cleanup();
 			}
-		}
+		});
+
+		const pages = (await Promise.all(pagePromises)).filter(
+			(page): page is { pageNumber: number; text: string } => Boolean(page.text)
+		);
 
 		const markdownData = buildPdfMarkdown(pages);
 		return {
