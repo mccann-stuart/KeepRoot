@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { bufferToBase64URL, base64URLToUint8Array, normalizeCanonicalUrl, validateSafeUrl, MAX_AUTO_FETCH_IMAGES, isUnsafeIpAddress, parseStringArray } from '../src/storage/shared';
+import { bufferToBase64URL, base64URLToUint8Array, normalizeCanonicalUrl, validateSafeUrl, MAX_AUTO_FETCH_IMAGES, compactObject, isUnsafeIpAddress, parseStringArray } from '../src/storage/shared';
 
 describe('shared storage utilities', () => {
 	describe('Constants', () => {
@@ -311,6 +311,39 @@ describe('shared storage utilities', () => {
 
 		it('filters out non-string elements from a mixed-type array', () => {
 			expect(parseStringArray('["a", 1, true, null, {}, [], "b"]')).toEqual(['a', 'b']);
+		});
+	});
+
+	describe('compactObject', () => {
+		it('removes null, undefined, and empty string values', () => {
+			expect(compactObject({ a: 1, b: null, c: undefined, d: '', e: 'hello' })).toEqual({ a: 1, e: 'hello' });
+		});
+
+		it('preserves valid falsy values', () => {
+			expect(compactObject({ a: 0, b: false, c: NaN })).toEqual({ a: 0, b: false, c: NaN });
+		});
+
+		it('does not mutate the original object', () => {
+			const input = { a: 1, b: null, c: 'hello' };
+			const result = compactObject(input);
+
+			expect(result).not.toBe(input);
+			expect(input).toEqual({ a: 1, b: null, c: 'hello' });
+			expect(result).toEqual({ a: 1, c: 'hello' });
+		});
+
+		it('handles empty objects', () => {
+			expect(compactObject({})).toEqual({});
+		});
+
+		it('ignores inherited properties', () => {
+			const input = Object.create({ inheritedProp: 'test' });
+			input.ownProp = 123;
+			input.emptyOwnProp = '';
+
+			const result = compactObject(input);
+			expect(result).toEqual({ ownProp: 123 });
+			expect('inheritedProp' in result).toBe(false);
 		});
 	});
 });
