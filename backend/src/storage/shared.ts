@@ -386,7 +386,7 @@ function parseIpPart(part: string): number | null {
 	return null;
 }
 
-function isUnsafeIpAddress(ip: string): boolean {
+export function isUnsafeIpAddress(ip: string): boolean {
 	const normalized = ip.toLowerCase();
 	const mappedIpv4 = ipv4FromMappedIpv6(normalized);
 	if (mappedIpv4) {
@@ -465,6 +465,18 @@ export async function validateSafeUrl(url: string): Promise<boolean> {
 	try {
 		const parsedUrl = new URL(url);
 		if (parsedUrl.protocol !== 'http:' && parsedUrl.protocol !== 'https:') {
+			return false;
+		}
+
+		// Sentinel: Prevent SSRF bypasses via URL parser discrepancies with embedded credentials
+		if (parsedUrl.username !== '' || parsedUrl.password !== '') {
+			return false;
+		}
+
+		const urlWithoutProtocol = url.substring(parsedUrl.protocol.length);
+		const match = urlWithoutProtocol.match(/^[\/\\]*([^\/\?#\\]*)/);
+		const authority = match ? match[1] : '';
+		if (authority.includes('@')) {
 			return false;
 		}
 
