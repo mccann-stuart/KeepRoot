@@ -957,11 +957,13 @@ export async function listBookmarks(env: StorageEnv, userId: string, options?: {
 
 		const uniqueIds = [...new Set(options.bookmarkIds)];
 		const batchSize = 50;
+		// ⚡ Bolt: Execute D1 batches concurrently via Promise.all() rather than looping sequentially to eliminate client-side loop overhead and network latency buildup.
+		const batchPromises = [];
 		for (let i = 0; i < uniqueIds.length; i += batchSize) {
 			const batchIds = uniqueIds.slice(i, i + batchSize);
 			const placeholders = batchIds.map(() => '?').join(', ');
 
-			const [rawBookmarks, tagRows] = await env.KEEPROOT_DB.batch<BookmarkRow | { bookmark_id: string; name: string }>([
+			batchPromises.push(env.KEEPROOT_DB.batch<BookmarkRow | { bookmark_id: string; name: string }>([
 				env.KEEPROOT_DB.prepare(
 					`SELECT bookmarks.id, bookmarks.url, bookmarks.canonical_url, bookmarks.title, bookmarks.site_name, bookmarks.domain, bookmarks.status, bookmarks.notes,
 						bookmarks.source_id, bookmarks.processing_state, bookmarks.search_updated_at, bookmarks.embedding_updated_at, bookmarks.created_at, bookmarks.updated_at,
@@ -983,8 +985,12 @@ export async function listBookmarks(env: StorageEnv, userId: string, options?: {
 					 WHERE tags.user_id = ? AND bookmark_tags.bookmark_id IN (${placeholders})`,
 				)
 					.bind(userId, ...batchIds),
-			]) as [D1Result<BookmarkRow>, D1Result<{ bookmark_id: string; name: string }>];
+			]) as Promise<[D1Result<BookmarkRow>, D1Result<{ bookmark_id: string; name: string }>]>);
+		}
 
+		const batchResults = await Promise.all(batchPromises);
+
+		for (const [rawBookmarks, tagRows] of batchResults) {
 			for (const row of rawBookmarks.results) {
 				resultBookmarks.push(row);
 			}
@@ -1140,47 +1146,40 @@ export async function deleteBookmark(env: StorageEnv, userId: string, bookmarkId
 }
 
 export async function patchBookmark(env: StorageEnv, userId: string, bookmarkId: string, payload: BookmarkPatchPayload): Promise<boolean> {
-	const updates: string[] = [];
-	const bindings: unknown[] = [];
 	const now = new Date().toISOString();
 
-	if (payload.isRead !== undefined) {
-		updates.push('is_read = ?');
-		bindings.push(payload.isRead ? 1 : 0);
-	}
-	if (payload.listId !== undefined) {
-		updates.push('list_id = ?');
-		bindings.push(payload.listId);
-	}
-	if (payload.pinned !== undefined) {
-		updates.push('pinned = ?');
-		bindings.push(payload.pinned ? 1 : 0);
-	}
-	if (payload.sortOrder !== undefined) {
-		updates.push('sort_order = ?');
-		bindings.push(payload.sortOrder);
-	}
-	if (payload.title !== undefined) {
-		updates.push('title = ?');
-		bindings.push(payload.title.trim() || 'Untitled');
-	}
-	if (payload.notes !== undefined) {
-		updates.push('notes = ?');
-		bindings.push(payload.notes?.trim() || null);
-	}
-	if (payload.status !== undefined) {
-		updates.push('status = ?');
-		bindings.push(normalizeStatus(payload.status));
-	}
+	const hasUpdates = payload.isRead !== undefined
+		|| payload.listId !== undefined
+		|| payload.pinned !== undefined
+		|| payload.sortOrder !== undefined
+		|| payload.title !== undefined
+		|| payload.notes !== undefined
+		|| payload.status !== undefined;
 
 	let bookmarkExists = true;
-	if (updates.length > 0) {
-		updates.push('updated_at = ?');
-		bindings.push(now);
-		bindings.push(bookmarkId, userId);
+	if (hasUpdates) {
 		const result = await env.KEEPROOT_DB.prepare(
-			`UPDATE bookmarks SET ${updates.join(', ')} WHERE id = ? AND user_id = ?`,
-		).bind(...bindings).run();
+			`UPDATE bookmarks SET
+				is_read = CASE WHEN ? = 1 THEN ? ELSE is_read END,
+				list_id = CASE WHEN ? = 1 THEN ? ELSE list_id END,
+				pinned = CASE WHEN ? = 1 THEN ? ELSE pinned END,
+				sort_order = CASE WHEN ? = 1 THEN ? ELSE sort_order END,
+				title = CASE WHEN ? = 1 THEN ? ELSE title END,
+				notes = CASE WHEN ? = 1 THEN ? ELSE notes END,
+				status = CASE WHEN ? = 1 THEN ? ELSE status END,
+				updated_at = ?
+			 WHERE id = ? AND user_id = ?`,
+		).bind(
+			payload.isRead !== undefined ? 1 : 0, payload.isRead ? 1 : 0,
+			payload.listId !== undefined ? 1 : 0, payload.listId ?? null,
+			payload.pinned !== undefined ? 1 : 0, payload.pinned ? 1 : 0,
+			payload.sortOrder !== undefined ? 1 : 0, payload.sortOrder ?? null,
+			payload.title !== undefined ? 1 : 0, payload.title !== undefined ? (payload.title.trim() || 'Untitled') : null,
+			payload.notes !== undefined ? 1 : 0, payload.notes !== undefined ? (payload.notes?.trim() || null) : null,
+			payload.status !== undefined ? 1 : 0, payload.status !== undefined ? normalizeStatus(payload.status) : null,
+			now,
+			bookmarkId, userId,
+		).run();
 		bookmarkExists = result.meta.changes > 0;
 		if (!bookmarkExists && payload.tags === undefined) {
 			return false;

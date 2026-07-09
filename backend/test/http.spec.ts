@@ -1,7 +1,67 @@
 import { describe, expect, it } from 'vitest';
-import { normalizePathname } from '../src/http';
+import { normalizePathname, resolveCorsOrigin } from '../src/http';
 
 describe('http utilities', () => {
+	describe('resolveCorsOrigin', () => {
+		it('returns null if there is no Origin header', () => {
+			const request = new Request('https://api.example.com/data');
+			expect(resolveCorsOrigin(request)).toBeNull();
+		});
+
+		it('returns the origin if it matches the request URL origin', () => {
+			const request = new Request('https://example.com/data', {
+				headers: { Origin: 'https://example.com' },
+			});
+			expect(resolveCorsOrigin(request)).toBe('https://example.com');
+		});
+
+		it('returns the origin if it is an allowed extension protocol and ID is in ALLOWED_EXTENSION_IDS', () => {
+			const request = new Request('https://api.example.com/data', {
+				headers: { Origin: 'chrome-extension://abcdefghijklmnop' },
+			});
+			const env = { ALLOWED_EXTENSION_IDS: JSON.stringify(['abcdefghijklmnop']) } as any;
+			expect(resolveCorsOrigin(request, env)).toBe('chrome-extension://abcdefghijklmnop');
+		});
+
+		it('returns null if origin is an extension protocol but ID is not allowed', () => {
+			const request = new Request('https://api.example.com/data', {
+				headers: { Origin: 'chrome-extension://invalidid' },
+			});
+			const env = { ALLOWED_EXTENSION_IDS: JSON.stringify(['abcdefghijklmnop']) } as any;
+			expect(resolveCorsOrigin(request, env)).toBeNull();
+		});
+
+		it('returns null if origin is an extension protocol and no env is provided', () => {
+			const request = new Request('https://api.example.com/data', {
+				headers: { Origin: 'chrome-extension://abcdefghijklmnop' },
+			});
+			expect(resolveCorsOrigin(request)).toBeNull();
+		});
+
+		it('returns null if origin is an extension protocol but ALLOWED_EXTENSION_IDS is not a valid JSON array', () => {
+			const request = new Request('https://api.example.com/data', {
+				headers: { Origin: 'chrome-extension://abcdefghijklmnop' },
+			});
+			// Memory says ALLOWED_EXTENSION_IDS expects JSON serialized array.
+			const env = { ALLOWED_EXTENSION_IDS: 'abcdefghijklmnop' } as any;
+			expect(resolveCorsOrigin(request, env)).toBeNull();
+		});
+
+		it('returns null if origin is a disallowed protocol and does not match request origin', () => {
+			const request = new Request('https://api.example.com/data', {
+				headers: { Origin: 'https://malicious.com' },
+			});
+			expect(resolveCorsOrigin(request)).toBeNull();
+		});
+
+		it('returns null if origin is malformed', () => {
+			const request = new Request('https://api.example.com/data', {
+				headers: { Origin: 'not-a-valid-url' },
+			});
+			expect(resolveCorsOrigin(request)).toBeNull();
+		});
+	});
+
 	describe('normalizePathname', () => {
 		it('returns a normal path unchanged', () => {
 			expect(normalizePathname('/path')).toBe('/path');
