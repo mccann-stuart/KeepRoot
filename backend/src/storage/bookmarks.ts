@@ -1145,9 +1145,12 @@ export async function deleteBookmark(env: StorageEnv, userId: string, bookmarkId
 	return Boolean(result.meta.changes);
 }
 
-export async function patchBookmark(env: StorageEnv, userId: string, bookmarkId: string, payload: BookmarkPatchPayload): Promise<boolean> {
-	const now = new Date().toISOString();
-
+function buildBookmarkUpdateParameters(
+	payload: BookmarkPatchPayload,
+	now: string,
+	bookmarkId: string,
+	userId: string,
+): { hasUpdates: boolean; bindings: unknown[] } {
 	const hasUpdates = payload.isRead !== undefined
 		|| payload.listId !== undefined
 		|| payload.pinned !== undefined
@@ -1155,6 +1158,33 @@ export async function patchBookmark(env: StorageEnv, userId: string, bookmarkId:
 		|| payload.title !== undefined
 		|| payload.notes !== undefined
 		|| payload.status !== undefined;
+	const bindings = [
+		payload.isRead !== undefined ? 1 : 0, payload.isRead ? 1 : 0,
+		payload.listId !== undefined ? 1 : 0, payload.listId ?? null,
+		payload.pinned !== undefined ? 1 : 0, payload.pinned ? 1 : 0,
+		payload.sortOrder !== undefined ? 1 : 0, payload.sortOrder ?? null,
+		payload.title !== undefined ? 1 : 0, payload.title !== undefined ? (payload.title.trim() || 'Untitled') : null,
+		payload.notes !== undefined ? 1 : 0, payload.notes !== undefined ? (payload.notes?.trim() || null) : null,
+		payload.status !== undefined ? 1 : 0, payload.status !== undefined ? normalizeStatus(payload.status) : null,
+		now,
+		bookmarkId, userId,
+	];
+
+	return { hasUpdates, bindings };
+}
+
+async function checkBookmarkExists(env: StorageEnv, userId: string, bookmarkId: string): Promise<boolean> {
+	const existing = await env.KEEPROOT_DB.prepare(
+		'SELECT id FROM bookmarks WHERE id = ? AND user_id = ? LIMIT 1',
+	)
+		.bind(bookmarkId, userId)
+		.first<{ id: string }>();
+	return Boolean(existing);
+}
+
+export async function patchBookmark(env: StorageEnv, userId: string, bookmarkId: string, payload: BookmarkPatchPayload): Promise<boolean> {
+	const now = new Date().toISOString();
+	const { hasUpdates, bindings } = buildBookmarkUpdateParameters(payload, now, bookmarkId, userId);
 
 	let bookmarkExists = true;
 	if (hasUpdates) {
@@ -1169,28 +1199,13 @@ export async function patchBookmark(env: StorageEnv, userId: string, bookmarkId:
 				status = CASE WHEN ? = 1 THEN ? ELSE status END,
 				updated_at = ?
 			 WHERE id = ? AND user_id = ?`,
-		).bind(
-			payload.isRead !== undefined ? 1 : 0, payload.isRead ? 1 : 0,
-			payload.listId !== undefined ? 1 : 0, payload.listId ?? null,
-			payload.pinned !== undefined ? 1 : 0, payload.pinned ? 1 : 0,
-			payload.sortOrder !== undefined ? 1 : 0, payload.sortOrder ?? null,
-			payload.title !== undefined ? 1 : 0, payload.title !== undefined ? (payload.title.trim() || 'Untitled') : null,
-			payload.notes !== undefined ? 1 : 0, payload.notes !== undefined ? (payload.notes?.trim() || null) : null,
-			payload.status !== undefined ? 1 : 0, payload.status !== undefined ? normalizeStatus(payload.status) : null,
-			now,
-			bookmarkId, userId,
-		).run();
+		).bind(...bindings).run();
 		bookmarkExists = result.meta.changes > 0;
 		if (!bookmarkExists && payload.tags === undefined) {
 			return false;
 		}
 	} else if (payload.tags !== undefined) {
-		const existing = await env.KEEPROOT_DB.prepare(
-			'SELECT id FROM bookmarks WHERE id = ? AND user_id = ? LIMIT 1',
-		)
-			.bind(bookmarkId, userId)
-			.first<{ id: string }>();
-		bookmarkExists = Boolean(existing);
+		bookmarkExists = await checkBookmarkExists(env, userId, bookmarkId);
 		if (!bookmarkExists) {
 			return false;
 		}
