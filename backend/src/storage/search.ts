@@ -469,13 +469,14 @@ async function hydrateCandidatesMetadata(
 	}
 	if (missingCandidateIds.length > 0) {
 		const batchSize = 50;
+		const batchPromises = [];
 		for (let i = 0; i < missingCandidateIds.length; i += batchSize) {
 			const batchIds = missingCandidateIds.slice(i, i + batchSize);
 			const placeholders = batchIds.map(() => '?').join(', ');
 
 			// ⚡ Bolt: Using D1Database.batch() replaces multiple separate HTTP network roundtrips with a single roundtrip.
 			// Impact: Halves the sequential roundtrip latency when hydrating search candidates.
-			const [bookmarksQuery, tagsQuery] = await env.KEEPROOT_DB.batch<{ id: string; domain: string | null; source_id: string | null; status: string } | { bookmark_id: string; name: string }>([
+			const promise = env.KEEPROOT_DB.batch<{ id: string; domain: string | null; source_id: string | null; status: string } | { bookmark_id: string; name: string }>([
 				env.KEEPROOT_DB.prepare(
 					`SELECT id, domain, source_id, status
 					FROM bookmarks
@@ -490,24 +491,30 @@ async function hydrateCandidatesMetadata(
 					WHERE bookmark_tags.bookmark_id IN (${placeholders})`,
 				)
 					.bind(...batchIds),
-			]) as [D1Result<{ id: string; domain: string | null; source_id: string | null; status: string }>, D1Result<{ bookmark_id: string; name: string }>];
+			]).then((results) => {
+				const [bookmarksQuery, tagsQuery] = results as [D1Result<{ id: string; domain: string | null; source_id: string | null; status: string }>, D1Result<{ bookmark_id: string; name: string }>];
+				const tagsByBookmark = new Map<string, string[]>();
+				for (const tagRow of tagsQuery.results) {
+					const existing = tagsByBookmark.get(tagRow.bookmark_id) ?? [];
+					existing.push(tagRow.name);
+					tagsByBookmark.set(tagRow.bookmark_id, existing);
+				}
 
-			const tagsByBookmark = new Map<string, string[]>();
-			for (const tagRow of tagsQuery.results) {
-				const existing = tagsByBookmark.get(tagRow.bookmark_id) ?? [];
-				existing.push(tagRow.name);
-				tagsByBookmark.set(tagRow.bookmark_id, existing);
-			}
-
-			for (const bookmark of bookmarksQuery.results) {
-				bookmarkMeta.set(bookmark.id, {
-					domain: bookmark.domain,
-					sourceId: bookmark.source_id,
-					status: bookmark.status,
-					tags: tagsByBookmark.get(bookmark.id)?.sort() ?? [],
-				});
-			}
+				for (const bookmark of bookmarksQuery.results) {
+					bookmarkMeta.set(bookmark.id, {
+						domain: bookmark.domain,
+						sourceId: bookmark.source_id,
+						status: bookmark.status,
+						tags: tagsByBookmark.get(bookmark.id)?.sort() ?? [],
+					});
+				}
+			});
+			batchPromises.push(promise);
 		}
+
+		// ⚡ Bolt: Execute hydration batches concurrently rather than sequentially.
+		// Impact: Dramatically reduces search latency for requests with many uncached matches (e.g. 500+ candidates).
+		await Promise.all(batchPromises);
 	}
 }
 export async function searchBookmarkIds(
