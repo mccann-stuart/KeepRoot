@@ -23,24 +23,20 @@ export async function listUserLists(env: StorageEnv, userId: string): Promise<Ar
 }
 
 export async function updateList(env: StorageEnv, userId: string, listId: string, payload: Partial<ListPayload>): Promise<boolean> {
-	const updates: string[] = [];
-	const bindings: unknown[] = [];
-	if (payload.name !== undefined) {
-		updates.push('name = ?');
-		bindings.push(payload.name);
-	}
-	if (payload.sortOrder !== undefined) {
-		updates.push('sort_order = ?');
-		bindings.push(payload.sortOrder);
-	}
-	if (updates.length === 0) {
+	if (payload.name === undefined && payload.sortOrder === undefined) {
 		return true;
 	}
 
-	bindings.push(listId, userId);
 	const result = await env.KEEPROOT_DB.prepare(
-		`UPDATE lists SET ${updates.join(', ')} WHERE id = ? AND user_id = ?`,
-	).bind(...bindings).run();
+		`UPDATE lists SET
+			name = CASE WHEN ? = 1 THEN ? ELSE name END,
+			sort_order = CASE WHEN ? = 1 THEN ? ELSE sort_order END
+		 WHERE id = ? AND user_id = ?`,
+	).bind(
+		payload.name !== undefined ? 1 : 0, payload.name ?? null,
+		payload.sortOrder !== undefined ? 1 : 0, payload.sortOrder ?? null,
+		listId, userId,
+	).run();
 	return Boolean(result.meta.changes);
 }
 
@@ -82,35 +78,32 @@ export async function listUserSmartLists(env: StorageEnv, userId: string): Promi
 }
 
 export async function updateSmartList(env: StorageEnv, userId: string, listId: string, payload: Partial<SmartListPayload>): Promise<boolean> {
-	const updates: string[] = [];
-	const bindings: unknown[] = [];
-	if (payload.name !== undefined) {
-		updates.push('name = ?');
-		bindings.push(payload.name);
-	}
-	if (payload.icon !== undefined) {
-		updates.push('icon = ?');
-		bindings.push(payload.icon);
-	}
-	if (payload.rules !== undefined) {
-		updates.push('rules = ?');
-		bindings.push(payload.rules);
-	}
-	if (payload.sortOrder !== undefined) {
-		updates.push('sort_order = ?');
-		bindings.push(payload.sortOrder);
-	}
-	if (updates.length === 0) {
+	if (
+		payload.name === undefined
+		&& payload.icon === undefined
+		&& payload.rules === undefined
+		&& payload.sortOrder === undefined
+	) {
 		const existing = await env.KEEPROOT_DB.prepare(
 			'SELECT id FROM smart_lists WHERE id = ? AND user_id = ? LIMIT 1',
 		).bind(listId, userId).first<{ id: string }>();
 		return Boolean(existing);
 	}
 
-	bindings.push(listId, userId);
 	const result = await env.KEEPROOT_DB.prepare(
-		`UPDATE smart_lists SET ${updates.join(', ')} WHERE id = ? AND user_id = ?`,
-	).bind(...bindings).run();
+		`UPDATE smart_lists SET
+			name = CASE WHEN ? = 1 THEN ? ELSE name END,
+			icon = CASE WHEN ? = 1 THEN ? ELSE icon END,
+			rules = CASE WHEN ? = 1 THEN ? ELSE rules END,
+			sort_order = CASE WHEN ? = 1 THEN ? ELSE sort_order END
+		 WHERE id = ? AND user_id = ?`,
+	).bind(
+		payload.name !== undefined ? 1 : 0, payload.name ?? null,
+		payload.icon !== undefined ? 1 : 0, payload.icon ?? null,
+		payload.rules !== undefined ? 1 : 0, payload.rules ?? null,
+		payload.sortOrder !== undefined ? 1 : 0, payload.sortOrder ?? null,
+		listId, userId,
+	).run();
 	return Boolean(result.meta.changes);
 }
 

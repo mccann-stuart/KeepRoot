@@ -26,28 +26,33 @@ export type IngestJob =
 	};
 
 export async function processIngestJob(env: StorageEnv, job: IngestJob): Promise<void> {
-	if (job.kind === 'save_url') {
-		await saveItemFromUrl(
-			env,
-			{
-				userId: job.payload.userId,
-				username: job.payload.username,
-			},
-			{
-				notes: job.payload.notes,
-				status: job.payload.status,
-				tags: job.payload.tags,
-				title: job.payload.title,
-				url: job.payload.url,
-			},
-		);
-		return;
-	}
+	try {
+		if (job.kind === 'save_url') {
+			await saveItemFromUrl(
+				env,
+				{
+					userId: job.payload.userId,
+					username: job.payload.username,
+				},
+				{
+					notes: job.payload.notes,
+					status: job.payload.status,
+					tags: job.payload.tags,
+					title: job.payload.title,
+					url: job.payload.url,
+				},
+			);
+			return;
+		}
 
-	await syncSource(env, {
-		id: job.payload.id,
-		kind: job.payload.kind,
-		pollUrl: job.payload.pollUrl,
-		userId: job.payload.userId,
-	});
+		await syncSource(env, {
+			id: job.payload.id,
+			kind: job.payload.kind,
+			pollUrl: job.payload.pollUrl,
+			userId: job.payload.userId,
+		});
+	} catch (error) {
+		console.warn('Failed to process ingest job', error);
+		throw error;
+	}
 }
