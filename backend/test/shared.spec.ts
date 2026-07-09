@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { bufferToBase64URL, base64URLToUint8Array, normalizeCanonicalUrl, validateSafeUrl, MAX_AUTO_FETCH_IMAGES, isUnsafeIpAddress } from '../src/storage/shared';
+import { bufferToBase64URL, base64URLToUint8Array, normalizeCanonicalUrl, validateSafeUrl, MAX_AUTO_FETCH_IMAGES, isUnsafeIpAddress, parseStringArray } from '../src/storage/shared';
 
 describe('shared storage utilities', () => {
 	describe('Constants', () => {
@@ -178,6 +178,16 @@ describe('shared storage utilities', () => {
 			await expect(validateSafeUrl('http://[::ffff:192.168.1.1]/admin')).resolves.toBe(false);
 		});
 
+		it('strips brackets from IPv6 hostnames', async () => {
+			// Private/local IPv6 should still be rejected after stripping
+			await expect(validateSafeUrl('http://[::1]/')).resolves.toBe(false);
+			await expect(validateSafeUrl('http://[fc00::1]/')).resolves.toBe(false);
+
+			// Public IPv6 should be accepted after stripping
+			await expect(validateSafeUrl('http://[2001:db8::1]/')).resolves.toBe(true);
+			await expect(validateSafeUrl('http://[2606:4700:4700::1111]/')).resolves.toBe(true);
+		});
+
 		it('rejects multicast and reserved IPv4 targets', async () => {
 			await expect(validateSafeUrl('http://224.0.0.1/feed')).resolves.toBe(false);
 			await expect(validateSafeUrl('http://240.0.0.1/feed')).resolves.toBe(false);
@@ -274,6 +284,33 @@ describe('shared storage utilities', () => {
 			// unless it happens to match a naive check like startsWith('fc').
 			expect(isUnsafeIpAddress('example.com')).toBe(false);
 			expect(isUnsafeIpAddress('not.an.ip')).toBe(false);
+		});
+	});
+
+	describe('parseStringArray', () => {
+		it('returns an empty array for null or empty input', () => {
+			expect(parseStringArray(null)).toEqual([]);
+			expect(parseStringArray('')).toEqual([]);
+		});
+
+		it('parses a valid JSON array of strings', () => {
+			expect(parseStringArray('["a", "b", "c"]')).toEqual(['a', 'b', 'c']);
+		});
+
+		it('returns an empty array for invalid JSON', () => {
+			expect(parseStringArray('not json')).toEqual([]);
+			expect(parseStringArray('["a", "b"')).toEqual([]);
+		});
+
+		it('returns an empty array if the parsed JSON is not an array', () => {
+			expect(parseStringArray('{"a": "b"}')).toEqual([]);
+			expect(parseStringArray('"string"')).toEqual([]);
+			expect(parseStringArray('123')).toEqual([]);
+			expect(parseStringArray('true')).toEqual([]);
+		});
+
+		it('filters out non-string elements from a mixed-type array', () => {
+			expect(parseStringArray('["a", 1, true, null, {}, [], "b"]')).toEqual(['a', 'b']);
 		});
 	});
 });

@@ -92,24 +92,24 @@ async function extractPdfContent(url: string, bytes: ArrayBuffer, responseTitle?
 
 	try {
 		const document = await loadingTask.promise;
-		const pages: string[] = [];
 
-		for (let pageNumber = 1; pageNumber <= document.numPages; pageNumber += 1) {
+		const pagePromises = Array.from({ length: document.numPages }, async (_, index) => {
+			const pageNumber = index + 1;
 			const page = await document.getPage(pageNumber);
 			try {
 				const textContent = await page.getTextContent();
-				const pageText = normalizeWhitespace(
+				return normalizeWhitespace(
 					(textContent.items ?? [])
 						.map((item) => ('str' in item ? String(item.str ?? '') : ''))
 						.join(' '),
 				);
-				if (pageText) {
-					pages.push(pageText);
-				}
 			} finally {
 				page.cleanup();
 			}
-		}
+		});
+
+		const pagesText = await Promise.all(pagePromises);
+		const pages = pagesText.filter(Boolean);
 
 		const textContent = pages.join('\n\n').trim();
 		const markdownData = textContent

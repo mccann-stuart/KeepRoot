@@ -212,8 +212,10 @@ export async function syncSource(
 	const username = await getUsername(env, source.userId);
 	let savedCount = 0;
 
-	for (const entry of entries.slice(0, 25)) {
-		try {
+	// ⚡ Bolt: Use Promise.allSettled to process feed entries concurrently.
+	// Impact: Significantly reduces ingestion time by making independent external API/DB calls concurrently instead of sequentially.
+	const results = await Promise.allSettled(
+		entries.slice(0, 25).map(async (entry) => {
 			const summary = stripHtml(entry.summary ?? '');
 			await saveItemContent(
 				env,
@@ -231,9 +233,14 @@ export async function syncSource(
 				},
 				'source_sync',
 			);
+		})
+	);
+
+	for (const result of results) {
+		if (result.status === 'fulfilled') {
 			savedCount += 1;
-		} catch (error) {
-			console.warn('Failed to ingest feed entry', error);
+		} else {
+			console.warn('Failed to ingest feed entry', result.reason);
 		}
 	}
 
