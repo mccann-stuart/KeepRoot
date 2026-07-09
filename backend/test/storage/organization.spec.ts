@@ -1,6 +1,6 @@
 import { env } from 'cloudflare:test';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
-import { validateOrganizationSchema, SchemaCompatibilityError } from '../../src/storage/organization';
+import { assertOrganizationSchemaReady, validateOrganizationSchema, SchemaCompatibilityError } from '../../src/storage/organization';
 
 describe('organization storage', () => {
     describe('validateOrganizationSchema', () => {
@@ -73,6 +73,85 @@ describe('organization storage', () => {
             });
 
             await expect(validateOrganizationSchema(env as any)).resolves.toBeUndefined();
+        });
+    });
+
+    describe('assertOrganizationSchemaReady', () => {
+        beforeEach(() => {
+            vi.restoreAllMocks();
+        });
+
+        it('caches successful validation for each environment', async () => {
+            const prepareSpy = vi.spyOn(env.KEEPROOT_DB, 'prepare').mockImplementation((query: string) => {
+                if (query.includes('sqlite_master')) {
+                    return {
+                        bind: (...args: any[]) => ({
+                            first: async () => ({ count: args.length })
+                        })
+                    } as any;
+                }
+                if (query.includes('PRAGMA table_info')) {
+                    return {
+                        all: async () => ({
+                            results: [
+                                { name: 'list_id' },
+                                { name: 'pinned' },
+                                { name: 'sort_order' },
+                                { name: 'is_read' },
+                                { name: 'notes' },
+                                { name: 'source_id' },
+                                { name: 'processing_state' },
+                                { name: 'search_updated_at' },
+                                { name: 'embedding_updated_at' },
+                            ]
+                        })
+                    } as any;
+                }
+                return {} as any;
+            });
+            const mockEnv = { ...env };
+
+            await assertOrganizationSchemaReady(mockEnv as any);
+            await assertOrganizationSchemaReady(mockEnv as any);
+
+            expect(prepareSpy).toHaveBeenCalledTimes(2);
+        });
+
+        it('clears a failed validation from the cache', async () => {
+            let tableQueryCount = 0;
+            const prepareSpy = vi.spyOn(env.KEEPROOT_DB, 'prepare').mockImplementation((query: string) => {
+                if (query.includes('sqlite_master')) {
+                    return {
+                        bind: (...args: any[]) => ({
+                            first: async () => ({ count: ++tableQueryCount === 1 ? args.length - 1 : args.length })
+                        })
+                    } as any;
+                }
+                if (query.includes('PRAGMA table_info')) {
+                    return {
+                        all: async () => ({
+                            results: [
+                                { name: 'list_id' },
+                                { name: 'pinned' },
+                                { name: 'sort_order' },
+                                { name: 'is_read' },
+                                { name: 'notes' },
+                                { name: 'source_id' },
+                                { name: 'processing_state' },
+                                { name: 'search_updated_at' },
+                                { name: 'embedding_updated_at' },
+                            ]
+                        })
+                    } as any;
+                }
+                return {} as any;
+            });
+            const mockEnv = { ...env };
+
+            await expect(assertOrganizationSchemaReady(mockEnv as any)).rejects.toThrow(SchemaCompatibilityError);
+            await expect(assertOrganizationSchemaReady(mockEnv as any)).resolves.toBeUndefined();
+
+            expect(prepareSpy).toHaveBeenCalledTimes(3);
         });
     });
 });
