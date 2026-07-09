@@ -178,6 +178,16 @@ describe('shared storage utilities', () => {
 			await expect(validateSafeUrl('http://[::ffff:192.168.1.1]/admin')).resolves.toBe(false);
 		});
 
+		it('strips brackets from IPv6 hostnames', async () => {
+			// Private/local IPv6 should still be rejected after stripping
+			await expect(validateSafeUrl('http://[::1]/')).resolves.toBe(false);
+			await expect(validateSafeUrl('http://[fc00::1]/')).resolves.toBe(false);
+
+			// Public IPv6 should be accepted after stripping
+			await expect(validateSafeUrl('http://[2001:db8::1]/')).resolves.toBe(true);
+			await expect(validateSafeUrl('http://[2606:4700:4700::1111]/')).resolves.toBe(true);
+		});
+
 		it('rejects multicast and reserved IPv4 targets', async () => {
 			await expect(validateSafeUrl('http://224.0.0.1/feed')).resolves.toBe(false);
 			await expect(validateSafeUrl('http://240.0.0.1/feed')).resolves.toBe(false);
