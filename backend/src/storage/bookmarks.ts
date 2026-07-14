@@ -1,3 +1,4 @@
+import { Buffer } from 'node:buffer';
 import {
 	MAX_AUTO_FETCH_IMAGES,
 	base64ToUint8Array,
@@ -304,15 +305,10 @@ function rewriteHtmlImageUrls(html: string, rewriteMap: Map<string, string>): st
 	});
 }
 
-// ⚡ Bolt: Chunked fromCharCode avoids byte-by-byte loop concatenation and string overhead.
-// Impact: Prevents memory bloat and speeds up base64 encoding of large auto-fetched images.
+// ⚡ Bolt: Native Node.js Buffer avoids chunked string concatenation and string overhead.
+// Impact: Prevents memory bloat and significantly speeds up base64 encoding of large auto-fetched images.
 function base64FromBytes(bytes: Uint8Array): string {
-	let binary = '';
-	const chunkSize = 8192;
-	for (let index = 0; index < bytes.length; index += chunkSize) {
-		binary += String.fromCharCode.apply(null, bytes.subarray(index, index + chunkSize) as unknown as number[]);
-	}
-	return btoa(binary);
+	return Buffer.from(bytes).toString('base64');
 }
 
 function parseDataUrl(dataUrl: string): BookmarkImagePayload | null {

@@ -1,3 +1,5 @@
+import { Buffer } from 'node:buffer';
+
 const TRACKING_QUERY_KEYS = new Set([
 	'fbclid',
 	'gclid',
@@ -150,13 +152,7 @@ export interface SourceListOptions extends PaginationInput {
 }
 
 export function bufferToBase64URL(buffer: ArrayBuffer | Uint8Array): string {
-	const bytes = buffer instanceof Uint8Array ? buffer : new Uint8Array(buffer);
-	let binary = '';
-	const chunkSize = 8192;
-	for (let i = 0; i < bytes.length; i += chunkSize) {
-		binary += String.fromCharCode.apply(null, bytes.subarray(i, i + chunkSize) as unknown as number[]);
-	}
-	return btoa(binary).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/g, '');
+	return Buffer.from(buffer).toString('base64url');
 }
 
 export function base64URLToUint8Array(value: string): Uint8Array {
