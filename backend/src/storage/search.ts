@@ -436,7 +436,7 @@ async function executeFallbackSemanticSearch(
 	}
 
 	const queryTokensArr = [...queryFrequencies.keys()];
-	const queryRegex = queryTokensArr.length > 0 ? new RegExp(queryTokensArr.join('|'), 'i') : null;
+	const queryRegex = queryTokensArr.length > 0 ? new RegExp(queryTokensArr.map(t => t.replace(/[-/\\^$*+?.()|[\]{}]/g, '\\$&')).join('|'), 'i') : null;
 
 	for (const row of candidates.results) {
 		const documentText = [
