@@ -98,25 +98,49 @@ async function extractPdfContent(url: string, bytes: ArrayBuffer, responseTitle?
 			const page = await document.getPage(pageNumber);
 			try {
 				const textContent = await page.getTextContent();
-				return normalizeWhitespace(
-					(textContent.items ?? [])
-						.map((item) => ('str' in item ? String(item.str ?? '') : ''))
-						.join(' '),
-				);
+				let rawText = '';
+				for (const item of textContent.items ?? []) {
+					if ('str' in item) {
+						const val = String(item.str ?? '');
+						if (val) {
+							rawText += (rawText.length > 0 ? ' ' : '') + val;
+						}
+					}
+				}
+				return normalizeWhitespace(rawText);
 			} finally {
 				page.cleanup();
 			}
 		});
 
 		const pagesText = await Promise.all(pagePromises);
-		const pages = pagesText.filter(Boolean);
 
-		const textContent = pages.join('\n\n').trim();
-		const markdownData = textContent
-			? pages.length > 1
-				? pages.map((page, index) => `## Page ${index + 1}\n\n${page}`).join('\n\n')
-				: textContent
-			: '_No extractable text was found in this PDF._';
+		let textContent = '';
+		let markdownData = '';
+		let validPagesCount = 0;
+
+		for (let i = 0; i < pagesText.length; i++) {
+			const page = pagesText[i];
+			if (page) {
+				validPagesCount++;
+				if (textContent.length > 0) {
+					textContent += '\n\n';
+				}
+				textContent += page;
+
+				if (markdownData.length > 0) {
+					markdownData += '\n\n';
+				}
+				markdownData += `## Page ${validPagesCount}\n\n${page}`;
+			}
+		}
+
+		textContent = textContent.trim();
+		if (!textContent) {
+			markdownData = '_No extractable text was found in this PDF._';
+		} else if (validPagesCount === 1) {
+			markdownData = textContent;
+		}
 
 		return {
 			lang: null,
