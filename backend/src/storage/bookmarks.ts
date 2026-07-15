@@ -179,7 +179,7 @@ function resolveAbsoluteImageUrl(imageUrl: string, pageUrl: string): string | nu
 	}
 }
 
-function buildRootRelativeImageUrl(absoluteUrl: string, pageUrl: string): string | null {
+export function buildRootRelativeImageUrl(absoluteUrl: string, pageUrl: string): string | null {
 	try {
 		const absolute = new URL(absoluteUrl);
 		const page = new URL(pageUrl);
