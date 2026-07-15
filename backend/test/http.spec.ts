@@ -1,7 +1,46 @@
 import { describe, expect, it } from 'vitest';
-import { normalizePathname, resolveCorsOrigin } from '../src/http';
+import { normalizePathname, resolveCorsOrigin, textResponse } from '../src/http';
 
 describe('http utilities', () => {
+	describe('textResponse', () => {
+		it('returns a text response with default status 200', async () => {
+			const res = textResponse('hello world', 'text/plain');
+			expect(res.status).toBe(200);
+			expect(res.headers.get('Content-Type')).toBe('text/plain');
+			expect(await res.text()).toBe('hello world');
+		});
+
+		it('returns a text response with a custom status and headers', async () => {
+			const res = textResponse('error', 'text/plain', 400, { 'X-Custom': 'value' });
+			expect(res.status).toBe(400);
+			expect(res.headers.get('Content-Type')).toBe('text/plain');
+			expect(res.headers.get('X-Custom')).toBe('value');
+			expect(await res.text()).toBe('error');
+		});
+
+		it('handles Request variations and applies CORS headers correctly', async () => {
+			// request origin must match Origin header for it to be resolved as allowed without env config
+			const request = new Request('https://example.com/data', {
+				headers: { Origin: 'https://example.com' },
+			});
+			const res = textResponse(request, 'cors response', 'text/html', 201, { 'X-Test': 'true' });
+
+			expect(res.status).toBe(201);
+			expect(res.headers.get('Content-Type')).toBe('text/html');
+			expect(res.headers.get('X-Test')).toBe('true');
+			expect(res.headers.get('Access-Control-Allow-Origin')).toBe('https://example.com');
+			expect(await res.text()).toBe('cors response');
+		});
+
+		it('handles Request variation with default status', async () => {
+			const request = new Request('https://api.example.com/data');
+			const res = textResponse(request, 'default status', 'text/csv');
+
+			expect(res.status).toBe(200);
+			expect(res.headers.get('Content-Type')).toBe('text/csv');
+			expect(await res.text()).toBe('default status');
+		});
+	});
 	describe('resolveCorsOrigin', () => {
 		it('returns null if there is no Origin header', () => {
 			const request = new Request('https://api.example.com/data');
