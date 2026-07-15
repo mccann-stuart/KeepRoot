@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { normalizePathname, resolveCorsOrigin } from '../src/http';
+import { normalizePathname, resolveCorsOrigin, textResponse } from '../src/http';
 
 describe('http utilities', () => {
 	describe('resolveCorsOrigin', () => {
@@ -100,6 +100,59 @@ describe('http utilities', () => {
 			expect(normalizePathname('//bookmarks///bookmarks///')).toBe('/bookmarks');
 			// multiple slashes + /bookmarks/bookmarks/ + suffix + trailing slash
 			expect(normalizePathname('//bookmarks///bookmarks///123//')).toBe('/bookmarks/123');
+		});
+	});
+
+	describe('textResponse', () => {
+		describe('without Request', () => {
+			it('returns 200 and Content-Type with just body and contentType', async () => {
+				const response = textResponse('hello', 'text/plain');
+				expect(response.status).toBe(200);
+				expect(response.headers.get('Content-Type')).toBe('text/plain');
+				expect(await response.text()).toBe('hello');
+			});
+
+			it('returns custom status when provided', () => {
+				const response = textResponse('hello', 'text/plain', 404);
+				expect(response.status).toBe(404);
+				expect(response.headers.get('Content-Type')).toBe('text/plain');
+			});
+
+			it('returns custom headers when provided', () => {
+				const response = textResponse('hello', 'text/plain', 404, { 'X-Custom-Header': 'custom' });
+				expect(response.status).toBe(404);
+				expect(response.headers.get('Content-Type')).toBe('text/plain');
+				expect(response.headers.get('X-Custom-Header')).toBe('custom');
+			});
+		});
+
+		describe('with Request', () => {
+			it('returns 200, Content-Type, and CORS headers with request, body, and contentType', async () => {
+				const request = new Request('https://api.example.com/data');
+				const response = textResponse(request, 'hello', 'text/plain');
+				expect(response.status).toBe(200);
+				expect(response.headers.get('Content-Type')).toBe('text/plain');
+				expect(response.headers.get('Access-Control-Allow-Methods')).toBe('GET, POST, PATCH, DELETE, OPTIONS');
+				expect(response.headers.get('Access-Control-Allow-Headers')).toBe('Content-Type, Authorization');
+				expect(await response.text()).toBe('hello');
+			});
+
+			it('returns custom status and CORS headers when provided', () => {
+				const request = new Request('https://api.example.com/data');
+				const response = textResponse(request, 'hello', 'text/plain', 404);
+				expect(response.status).toBe(404);
+				expect(response.headers.get('Content-Type')).toBe('text/plain');
+				expect(response.headers.get('Access-Control-Allow-Methods')).toBe('GET, POST, PATCH, DELETE, OPTIONS');
+			});
+
+			it('returns custom status, custom headers, and CORS headers when provided', () => {
+				const request = new Request('https://api.example.com/data');
+				const response = textResponse(request, 'hello', 'text/plain', 404, { 'X-Custom-Header': 'custom' });
+				expect(response.status).toBe(404);
+				expect(response.headers.get('Content-Type')).toBe('text/plain');
+				expect(response.headers.get('X-Custom-Header')).toBe('custom');
+				expect(response.headers.get('Access-Control-Allow-Methods')).toBe('GET, POST, PATCH, DELETE, OPTIONS');
+			});
 		});
 	});
 });
