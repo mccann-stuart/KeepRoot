@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { normalizePathname, resolveCorsOrigin } from '../src/http';
+import { normalizePathname, resolveCorsOrigin, jsonResponse } from '../src/http';
 
 describe('http utilities', () => {
 	describe('resolveCorsOrigin', () => {
@@ -100,6 +100,36 @@ describe('http utilities', () => {
 			expect(normalizePathname('//bookmarks///bookmarks///')).toBe('/bookmarks');
 			// multiple slashes + /bookmarks/bookmarks/ + suffix + trailing slash
 			expect(normalizePathname('//bookmarks///bookmarks///123//')).toBe('/bookmarks/123');
+		});
+	});
+
+	describe('jsonResponse', () => {
+		it('creates a basic JSON response with default status 200', async () => {
+			const res = jsonResponse({ key: 'value' });
+			expect(res.status).toBe(200);
+			expect(res.headers.get('Content-Type')).toBe('application/json');
+			expect(await res.json()).toEqual({ key: 'value' });
+		});
+
+		it('creates a JSON response with a custom status', () => {
+			const res = jsonResponse({ error: 'not found' }, 404);
+			expect(res.status).toBe(404);
+		});
+
+		it('creates a JSON response with custom headers', () => {
+			const res = jsonResponse({ data: 1 }, 200, { 'X-Custom-Header': 'custom' });
+			expect(res.headers.get('X-Custom-Header')).toBe('custom');
+			expect(res.headers.get('Content-Type')).toBe('application/json');
+		});
+
+		it('handles the signature with Request and applies CORS headers', () => {
+			const req = new Request('https://example.com', { headers: { Origin: 'https://example.com' } });
+			const res = jsonResponse(req, { ok: true }, 201, { 'X-Test': 'test' });
+
+			expect(res.status).toBe(201);
+			expect(res.headers.get('Content-Type')).toBe('application/json');
+			expect(res.headers.get('X-Test')).toBe('test');
+			expect(res.headers.get('Access-Control-Allow-Origin')).toBe('https://example.com');
 		});
 	});
 });
