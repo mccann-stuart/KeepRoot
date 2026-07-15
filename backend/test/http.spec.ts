@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { normalizePathname, resolveCorsOrigin } from '../src/http';
+import { createRouteContext, normalizePathname, resolveCorsOrigin } from '../src/http';
 
 describe('http utilities', () => {
 	describe('resolveCorsOrigin', () => {
@@ -100,6 +100,40 @@ describe('http utilities', () => {
 			expect(normalizePathname('//bookmarks///bookmarks///')).toBe('/bookmarks');
 			// multiple slashes + /bookmarks/bookmarks/ + suffix + trailing slash
 			expect(normalizePathname('//bookmarks///bookmarks///123//')).toBe('/bookmarks/123');
+		});
+	});
+
+	describe('createRouteContext', () => {
+		it('creates a context object from a standard request', () => {
+			const request = new Request('https://example.com/path/to/resource');
+			const env = { SOME_VAR: 'test' } as any;
+			const context = createRouteContext(request, env);
+
+			expect(context.env).toBe(env);
+			expect(context.origin).toBe('https://example.com');
+			expect(context.pathname).toBe('/path/to/resource');
+			expect(context.request).toBe(request);
+			expect(context.rpID).toBe('example.com');
+			expect(context.url.href).toBe('https://example.com/path/to/resource');
+		});
+
+		it('creates a context object with normalized pathname', () => {
+			const request = new Request('https://example.com//bookmarks///bookmarks///123//');
+			const env = {} as any;
+			const context = createRouteContext(request, env);
+
+			expect(context.pathname).toBe('/bookmarks/123');
+		});
+
+		it('creates a context object correctly with ports in the URL', () => {
+			const request = new Request('http://localhost:8080/api/test');
+			const env = {} as any;
+			const context = createRouteContext(request, env);
+
+			expect(context.origin).toBe('http://localhost:8080');
+			expect(context.pathname).toBe('/api/test');
+			expect(context.rpID).toBe('localhost');
+			expect(context.url.port).toBe('8080');
 		});
 	});
 });
