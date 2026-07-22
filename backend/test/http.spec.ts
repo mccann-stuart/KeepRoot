@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { normalizePathname, resolveCorsOrigin } from '../src/http';
+import { errorResponse, normalizePathname, resolveCorsOrigin } from '../src/http';
 
 describe('http utilities', () => {
 	describe('resolveCorsOrigin', () => {
@@ -100,6 +100,33 @@ describe('http utilities', () => {
 			expect(normalizePathname('//bookmarks///bookmarks///')).toBe('/bookmarks');
 			// multiple slashes + /bookmarks/bookmarks/ + suffix + trailing slash
 			expect(normalizePathname('//bookmarks///bookmarks///123//')).toBe('/bookmarks/123');
+		});
+	});
+
+	describe('errorResponse', () => {
+		it('returns a JSON response with the error message and status code', async () => {
+			const response = errorResponse('Something went wrong', 400);
+			expect(response.status).toBe(400);
+			expect(response.headers.get('Content-Type')).toBe('application/json');
+			expect(await response.json()).toEqual({ error: 'Something went wrong' });
+		});
+
+		it('returns a JSON response with CORS headers if a request is provided', async () => {
+			const request = new Request('https://example.com/data', {
+				headers: { Origin: 'https://example.com' },
+			});
+			const response = errorResponse(request, 'Not found', 404);
+			expect(response.status).toBe(404);
+			expect(response.headers.get('Content-Type')).toBe('application/json');
+			expect(response.headers.get('Access-Control-Allow-Origin')).toBe('https://example.com');
+			expect(await response.json()).toEqual({ error: 'Not found' });
+		});
+
+		it('defaults to 500 status if request is provided but status is missing (cast via any)', async () => {
+			const request = new Request('https://example.com/data');
+			const response = (errorResponse as any)(request, 'Server error');
+			expect(response.status).toBe(500);
+			expect(await response.json()).toEqual({ error: 'Server error' });
 		});
 	});
 });
