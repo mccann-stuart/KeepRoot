@@ -1,7 +1,39 @@
 import { describe, expect, it } from 'vitest';
-import { normalizePathname, resolveCorsOrigin } from '../src/http';
+import { createRouteContext, normalizePathname, resolveCorsOrigin } from '../src/http';
 
 describe('http utilities', () => {
+	describe('createRouteContext', () => {
+		it('creates a context object from a standard request', () => {
+			const request = new Request('https://api.example.com/some/path?query=1');
+			const env = { SOME_VAR: 'test' } as any;
+			const context = createRouteContext(request, env);
+
+			expect(context.env).toBe(env);
+			expect(context.request).toBe(request);
+			expect(context.origin).toBe('https://api.example.com');
+			expect(context.pathname).toBe('/some/path');
+			expect(context.rpID).toBe('api.example.com');
+			expect(context.url.href).toBe('https://api.example.com/some/path?query=1');
+		});
+
+		it('normalizes the pathname using normalizePathname', () => {
+			const request = new Request('https://api.example.com/bookmarks/bookmarks/');
+			const env = {} as any;
+			const context = createRouteContext(request, env);
+
+			expect(context.pathname).toBe('/bookmarks');
+		});
+
+		it('extracts rpID correctly for standard and custom ports', () => {
+			const request = new Request('http://localhost:8787/test');
+			const env = {} as any;
+			const context = createRouteContext(request, env);
+
+			// url.hostname excludes the port
+			expect(context.rpID).toBe('localhost');
+		});
+	});
+
 	describe('resolveCorsOrigin', () => {
 		it('returns null if there is no Origin header', () => {
 			const request = new Request('https://api.example.com/data');
