@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { normalizePathname, resolveCorsOrigin } from '../src/http';
+import { createRouteContext, normalizePathname, resolveCorsOrigin } from '../src/http';
 
 describe('http utilities', () => {
 	describe('resolveCorsOrigin', () => {
@@ -100,6 +100,48 @@ describe('http utilities', () => {
 			expect(normalizePathname('//bookmarks///bookmarks///')).toBe('/bookmarks');
 			// multiple slashes + /bookmarks/bookmarks/ + suffix + trailing slash
 			expect(normalizePathname('//bookmarks///bookmarks///123//')).toBe('/bookmarks/123');
+		});
+	});
+
+	describe('createRouteContext', () => {
+		it('extracts route context correctly for a standard URL', () => {
+			const request = new Request('https://example.com/path/to/resource');
+			const env = { SOME_ENV_VAR: 'test' } as any;
+			const context = createRouteContext(request, env);
+
+			expect(context.env).toBe(env);
+			expect(context.origin).toBe('https://example.com');
+			expect(context.pathname).toBe('/path/to/resource');
+			expect(context.request).toBe(request);
+			expect(context.rpID).toBe('example.com');
+			expect(context.url).toBeInstanceOf(URL);
+			expect(context.url.href).toBe('https://example.com/path/to/resource');
+		});
+
+		it('normalizes the pathname according to normalizePathname rules', () => {
+			const request = new Request('https://example.com/bookmarks/bookmarks/123/');
+			const env = {} as any;
+			const context = createRouteContext(request, env);
+
+			expect(context.pathname).toBe('/bookmarks/123');
+		});
+
+		it('extracts rpID correctly for an IPv6 address', () => {
+			const request = new Request('http://[::1]:8080/test');
+			const env = {} as any;
+			const context = createRouteContext(request, env);
+
+			expect(context.origin).toBe('http://[::1]:8080');
+			expect(context.rpID).toBe('[::1]');
+		});
+
+		it('extracts origin with a custom port correctly', () => {
+			const request = new Request('https://example.com:3000/api/data');
+			const env = {} as any;
+			const context = createRouteContext(request, env);
+
+			expect(context.origin).toBe('https://example.com:3000');
+			expect(context.rpID).toBe('example.com');
 		});
 	});
 });
