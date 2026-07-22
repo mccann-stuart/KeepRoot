@@ -2,7 +2,7 @@ import createDOMPurify from 'dompurify';
 import { marked } from 'marked';
 import type { HighlightRecord } from './state';
 
-const DOMPurify = createDOMPurify(window);
+let DOMPurify: ReturnType<typeof createDOMPurify> | undefined;
 
 marked.setOptions({
 	breaks: true,
@@ -19,6 +19,7 @@ export function escapeHtml(value: string): string {
 }
 
 function encodeHtmlEntities(text: string): string {
+    if (typeof document === 'undefined') return escapeHtml(text);
 	const element = document.createElement('div');
 	element.textContent = text;
 	return element.innerHTML;
@@ -36,13 +37,25 @@ function applyHighlights(html: string, highlights: HighlightRecord[]): string {
 	}, html);
 }
 
-export function renderMarkdown(markdown: string, highlights: HighlightRecord[] = []): string {
+export function renderMarkdown(markdown: string, highlights: HighlightRecord[] = []): string | Node {
+    if (!DOMPurify && typeof window !== 'undefined') {
+        DOMPurify = createDOMPurify(window);
+    }
 	let html = marked.parse(markdown ?? '') as string;
-	html = DOMPurify.sanitize(html);
+
+    if (typeof window !== 'undefined' && DOMPurify) {
+	    html = DOMPurify.sanitize(html) as string;
+    }
 
 	if (!highlights.length) {
-		return html;
+        if (typeof window !== 'undefined' && DOMPurify) {
+		    return DOMPurify.sanitize(html, { RETURN_DOM_FRAGMENT: true });
+        }
+        return html;
 	}
 
-	return DOMPurify.sanitize(applyHighlights(html, highlights));
+    if (typeof window !== 'undefined' && DOMPurify) {
+	    return DOMPurify.sanitize(applyHighlights(html, highlights), { RETURN_DOM_FRAGMENT: true });
+    }
+    return applyHighlights(html, highlights);
 }
