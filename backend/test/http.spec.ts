@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { normalizePathname, resolveCorsOrigin } from '../src/http';
+import { normalizePathname, resolveCorsOrigin, jsonResponse, corsHeaders } from '../src/http';
 
 describe('http utilities', () => {
 	describe('resolveCorsOrigin', () => {
@@ -100,6 +100,64 @@ describe('http utilities', () => {
 			expect(normalizePathname('//bookmarks///bookmarks///')).toBe('/bookmarks');
 			// multiple slashes + /bookmarks/bookmarks/ + suffix + trailing slash
 			expect(normalizePathname('//bookmarks///bookmarks///123//')).toBe('/bookmarks/123');
+		});
+	});
+
+	describe('jsonResponse', () => {
+		it('returns a valid JSON response with default status 200', async () => {
+			const body = { a: 1 };
+			const response = jsonResponse(body);
+
+			expect(response.status).toBe(200);
+			expect(response.headers.get('Content-Type')).toBe('application/json');
+			expect(await response.json()).toEqual(body);
+		});
+
+		it('returns a valid JSON response with a specific status', async () => {
+			const body = { a: 1 };
+			const response = jsonResponse(body, 201);
+
+			expect(response.status).toBe(201);
+			expect(response.headers.get('Content-Type')).toBe('application/json');
+			expect(await response.json()).toEqual(body);
+		});
+
+		it('applies custom headers', async () => {
+			const body = { a: 1 };
+			const response = jsonResponse(body, 200, { 'X-Custom': 'test' });
+
+			expect(response.status).toBe(200);
+			expect(response.headers.get('Content-Type')).toBe('application/json');
+			expect(response.headers.get('X-Custom')).toBe('test');
+			expect(await response.json()).toEqual(body);
+		});
+
+		it('applies CORS headers when a request is provided', async () => {
+			const request = new Request('https://example.com/api');
+			const body = { a: 1 };
+			const response = jsonResponse(request, body);
+
+			expect(response.status).toBe(200);
+			expect(response.headers.get('Content-Type')).toBe('application/json');
+
+			for (const [key, value] of Object.entries(corsHeaders)) {
+				expect(response.headers.get(key)).toBe(value);
+			}
+			expect(await response.json()).toEqual(body);
+		});
+
+		it('applies Access-Control-Allow-Origin header when allowed origin matches', async () => {
+			const request = new Request('https://example.com/api', {
+				headers: { Origin: 'https://example.com' },
+			});
+			const body = { a: 1 };
+			const response = jsonResponse(request, body);
+
+			expect(response.status).toBe(200);
+			expect(response.headers.get('Content-Type')).toBe('application/json');
+			expect(response.headers.get('Access-Control-Allow-Origin')).toBe('https://example.com');
+			expect(response.headers.get('Vary')).toBe('Origin');
+			expect(await response.json()).toEqual(body);
 		});
 	});
 });
