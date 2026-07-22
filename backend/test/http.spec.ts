@@ -1,7 +1,49 @@
 import { describe, expect, it } from 'vitest';
-import { normalizePathname, resolveCorsOrigin } from '../src/http';
+import { normalizePathname, resolveCorsOrigin, jsonResponse } from '../src/http';
 
 describe('http utilities', () => {
+	describe('jsonResponse', () => {
+		it('returns a JSON response with default status 200', async () => {
+			const response = jsonResponse({ hello: 'world' });
+			expect(response.status).toBe(200);
+			expect(response.headers.get('Content-Type')).toBe('application/json');
+			expect(await response.json()).toEqual({ hello: 'world' });
+		});
+
+		it('returns a JSON response with custom status', async () => {
+			const response = jsonResponse({ error: 'not found' }, 404);
+			expect(response.status).toBe(404);
+			expect(await response.json()).toEqual({ error: 'not found' });
+		});
+
+		it('returns a JSON response with custom headers', async () => {
+			const response = jsonResponse({ hello: 'world' }, 201, { 'X-Custom': 'test' });
+			expect(response.status).toBe(201);
+			expect(response.headers.get('X-Custom')).toBe('test');
+			expect(response.headers.get('Content-Type')).toBe('application/json');
+		});
+
+		it('applies CORS headers when Request is provided', async () => {
+			const req = new Request('https://example.com/path', {
+				headers: { Origin: 'https://example.com' },
+			});
+			const response = jsonResponse(req, { data: 123 });
+			expect(response.status).toBe(200);
+			expect(response.headers.get('Content-Type')).toBe('application/json');
+			expect(response.headers.get('Access-Control-Allow-Origin')).toBe('https://example.com');
+			expect(await response.json()).toEqual({ data: 123 });
+		});
+
+		it('handles a numeric body when Request is provided without failing', async () => {
+			const req = new Request('https://example.com/path', {
+				headers: { Origin: 'https://example.com' },
+			});
+			const response = jsonResponse(req, 42, 201);
+			expect(response.status).toBe(201);
+			expect(await response.json()).toBe(42);
+		});
+	});
+
 	describe('resolveCorsOrigin', () => {
 		it('returns null if there is no Origin header', () => {
 			const request = new Request('https://api.example.com/data');

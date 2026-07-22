@@ -106,7 +106,7 @@ export function jsonResponse(
 ): Response {
 	const request = requestOrBody instanceof Request ? requestOrBody : null;
 	const body = request ? bodyOrStatus : requestOrBody;
-	const status = typeof bodyOrStatus === 'number'
+	const status = !request && typeof bodyOrStatus === 'number'
 		? bodyOrStatus
 		: typeof statusOrHeaders === 'number'
 			? statusOrHeaders
