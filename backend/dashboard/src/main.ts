@@ -691,7 +691,9 @@ async function loadBookmark(bookmarkId: string) {
 		}
 
 		renderReaderStats(bookmark);
-		dom.markdownContainer.innerHTML = renderMarkdown(bookmark.markdownData, highlights);
+		dom.markdownContainer.innerHTML = '';
+		const fragment = renderMarkdown(bookmark.markdownData, highlights) as DocumentFragment;
+		dom.markdownContainer.appendChild(fragment);
 		renderBookmarkLists();
 
 		if (!bookmark.metadata?.isRead) {
