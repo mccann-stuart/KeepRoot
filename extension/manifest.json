@@ -16,10 +16,6 @@
     "storage",
     "scripting"
   ],
-  "host_permissions": [
-    "http://*/*",
-    "https://*/*"
-  ],
   "action": {
     "default_title": "Save to KeepRoot",
     "default_popup": "src/popup/popup.html"
