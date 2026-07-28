@@ -36,13 +36,13 @@ function applyHighlights(html: string, highlights: HighlightRecord[]): string {
 	}, html);
 }
 
-export function renderMarkdown(markdown: string, highlights: HighlightRecord[] = []): string {
+export function renderMarkdown(markdown: string, highlights: HighlightRecord[] = []): string | DocumentFragment {
 	let html = marked.parse(markdown ?? '') as string;
 	html = DOMPurify.sanitize(html);
 
 	if (!highlights.length) {
-		return html;
+		return DOMPurify.sanitize(html, { RETURN_DOM_FRAGMENT: true });
 	}
 
-	return DOMPurify.sanitize(applyHighlights(html, highlights));
+	return DOMPurify.sanitize(applyHighlights(html, highlights), { RETURN_DOM_FRAGMENT: true });
 }
