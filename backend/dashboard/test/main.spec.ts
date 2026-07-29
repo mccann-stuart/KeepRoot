@@ -445,8 +445,10 @@ describe('dashboard MCP setup view', () => {
 
 		const bookmarkCard = document.querySelector('.bookmark-card') as HTMLElement | null;
 		expect(bookmarkCard).not.toBeNull();
+		expect(bookmarkCard?.tabIndex).toBe(0);
+		expect(bookmarkCard?.getAttribute('aria-label')).toBe('Open Unread article');
 
-		bookmarkCard?.click();
+		bookmarkCard?.dispatchEvent(new KeyboardEvent('keydown', { bubbles: true, key: 'Enter' }));
 		await flush();
 		await flush();
 		await flush();
@@ -456,6 +458,9 @@ describe('dashboard MCP setup view', () => {
 			method: 'PATCH',
 		}));
 		expect((document.getElementById('current-view-title') as HTMLElement).textContent).toBe('Reader');
+		expect((document.getElementById('library-workspace') as HTMLElement).classList.contains('is-hidden')).toBe(false);
+		expect((document.getElementById('inbox-view') as HTMLElement).classList.contains('is-hidden')).toBe(false);
+		expect((document.getElementById('content-view') as HTMLElement).classList.contains('is-hidden')).toBe(false);
 	});
 
 	it('keeps a bookmark visible after pinning by moving it into the pinned panel', async () => {

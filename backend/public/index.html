@@ -37,20 +37,26 @@
 	</dialog>
 
 	<div id="app" class="app-shell is-hidden">
-		<aside class="sidebar">
-			<button id="brand-title" type="button" class="brand">
-				<span class="brand__mark">KR</span>
+		<aside class="sidebar glass-panel">
+			<button id="brand-title" type="button" class="brand" aria-label="Open library">
+				<span class="brand__mark" aria-hidden="true"><span></span></span>
 				<span class="brand__copy">
 					<strong>KeepRoot</strong>
-					<span>Self-hosted reading archive</span>
+					<span>Reading library</span>
 				</span>
 			</button>
 
 			<nav class="sidebar__nav" aria-label="Primary">
 				<section class="sidebar-group">
-					<h2>Main</h2>
-					<button id="nav-inbox" type="button" class="nav-link nav-link--active">Inbox</button>
-					<button id="nav-all" type="button" class="nav-link">All Bookmarks</button>
+					<h2>Library</h2>
+					<button id="nav-inbox" type="button" class="nav-link nav-link--active">
+						<span class="nav-link__icon nav-link__icon--inbox" aria-hidden="true"></span>
+						<span>Inbox</span>
+					</button>
+					<button id="nav-all" type="button" class="nav-link">
+						<span class="nav-link__icon nav-link__icon--library" aria-hidden="true"></span>
+						<span>All items</span>
+					</button>
 				</section>
 
 				<section class="sidebar-group">
@@ -63,134 +69,153 @@
 
 				<section class="sidebar-group">
 					<div class="sidebar-group__header">
-						<h2>Smart Lists</h2>
+						<h2>Smart lists</h2>
 						<button id="add-smart-list-btn" type="button" class="icon-button" aria-label="Create smart list">+</button>
 					</div>
 					<div id="sidebar-smart-lists" class="sidebar-collection"></div>
 				</section>
 
-				<section class="sidebar-group">
+				<section class="sidebar-group sidebar-group--tags">
 					<h2>Tags</h2>
 					<div id="sidebar-tags" class="sidebar-collection sidebar-collection--tags"></div>
 				</section>
 
 				<section class="sidebar-group">
-					<h2>Manage</h2>
-					<button id="setup-btn" type="button" class="nav-link">API Keys</button>
-					<button id="nav-mcp" type="button" class="nav-link">MCP Setup</button>
+					<h2>Connections</h2>
+					<button id="setup-btn" type="button" class="nav-link">
+						<span class="nav-link__icon nav-link__icon--key" aria-hidden="true"></span>
+						<span>API keys</span>
+					</button>
+					<button id="nav-mcp" type="button" class="nav-link">
+						<span class="nav-link__icon nav-link__icon--mcp" aria-hidden="true"></span>
+						<span>MCP setup</span>
+					</button>
 				</section>
 			</nav>
 
 			<div class="sidebar__footer">
-				<button id="open-settings-btn" type="button" class="nav-link">Settings</button>
-				<button id="logout-btn" type="button" class="nav-link nav-link--danger">Log Out</button>
+				<div class="storage-status">
+					<span class="storage-status__icon" aria-hidden="true"></span>
+					<span><strong>Self-hosted</strong><small>Your archive stays yours</small></span>
+				</div>
+				<button id="open-settings-btn" type="button" class="nav-link">
+					<span class="nav-link__icon nav-link__icon--settings" aria-hidden="true"></span>
+					<span>Settings</span>
+				</button>
+				<button id="logout-btn" type="button" class="nav-link nav-link--danger">
+					<span class="nav-link__icon nav-link__icon--logout" aria-hidden="true"></span>
+					<span>Log out</span>
+				</button>
 			</div>
 		</aside>
 
 		<main class="main-shell">
-			<header class="main-header">
-				<div>
-					<p class="eyebrow">Dashboard</p>
-					<h1 id="current-view-title">Inbox</h1>
+			<header class="main-header glass-panel">
+				<div class="main-header__context">
+					<span class="context-mark" aria-hidden="true"></span>
+					<div>
+						<p class="eyebrow">KeepRoot library</p>
+						<h1 id="current-view-title">Inbox</h1>
+					</div>
 				</div>
 				<label class="search-field">
 					<span class="sr-only">Search bookmarks</span>
-					<input id="search-input" type="search" placeholder="Search titles, URLs, and tags">
+					<input id="search-input" type="search" placeholder="Search your library">
+					<span class="search-field__shortcut" aria-hidden="true">⌘ K</span>
 				</label>
 			</header>
 
-			<section id="empty-state" class="view empty-state is-hidden">
-				<div class="empty-state__card">
-					<p class="eyebrow">Ready</p>
-					<h2>Pick a bookmark or open your inbox.</h2>
-					<p>The dashboard stays lightweight: save from the extension, organise with lists and tags, then read in a clean view.</p>
-				</div>
-			</section>
+			<div id="library-workspace" class="library-workspace">
+				<section id="inbox-view" class="view collection-pane">
+					<header class="collection-header">
+						<div class="collection-summary">
+							<span><strong id="stat-total">0</strong> items</span>
+							<span class="collection-summary__divider" aria-hidden="true"></span>
+							<span><strong id="stat-recent">0</strong> today</span>
+						</div>
+						<div id="list-header-actions" class="collection-actions is-hidden">
+							<p id="list-item-count" class="muted-copy">0 items</p>
+							<button id="edit-list-btn" type="button" class="btn btn-secondary btn-compact">Edit</button>
+							<button id="delete-list-btn" type="button" class="btn btn-danger btn-compact">Delete</button>
+						</div>
+					</header>
 
-			<section id="inbox-view" class="view">
-				<div class="view-toolbar">
-					<div class="stats">
-						<article class="stat-card">
-							<span>Total</span>
-							<strong id="stat-total">0</strong>
-						</article>
-						<article class="stat-card">
-							<span>Saved Today</span>
-							<strong id="stat-recent">0</strong>
-						</article>
-					</div>
+					<div class="collection-scroll">
+						<section aria-labelledby="pinned-heading" class="bookmark-panel">
+							<div class="bookmark-panel__header">
+								<h2 id="pinned-heading">Pinned</h2>
+							</div>
+							<div id="pinned-bookmark-list" class="bookmark-list"></div>
+						</section>
 
-					<div id="list-header-actions" class="button-row is-hidden">
-						<p id="list-item-count" class="muted-copy">0 items</p>
-						<button id="edit-list-btn" type="button" class="btn btn-secondary btn-compact">Edit</button>
-						<button id="delete-list-btn" type="button" class="btn btn-danger btn-compact">Delete</button>
+						<section aria-labelledby="bookmarks-heading" class="bookmark-panel">
+							<div class="bookmark-panel__header">
+								<h2 id="bookmarks-heading">Saved items</h2>
+							</div>
+							<div id="bookmark-list" class="bookmark-list"></div>
+						</section>
 					</div>
-				</div>
-
-				<section aria-labelledby="pinned-heading" class="bookmark-panel">
-					<div class="bookmark-panel__header">
-						<h2 id="pinned-heading">Pinned</h2>
-					</div>
-					<div id="pinned-bookmark-list" class="bookmark-list"></div>
 				</section>
 
-				<section aria-labelledby="bookmarks-heading" class="bookmark-panel">
-					<div class="bookmark-panel__header">
-						<h2 id="bookmarks-heading">Bookmarks</h2>
+				<section id="empty-state" class="view empty-state reader-pane">
+					<div class="empty-state__card">
+						<span class="empty-state__mark" aria-hidden="true"><span></span></span>
+						<p class="eyebrow">Your reading space</p>
+						<h2>Select something worth keeping.</h2>
+						<p>Choose an item from the list to read it here. Highlights, tags and the original source stay within reach.</p>
 					</div>
-					<div id="bookmark-list" class="bookmark-list"></div>
 				</section>
-			</section>
 
-			<section id="content-view" class="view is-hidden">
-				<header class="reader-header" id="reading-header-container">
-					<div class="reader-header__content">
-						<p class="eyebrow">Reader</p>
-						<h2 id="view-title">Loading…</h2>
-						<a id="view-url" class="link-chip" href="#" target="_blank" rel="noreferrer">Open source</a>
-						<p id="view-date" class="muted-copy"></p>
-						<div id="view-tags" class="tag-list"></div>
-					</div>
-					<div class="reader-header__controls">
-						<button id="toggle-stats-btn" type="button" class="btn btn-secondary btn-compact" aria-pressed="false">Stats</button>
-						<div class="button-row">
-							<button id="font-decrease-btn" type="button" class="btn btn-secondary btn-compact" aria-label="Decrease reader font size">A-</button>
-							<span id="font-size-value" class="pill">16 px</span>
-							<button id="font-increase-btn" type="button" class="btn btn-secondary btn-compact" aria-label="Increase reader font size">A+</button>
+				<section id="content-view" class="view reader-pane is-hidden">
+					<header class="reader-header" id="reading-header-container">
+						<div class="reader-header__content">
+							<div class="reader-source-line">
+								<span class="source-favicon" aria-hidden="true"></span>
+								<a id="view-url" class="link-chip" href="#" target="_blank" rel="noreferrer">Open source</a>
+							</div>
+							<h2 id="view-title">Loading…</h2>
+							<p id="view-date" class="muted-copy"></p>
+							<div id="view-tags" class="tag-list"></div>
 						</div>
-						<div class="button-row">
-							<button id="btn-edit-tags" type="button" class="btn btn-secondary btn-compact">Tags</button>
-							<button id="delete-btn" type="button" class="btn btn-danger btn-compact">Delete</button>
+						<div class="reader-header__controls">
+							<button id="toggle-stats-btn" type="button" class="reader-action" aria-pressed="false" aria-label="Show item details">ⓘ</button>
+							<div class="reader-size-control" aria-label="Reader text size">
+								<button id="font-decrease-btn" type="button" aria-label="Decrease reader font size">A−</button>
+								<span id="font-size-value">16 px</span>
+								<button id="font-increase-btn" type="button" aria-label="Increase reader font size">A+</button>
+							</div>
+							<button id="btn-edit-tags" type="button" class="reader-action" aria-label="Edit tags">#</button>
+							<button id="delete-btn" type="button" class="reader-action reader-action--danger" aria-label="Delete bookmark">⌫</button>
 						</div>
+					</header>
+
+					<div class="reader-layout">
+						<article id="markdown-container" class="reader-surface" aria-live="polite"></article>
+
+						<aside id="stats-panel" class="reader-stats is-hidden">
+							<h3>Item details</h3>
+							<dl>
+								<div>
+									<dt>Domain</dt>
+									<dd id="view-domain">—</dd>
+								</div>
+								<div>
+									<dt>Status</dt>
+									<dd id="view-status">—</dd>
+								</div>
+								<div>
+									<dt>Words</dt>
+									<dd id="view-word-count">0</dd>
+								</div>
+								<div>
+									<dt>Reading time</dt>
+									<dd id="view-reading-time">0 min</dd>
+								</div>
+							</dl>
+						</aside>
 					</div>
-				</header>
-
-				<div class="reader-layout">
-					<article id="markdown-container" class="reader-surface" aria-live="polite"></article>
-
-					<aside id="stats-panel" class="reader-stats is-hidden">
-						<h3>Bookmark Stats</h3>
-						<dl>
-							<div>
-								<dt>Domain</dt>
-								<dd id="view-domain">—</dd>
-							</div>
-							<div>
-								<dt>Status</dt>
-								<dd id="view-status">—</dd>
-							</div>
-							<div>
-								<dt>Words</dt>
-								<dd id="view-word-count">0</dd>
-							</div>
-							<div>
-								<dt>Reading Time</dt>
-								<dd id="view-reading-time">0 min</dd>
-							</div>
-						</dl>
-					</aside>
-				</div>
-			</section>
+				</section>
+			</div>
 
 			<section id="setup-view" class="view is-hidden">
 				<div class="stack-layout">
@@ -480,13 +505,16 @@
 
 	<template id="bookmark-item-template">
 		<article class="bookmark-card" draggable="true">
-			<button type="button" data-action="toggle-read" class="bookmark-card__status"></button>
+			<div data-role="bookmark-thumb" class="bookmark-card__thumb" aria-hidden="true"></div>
 			<div class="bookmark-card__body">
 				<h3 data-role="bookmark-title"></h3>
 				<p data-role="bookmark-meta" class="bookmark-card__meta"></p>
 				<div data-role="bookmark-tags" class="tag-list tag-list--compact"></div>
 			</div>
-			<button type="button" data-action="toggle-pin" class="bookmark-card__pin">Pin</button>
+			<div class="bookmark-card__actions">
+				<button type="button" data-action="toggle-read" class="bookmark-card__status"></button>
+				<button type="button" data-action="toggle-pin" class="bookmark-card__pin">☆</button>
+			</div>
 		</article>
 	</template>
 

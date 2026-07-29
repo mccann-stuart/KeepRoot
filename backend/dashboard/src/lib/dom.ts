@@ -43,6 +43,7 @@ export function getDom() {
 		generateKeyForm: required<HTMLFormElement>('generate-key-form'),
 		highlightTooltip: required<HTMLDivElement>('highlight-tooltip'),
 		inboxView: required<HTMLElement>('inbox-view'),
+		libraryWorkspace: required<HTMLElement>('library-workspace'),
 		listHeaderActions: required<HTMLDivElement>('list-header-actions'),
 		listItemCount: required<HTMLElement>('list-item-count'),
 		listModal: required<HTMLDialogElement>('list-modal'),
