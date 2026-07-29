@@ -1,7 +1,59 @@
 import { describe, expect, it } from 'vitest';
-import { normalizePathname, resolveCorsOrigin, jsonResponse, corsHeaders } from '../src/http';
+import {
+	corsHeaders,
+	createRouteContext,
+	errorResponse,
+	jsonResponse,
+	normalizePathname,
+	resolveCorsOrigin,
+	textResponse,
+} from '../src/http';
 
 describe('http utilities', () => {
+	describe('createRouteContext', () => {
+		it('extracts route context for a standard URL', () => {
+			const request = new Request('https://example.com/path/to/resource');
+			const env = { SOME_ENV_VAR: 'test' } as any;
+			const context = createRouteContext(request, env);
+
+			expect(context.env).toBe(env);
+			expect(context.origin).toBe('https://example.com');
+			expect(context.pathname).toBe('/path/to/resource');
+			expect(context.request).toBe(request);
+			expect(context.rpID).toBe('example.com');
+			expect(context.url.href).toBe('https://example.com/path/to/resource');
+		});
+
+		it('normalizes the pathname', () => {
+			const context = createRouteContext(
+				new Request('https://example.com/bookmarks/bookmarks/123/'),
+				{} as any,
+			);
+
+			expect(context.pathname).toBe('/bookmarks/123');
+		});
+
+		it('extracts the rpID for an IPv6 address', () => {
+			const context = createRouteContext(
+				new Request('http://[::1]:8080/test'),
+				{} as any,
+			);
+
+			expect(context.origin).toBe('http://[::1]:8080');
+			expect(context.rpID).toBe('[::1]');
+		});
+
+		it('preserves a custom port in the origin but not the rpID', () => {
+			const context = createRouteContext(
+				new Request('https://example.com:3000/api/data'),
+				{} as any,
+			);
+
+			expect(context.origin).toBe('https://example.com:3000');
+			expect(context.rpID).toBe('example.com');
+		});
+	});
+
 	describe('resolveCorsOrigin', () => {
 		it('returns null if there is no Origin header', () => {
 			const request = new Request('https://api.example.com/data');
@@ -103,6 +155,80 @@ describe('http utilities', () => {
 		});
 	});
 
+	describe('textResponse', () => {
+		it('returns a text response with the default status', async () => {
+			const response = textResponse('hello', 'text/plain');
+
+			expect(response.status).toBe(200);
+			expect(response.headers.get('Content-Type')).toBe('text/plain');
+			expect(await response.text()).toBe('hello');
+		});
+
+		it('applies a custom status and headers', async () => {
+			const response = textResponse('error', 'text/plain', 400, { 'X-Custom': 'value' });
+
+			expect(response.status).toBe(400);
+			expect(response.headers.get('Content-Type')).toBe('text/plain');
+			expect(response.headers.get('X-Custom')).toBe('value');
+			expect(await response.text()).toBe('error');
+		});
+
+		it('applies standard CORS headers when a request is provided', async () => {
+			const request = new Request('https://api.example.com/data');
+			const response = textResponse(request, 'hello', 'text/plain');
+
+			expect(response.status).toBe(200);
+			expect(response.headers.get('Content-Type')).toBe('text/plain');
+			for (const [key, value] of Object.entries(corsHeaders)) {
+				expect(response.headers.get(key)).toBe(value);
+			}
+			expect(await response.text()).toBe('hello');
+		});
+
+		it('applies allowed-origin CORS and custom response options', async () => {
+			const request = new Request('https://example.com/data', {
+				headers: { Origin: 'https://example.com' },
+			});
+			const response = textResponse(request, 'created', 'text/html', 201, { 'X-Test': 'true' });
+
+			expect(response.status).toBe(201);
+			expect(response.headers.get('Content-Type')).toBe('text/html');
+			expect(response.headers.get('X-Test')).toBe('true');
+			expect(response.headers.get('Access-Control-Allow-Origin')).toBe('https://example.com');
+			expect(await response.text()).toBe('created');
+		});
+	});
+
+	describe('errorResponse', () => {
+		it('returns a JSON error with the requested status', async () => {
+			const response = errorResponse('Something went wrong', 400);
+
+			expect(response.status).toBe(400);
+			expect(response.headers.get('Content-Type')).toBe('application/json');
+			expect(await response.json()).toEqual({ error: 'Something went wrong' });
+		});
+
+		it('applies CORS headers when a request is provided', async () => {
+			const request = new Request('https://example.com/data', {
+				headers: { Origin: 'https://example.com' },
+			});
+			const response = errorResponse(request, 'Not found', 404);
+
+			expect(response.status).toBe(404);
+			expect(response.headers.get('Content-Type')).toBe('application/json');
+			expect(response.headers.get('Access-Control-Allow-Origin')).toBe('https://example.com');
+			expect(await response.json()).toEqual({ error: 'Not found' });
+		});
+
+		it('defaults to status 500 when the request signature omits a status', async () => {
+			const request = new Request('https://example.com/data');
+			const response = (errorResponse as any)(request, 'Server error');
+
+			expect(response.status).toBe(500);
+			expect(await response.json()).toEqual({ error: 'Server error' });
+		});
+	});
+
 	describe('jsonResponse', () => {
 		it('returns a valid JSON response with default status 200', async () => {
 			const body = { a: 1 };
@@ -144,6 +270,16 @@ describe('http utilities', () => {
 				expect(response.headers.get(key)).toBe(value);
 			}
 			expect(await response.json()).toEqual(body);
+		});
+
+		it('treats a numeric request body as the body, not the status', async () => {
+			const request = new Request('https://example.com/api', {
+				headers: { Origin: 'https://example.com' },
+			});
+			const response = jsonResponse(request, 42, 201);
+
+			expect(response.status).toBe(201);
+			expect(await response.json()).toBe(42);
 		});
 
 		it('applies Access-Control-Allow-Origin header when allowed origin matches', async () => {
