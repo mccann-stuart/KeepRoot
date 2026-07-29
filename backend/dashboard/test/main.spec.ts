@@ -3,6 +3,11 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
+vi.mock('@simplewebauthn/browser', () => ({
+	startAuthentication: vi.fn().mockResolvedValue({ id: 'credential-1' }),
+	startRegistration: vi.fn().mockResolvedValue({ id: 'credential-1' }),
+}));
+
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const dashboardHtml = readFileSync(path.resolve(__dirname, '../../public/index.html'), 'utf8');
 const bodyMarkup = dashboardHtml.match(/<body[^>]*>([\s\S]*)<\/body>/i)?.[1] ?? dashboardHtml;
@@ -50,6 +55,8 @@ async function bootDashboard(options?: {
 	apiKeys?: Array<Record<string, unknown>>;
 	beforeImport?: () => void;
 	handleFetch?: (url: string, method: string, init?: RequestInit) => Response | Promise<Response> | undefined;
+	rememberedUsername?: string;
+	sessionToken?: string | null;
 	sources?: Array<Record<string, unknown>>;
 	stats?: Record<string, unknown>;
 }): Promise<{ fetchSpy: ReturnType<typeof vi.fn> }> {
@@ -63,7 +70,13 @@ async function bootDashboard(options?: {
 		configurable: true,
 		value: createStorageMock(),
 	});
-	window.sessionStorage.setItem('keeproot_secret', 'session-secret');
+	const sessionToken = options?.sessionToken === undefined ? 'session-secret' : options.sessionToken;
+	if (sessionToken) {
+		window.sessionStorage.setItem('keeproot_secret', sessionToken);
+	}
+	if (options?.rememberedUsername) {
+		window.localStorage.setItem('keeproot_remembered_username', options.rememberedUsername);
+	}
 	window.history.replaceState({}, '', '/dashboard');
 
 	Object.defineProperty(window, 'matchMedia', {
@@ -177,6 +190,49 @@ async function bootDashboard(options?: {
 	await flush();
 	return { fetchSpy };
 }
+
+describe('dashboard login', () => {
+	beforeEach(() => {
+		vi.restoreAllMocks();
+	});
+
+	it('prefills a remembered username and keeps the option selected', async () => {
+		await bootDashboard({
+			rememberedUsername: 'alice',
+			sessionToken: null,
+		});
+
+		expect((document.getElementById('username-input') as HTMLInputElement).value).toBe('alice');
+		expect((document.getElementById('remember-username-input') as HTMLInputElement).checked).toBe(true);
+	});
+
+	it('remembers the trimmed username after a successful login', async () => {
+		await bootDashboard({
+			handleFetch: (url, method) => {
+				if (url.endsWith('/auth/generate-authentication') && method === 'POST') {
+					return jsonResponse({ challenge: 'challenge-1' });
+				}
+				if (url.endsWith('/auth/verify-authentication') && method === 'POST') {
+					return jsonResponse({ token: 'new-session', verified: true });
+				}
+				return undefined;
+			},
+			sessionToken: null,
+		});
+
+		const usernameInput = document.getElementById('username-input') as HTMLInputElement;
+		const rememberUsernameInput = document.getElementById('remember-username-input') as HTMLInputElement;
+		usernameInput.value = '  alice  ';
+		rememberUsernameInput.checked = true;
+		(document.getElementById('passkey-form') as HTMLFormElement).requestSubmit();
+		await flush();
+		await flush();
+
+		expect(window.localStorage.getItem('keeproot_remembered_username')).toBe('alice');
+		expect(window.sessionStorage.getItem('keeproot_secret')).toBe('new-session');
+		expect(window.localStorage.getItem('keeproot_secret')).toBeNull();
+	});
+});
 
 describe('dashboard MCP setup view', () => {
 	beforeEach(() => {
@@ -303,6 +359,7 @@ describe('dashboard MCP setup view', () => {
 		window.localStorage.setItem('keeproot_font', 'sans');
 		window.localStorage.setItem('keeproot_font_size', '22');
 		window.localStorage.setItem('keeproot_notifications', 'false');
+		window.localStorage.setItem('keeproot_remembered_username', 'alice');
 		window.localStorage.setItem('keeproot_highlights_bookmark-1', JSON.stringify([{ id: 'h1', note: 'note', text: 'text' }]));
 
 		(document.getElementById('open-settings-btn') as HTMLButtonElement).click();
@@ -322,6 +379,7 @@ describe('dashboard MCP setup view', () => {
 		expect(window.localStorage.getItem('keeproot_font')).toBe('default');
 		expect(window.localStorage.getItem('keeproot_font_size')).toBe('16');
 		expect(window.localStorage.getItem('keeproot_notifications')).toBe('true');
+		expect(window.localStorage.getItem('keeproot_remembered_username')).toBeNull();
 		expect(window.localStorage.getItem('keeproot_highlights_bookmark-1')).toBeNull();
 		expect((document.getElementById('api-keys-list') as HTMLElement).textContent).toContain('No active API keys.');
 		expect((document.getElementById('current-view-title') as HTMLElement).textContent).toBe('Settings');

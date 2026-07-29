@@ -4,6 +4,7 @@ const STORAGE_KEYS = {
 	font: 'keeproot_font',
 	fontSize: 'keeproot_font_size',
 	notifications: 'keeproot_notifications',
+	rememberedUsername: 'keeproot_remembered_username',
 	theme: 'keeproot_theme',
 };
 
@@ -54,6 +55,7 @@ export function clearDashboardDataPreservingSession(): void {
 			|| key === STORAGE_KEYS.font
 			|| key === STORAGE_KEYS.fontSize
 			|| key === STORAGE_KEYS.notifications
+			|| key === STORAGE_KEYS.rememberedUsername
 			|| key.startsWith(HIGHLIGHT_STORAGE_PREFIX)
 		) {
 			keysToRemove.push(key);
@@ -108,6 +110,24 @@ export function saveSessionToken(token: string): void {
 export function clearSessionToken(): void {
 	getSessionStorage().removeItem(LEGACY_SESSION_TOKEN_KEY);
 	getBrowserStorage().removeItem(LEGACY_SESSION_TOKEN_KEY);
+}
+
+export function loadRememberedUsername(): string {
+	return getBrowserStorage().getItem(STORAGE_KEYS.rememberedUsername)?.trim() ?? '';
+}
+
+export function saveRememberedUsername(username: string): void {
+	const normalizedUsername = username.trim();
+	if (!normalizedUsername) {
+		getBrowserStorage().removeItem(STORAGE_KEYS.rememberedUsername);
+		return;
+	}
+
+	getBrowserStorage().setItem(STORAGE_KEYS.rememberedUsername, normalizedUsername);
+}
+
+export function clearRememberedUsername(): void {
+	getBrowserStorage().removeItem(STORAGE_KEYS.rememberedUsername);
 }
 
 function highlightStorageKey(bookmarkId: string): string {

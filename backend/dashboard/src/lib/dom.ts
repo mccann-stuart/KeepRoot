@@ -87,6 +87,7 @@ export function getDom() {
 		passkeyForm: required<HTMLFormElement>('passkey-form'),
 		pinnedBookmarkList: required<HTMLDivElement>('pinned-bookmark-list'),
 		readingHeaderContainer: required<HTMLElement>('reading-header-container'),
+		rememberUsernameInput: required<HTMLInputElement>('remember-username-input'),
 		searchInput: required<HTMLInputElement>('search-input'),
 		setupBtn: required<HTMLButtonElement>('setup-btn'),
 		setupView: required<HTMLElement>('setup-view'),

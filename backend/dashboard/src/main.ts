@@ -7,7 +7,7 @@ import { escapeHtml, renderMarkdown } from './lib/markdown';
 import { buildMcpPresets, getDefaultSourceKind, getMcpEndpoint, getSourceKindOptions, getSourceSummaryLine } from './lib/mcp';
 import { registerServiceWorker } from './lib/service-worker';
 import { buildDataSnapshot, createAppState, getBookmarkId, type AccountFeatures, type ApiKeyRecord, type BookmarkDetail, type BookmarkSummary, type HighlightRecord, type SmartListSummary, type SourceHealthRecord, type SourceRecord, type ToolUsageRecord, type ViewName } from './lib/state';
-import { clearDashboardDataPreservingSession, clearSessionToken, loadHighlights, loadPreferences, loadSessionToken, saveHighlights, savePreference, saveSessionToken } from './lib/storage';
+import { clearDashboardDataPreservingSession, clearRememberedUsername, clearSessionToken, loadHighlights, loadPreferences, loadRememberedUsername, loadSessionToken, saveHighlights, savePreference, saveRememberedUsername, saveSessionToken } from './lib/storage';
 
 const dom = getDom();
 const state = createAppState(loadPreferences());
@@ -881,7 +881,12 @@ function logout() {
 	showToast('Logged out', 'success');
 }
 
-function loginSuccess(token: string) {
+function loginSuccess(token: string, username: string) {
+	if (dom.rememberUsernameInput.checked) {
+		saveRememberedUsername(username);
+	} else {
+		clearRememberedUsername();
+	}
 	state.secret = token;
 	saveSessionToken(token);
 	showApp();
@@ -982,7 +987,7 @@ function bindEvents() {
 		try {
 			dom.btnLogin.disabled = true;
 			dom.btnLogin.textContent = 'Verifying…';
-			loginSuccess(await loginWithPasskey(api, username));
+			loginSuccess(await loginWithPasskey(api, username), username);
 		} catch (error) {
 			showToast(error instanceof Error ? error.message : 'Login failed', 'error');
 		} finally {
@@ -1001,7 +1006,7 @@ function bindEvents() {
 		try {
 			dom.btnRegister.disabled = true;
 			dom.btnRegister.textContent = 'Registering…';
-			loginSuccess(await registerWithPasskey(api, username));
+			loginSuccess(await registerWithPasskey(api, username), username);
 		} catch (error) {
 			showToast(error instanceof Error ? error.message : 'Registration failed', 'error');
 		} finally {
@@ -1535,6 +1540,9 @@ function hydrateInitialUI() {
 	applyFont(state.preferences.font);
 	applyFontSize(state.preferences.fontSize);
 	dom.notificationToggle.checked = state.preferences.notifications;
+	const rememberedUsername = loadRememberedUsername();
+	dom.usernameInput.value = rememberedUsername;
+	dom.rememberUsernameInput.checked = Boolean(rememberedUsername);
 }
 
 async function init() {

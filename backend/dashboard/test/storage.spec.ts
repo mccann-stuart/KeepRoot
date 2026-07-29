@@ -1,5 +1,5 @@
 import { beforeEach, describe, expect, it } from 'vitest';
-import { clearSessionToken, loadHighlights, loadPreferences, loadSessionToken, saveHighlights, savePreference, saveSessionToken } from '../src/lib/storage';
+import { clearRememberedUsername, clearSessionToken, loadHighlights, loadPreferences, loadRememberedUsername, loadSessionToken, saveHighlights, savePreference, saveRememberedUsername, saveSessionToken } from '../src/lib/storage';
 
 function createStorageMock(): Storage {
 	const store = new Map<string, string>();
@@ -82,5 +82,16 @@ describe('dashboard storage helpers', () => {
 		expect(loadSessionToken()).toBe('legacy-secret');
 		expect(window.localStorage.getItem('keeproot_secret')).toBeNull();
 		expect(window.sessionStorage.getItem('keeproot_secret')).toBe('legacy-secret');
+	});
+
+	it('persists and clears a remembered username without storing a session locally', () => {
+		saveRememberedUsername('  alice  ');
+
+		expect(loadRememberedUsername()).toBe('alice');
+		expect(window.localStorage.getItem('keeproot_remembered_username')).toBe('alice');
+		expect(window.localStorage.getItem('keeproot_secret')).toBeNull();
+
+		clearRememberedUsername();
+		expect(loadRememberedUsername()).toBe('');
 	});
 });
