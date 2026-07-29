@@ -111,14 +111,15 @@ function showApp() {
 }
 
 function updateNavigationState() {
-	dom.navInbox.classList.toggle('nav-link--active', state.currentView === 'inbox' && state.filterType === 'inbox');
-	dom.navAll.classList.toggle('nav-link--active', state.currentView === 'inbox' && state.filterType === 'all');
+	const isLibraryView = state.currentView === 'inbox' || state.currentView === 'content';
+	dom.navInbox.classList.toggle('nav-link--active', isLibraryView && state.filterType === 'inbox');
+	dom.navAll.classList.toggle('nav-link--active', isLibraryView && state.filterType === 'all');
 	dom.setupBtn.classList.toggle('nav-link--active', state.currentView === 'setup');
 	dom.navMcp.classList.toggle('nav-link--active', state.currentView === 'mcp');
 	dom.openSettingsBtn.classList.toggle('nav-link--active', state.currentView === 'settings');
 
 	document.querySelectorAll<HTMLElement>('.sidebar-item').forEach((element) => {
-		const isActive = state.currentView === 'inbox'
+		const isActive = isLibraryView
 			&& element.dataset.filterType === state.filterType
 			&& String(element.dataset.filterId ?? '') === String(state.filterId ?? '');
 		element.classList.toggle('is-active', isActive);
@@ -126,16 +127,20 @@ function updateNavigationState() {
 }
 
 function updateListHeaderActions() {
-	const showActions = state.currentView === 'inbox' && (state.filterType === 'list' || state.filterType === 'smartlist');
+	const isLibraryView = state.currentView === 'inbox' || state.currentView === 'content';
+	const showActions = isLibraryView && (state.filterType === 'list' || state.filterType === 'smartlist');
 	dom.listHeaderActions.classList.toggle('is-hidden', !showActions);
 }
 
 function switchView(viewName: ViewName, filterType = state.filterType, filterId = state.filterId) {
 	state.currentView = viewName;
+	const isLibraryView = viewName === 'inbox' || viewName === 'content';
+	const hasSelectedBookmark = Boolean(state.currentBookmarkId);
 
-	dom.emptyState.classList.toggle('is-hidden', viewName !== 'empty');
-	dom.inboxView.classList.toggle('is-hidden', viewName !== 'inbox');
-	dom.contentView.classList.toggle('is-hidden', viewName !== 'content');
+	dom.libraryWorkspace.classList.toggle('is-hidden', !isLibraryView);
+	dom.emptyState.classList.toggle('is-hidden', !isLibraryView || hasSelectedBookmark);
+	dom.inboxView.classList.toggle('is-hidden', !isLibraryView);
+	dom.contentView.classList.toggle('is-hidden', !isLibraryView || !hasSelectedBookmark);
 	dom.setupView.classList.toggle('is-hidden', viewName !== 'setup');
 	dom.mcpView.classList.toggle('is-hidden', viewName !== 'mcp');
 	dom.settingsView.classList.toggle('is-hidden', viewName !== 'settings');
@@ -260,12 +265,13 @@ function renderSidebar() {
 function createBookmarkCard(bookmark: BookmarkSummary) {
 	const fragment = dom.bookmarkTemplate.content.cloneNode(true) as DocumentFragment;
 	const card = fragment.querySelector<HTMLElement>('.bookmark-card');
+	const thumbnail = fragment.querySelector<HTMLElement>('[data-role="bookmark-thumb"]');
 	const title = fragment.querySelector<HTMLElement>('[data-role="bookmark-title"]');
 	const meta = fragment.querySelector<HTMLElement>('[data-role="bookmark-meta"]');
 	const tags = fragment.querySelector<HTMLDivElement>('[data-role="bookmark-tags"]');
 	const statusButton = fragment.querySelector<HTMLButtonElement>('[data-action="toggle-read"]');
 	const pinButton = fragment.querySelector<HTMLButtonElement>('[data-action="toggle-pin"]');
-	if (!card || !title || !meta || !tags || !statusButton || !pinButton) {
+	if (!card || !thumbnail || !title || !meta || !tags || !statusButton || !pinButton) {
 		throw new Error('Bookmark template is invalid');
 	}
 
@@ -287,10 +293,20 @@ function createBookmarkCard(bookmark: BookmarkSummary) {
 	card.classList.toggle('is-active', state.currentBookmarkId === bookmarkId);
 
 	title.textContent = String(bookmark.metadata?.title ?? 'Untitled');
-	meta.textContent = `${createdAt ? createdAt.toLocaleDateString() : 'Unknown date'} · ${readingTime} min · ${domain}`;
-	statusButton.textContent = bookmark.metadata?.isRead ? 'Read' : 'Unread';
+	card.tabIndex = 0;
+	card.setAttribute('aria-label', `Open ${title.textContent}`);
+	meta.textContent = `${domain} · ${readingTime} min · ${createdAt ? createdAt.toLocaleDateString() : 'Unknown date'}`;
+	const thumbnailLabel = String(bookmark.metadata?.siteName ?? domain).replace(/^www\./, '').trim();
+	thumbnail.textContent = thumbnailLabel.slice(0, 2).toUpperCase() || 'KR';
+	const hue = [...domain].reduce((value, character) => value + character.charCodeAt(0), 0) % 360;
+	thumbnail.style.setProperty('--thumb-hue', String(hue));
+	statusButton.textContent = '';
+	statusButton.setAttribute('aria-label', bookmark.metadata?.isRead ? 'Mark as unread' : 'Mark as read');
+	statusButton.title = bookmark.metadata?.isRead ? 'Read' : 'Unread';
 	statusButton.classList.toggle('is-read', Boolean(bookmark.metadata?.isRead));
-	pinButton.textContent = bookmark.metadata?.pinned ? 'Pinned' : 'Pin';
+	pinButton.textContent = bookmark.metadata?.pinned ? '★' : '☆';
+	pinButton.setAttribute('aria-label', bookmark.metadata?.pinned ? 'Unpin bookmark' : 'Pin bookmark');
+	pinButton.title = bookmark.metadata?.pinned ? 'Pinned' : 'Pin';
 	pinButton.classList.toggle('is-pinned', Boolean(bookmark.metadata?.pinned));
 
 	if (!bookmarkTags.length) {
@@ -319,7 +335,7 @@ function updateBookmarkPanelVisibility() {
 }
 
 function renderBookmarkLists() {
-	if (state.currentView !== 'inbox') {
+	if (state.currentView !== 'inbox' && state.currentView !== 'content') {
 		return;
 	}
 
@@ -967,7 +983,7 @@ async function handleBookmarkCardAction(action: string, bookmarkId: string) {
 }
 
 function bindEvents() {
-	dom.brandTitle.addEventListener('click', () => switchView('empty'));
+	dom.brandTitle.addEventListener('click', () => switchView('inbox', 'all', null));
 	dom.navInbox.addEventListener('click', () => switchView('inbox', 'inbox', null));
 	dom.navAll.addEventListener('click', () => switchView('inbox', 'all', null));
 	dom.setupBtn.addEventListener('click', () => switchView('setup'));
@@ -1016,11 +1032,21 @@ function bindEvents() {
 	});
 
 	dom.searchInput.addEventListener('input', () => {
-		if (state.currentView === 'empty') {
+		if (state.currentView !== 'inbox' && state.currentView !== 'content') {
 			switchView('inbox', 'all', null);
 			return;
 		}
 		renderBookmarkLists();
+	});
+
+	document.addEventListener('keydown', (event) => {
+		if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === 'k') {
+			event.preventDefault();
+			if (state.currentView !== 'inbox' && state.currentView !== 'content') {
+				switchView('inbox', 'all', null);
+			}
+			dom.searchInput.focus();
+		}
 	});
 
 	dom.toggleStatsBtn.addEventListener('click', () => {
@@ -1106,6 +1132,16 @@ function bindEvents() {
 				return;
 			}
 
+			void loadBookmark(card.dataset.bookmarkId);
+		});
+
+		container.addEventListener('keydown', (event) => {
+			const card = (event.target as Element).closest<HTMLElement>('.bookmark-card');
+			if (event.target !== card || !card?.dataset.bookmarkId || (event.key !== 'Enter' && event.key !== ' ')) {
+				return;
+			}
+
+			event.preventDefault();
 			void loadBookmark(card.dataset.bookmarkId);
 		});
 
