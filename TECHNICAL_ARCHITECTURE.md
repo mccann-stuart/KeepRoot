@@ -124,7 +124,7 @@ flowchart LR
 | Product | Exact module or binding | Why it belongs in this design |
 | --- | --- | --- |
 | Workers | Worker `fetch`, `scheduled`, `queue`, `email` handlers | Main runtime for MCP transport, REST compatibility, source sync, and ingest jobs |
-| Agents SDK | `createMcpHandler()` from `agents/mcp` | Recommended stateless MCP transport for the current design |
+| Agents SDK | `createMcpHandler()` from `agents/mcp/server` | Stateless MCP SDK v2 transport with modern discovery and legacy client compatibility |
 | Workers OAuth Provider | `@cloudflare/workers-oauth-provider` | Production-grade remote OAuth flow for MCP clients when enabled |
 | D1 | `KEEPROOT_DB` binding | Canonical relational store for items, state, sources, inbox, and search metadata |
 | R2 | `KEEPROOT_CONTENT` binding | Durable storage for Markdown payloads, HTML snapshots, and optional raw ingest payloads |
@@ -138,7 +138,7 @@ flowchart LR
 | Workers Analytics Engine | optional dataset binding | Recommended only if telemetry volume grows beyond simple D1-backed stats |
 
 ## Transport Recommendation
-The launch recommendation is a stateless MCP server served directly from the Worker using `createMcpHandler()` from `agents/mcp`.
+The launch recommendation is a stateless MCP server served directly from the Worker using `createMcpHandler()` from `agents/mcp/server`.
 
 Why:
 - The canonical state lives in D1 and R2, not in MCP transport state.
@@ -163,7 +163,7 @@ Escalation path:
 ## Open-Source Modules To Use
 | Concern | Open-source modules | Why |
 | --- | --- | --- |
-| MCP protocol and schemas | `agents`, `@modelcontextprotocol/sdk`, `zod` | Remote MCP transport, tool registration, typed validation |
+| MCP protocol and schemas | `agents`, `@modelcontextprotocol/server`, `zod` | Remote MCP transport, tool registration, typed validation |
 | HTML extraction | `linkedom`, `@mozilla/readability`, `turndown` | Build DOMs in Workers, extract readable content, convert HTML to Markdown |
 | PDF extraction | `pdfjs-dist` | Pull text from PDFs saved via URL ingestion |
 | Feed parsing | `fast-xml-parser` | Parse RSS and Atom feeds in Workers |
