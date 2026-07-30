@@ -257,7 +257,7 @@ These are the difference between a passive archive and a useful personal memory 
 ## Cloudflare Product And Module Map
 | Concern | Cloudflare products and bindings | Open-source modules |
 | --- | --- | --- |
-| MCP transport | Workers `fetch()` on `/mcp`, `agents/mcp` `createMcpHandler()`, optional Workers OAuth Provider | `agents`, `@modelcontextprotocol/sdk`, `zod` |
+| MCP transport | Workers `fetch()` on `/mcp`, `agents/mcp/server` `createMcpHandler()`, optional Workers OAuth Provider | `agents`, `@modelcontextprotocol/server`, `zod` |
 | Canonical structured store | D1 (`KEEPROOT_DB`) for metadata and state, R2 (`KEEPROOT_CONTENT`) for stored content payloads | Existing KeepRoot storage modules |
 | Hybrid search | D1 tables plus FTS5, Workers AI (`AI`) for embeddings, Vectorize (`KEEPROOT_VECTOR_INDEX`) for similarity search | `zod` |
 | Save and extraction | Workers runtime, optional Browser Rendering fallback, Queues (`INGEST_QUEUE`) for async work | `linkedom`, `@mozilla/readability`, `turndown`, `pdfjs-dist` |

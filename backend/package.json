@@ -2,6 +2,9 @@
 	"name": "backend",
 	"version": "0.0.0",
 	"private": true,
+	"engines": {
+		"node": ">=20"
+	},
 	"scripts": {
 		"build": "node ./scripts/dashboard.mjs build",
 		"build:dashboard": "node ./scripts/dashboard.mjs build",
@@ -29,11 +32,11 @@
 	},
 	"dependencies": {
 		"@cloudflare/workers-oauth-provider": "^0.3.0",
-		"@modelcontextprotocol/sdk": "^1.27.1",
+		"@modelcontextprotocol/server": "2.0.0",
 		"@mozilla/readability": "^0.6.0",
 		"@simplewebauthn/browser": "^13.3.0",
 		"@simplewebauthn/server": "^13.3.0",
-		"agents": "^0.7.6",
+		"agents": "0.20.1",
 		"dompurify": "^3.3.0",
 		"fast-xml-parser": "^5.5.5",
 		"linkedom": "^0.18.12",

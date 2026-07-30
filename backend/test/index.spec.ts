@@ -10,6 +10,8 @@ import bookmarkHotPathSchemaSql from '../migrations/0004_bookmark_hot_path.sql?r
 const API_KEY = 'test-api-key-12345';
 const TEST_USER_ID = 'test-user-id';
 const TEST_USERNAME = 'testuser';
+const LEGACY_MCP_PROTOCOL_VERSION = '2025-11-25';
+const MODERN_MCP_PROTOCOL_VERSION = '2026-07-28';
 const TINY_PNG_BASE64 = 'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8Xw8AAoMBgQJ8i1QAAAAASUVORK5CYII=';
 const verifyRegistrationResponseMock = vi.fn();
 const verifyAuthenticationResponseMock = vi.fn();
@@ -185,7 +187,10 @@ async function authedRequest(
 	return response;
 }
 
-async function mcpRequest(method: string, params: Record<string, unknown> = {}): Promise<{ data: any; response: Response }> {
+async function rawMcpRequest(
+	message: Record<string, unknown>,
+	headers: Record<string, string> = {},
+): Promise<Response> {
 	const ctx = createExecutionContext();
 	const response = await worker.fetch(new Request('http://example.com/mcp', {
 		method: 'POST',
@@ -193,16 +198,67 @@ async function mcpRequest(method: string, params: Record<string, unknown> = {}):
 			Accept: 'application/json, text/event-stream',
 			Authorization: `Bearer ${API_KEY}`,
 			'Content-Type': 'application/json',
+			...headers,
 		},
-		body: JSON.stringify({
-			id: crypto.randomUUID(),
-			jsonrpc: '2.0',
-			method,
-			params,
-		}),
+		body: JSON.stringify(message),
 	}), env, ctx);
-	const data = (await response.json()) as any;
 	await waitOnExecutionContext(ctx);
+	return response;
+}
+
+async function parseMcpResponse(response: Response): Promise<any> {
+	const body = await response.text();
+	if (response.headers.get('Content-Type')?.includes('application/json')) {
+		return JSON.parse(body);
+	}
+
+	const messages = body
+		.split(/\r?\n/)
+		.filter((line) => line.startsWith('data:'))
+		.map((line) => JSON.parse(line.slice(5).trim()));
+	if (messages.length === 0) {
+		throw new Error(`MCP response did not contain a JSON or SSE message: ${body}`);
+	}
+	return messages.at(-1);
+}
+
+async function mcpRequest(method: string, params: Record<string, unknown> = {}): Promise<{ data: any; response: Response }> {
+	const response = await rawMcpRequest({
+		id: crypto.randomUUID(),
+		jsonrpc: '2.0',
+		method,
+		params,
+	});
+	const data = await parseMcpResponse(response);
+	return { data, response };
+}
+
+async function modernMcpRequest(
+	method: string,
+	params: Record<string, unknown> = {},
+	headers: Record<string, string> = {},
+): Promise<{ data: any; response: Response }> {
+	const response = await rawMcpRequest({
+		id: crypto.randomUUID(),
+		jsonrpc: '2.0',
+		method,
+		params: {
+			...params,
+			_meta: {
+				'io.modelcontextprotocol/clientCapabilities': {},
+				'io.modelcontextprotocol/clientInfo': {
+					name: 'keeproot-worker-test',
+					version: '1.0.0',
+				},
+				'io.modelcontextprotocol/protocolVersion': MODERN_MCP_PROTOCOL_VERSION,
+			},
+		},
+	}, {
+		'MCP-Protocol-Version': MODERN_MCP_PROTOCOL_VERSION,
+		'Mcp-Method': method,
+		...headers,
+	});
+	const data = await parseMcpResponse(response);
 	return { data, response };
 }
 
@@ -260,6 +316,127 @@ describe('KeepRoot Worker', () => {
 
 		expect(response.status).toBe(401);
 		expect(await response.json()).toEqual({ error: 'Unauthorized' });
+	});
+
+	it('requires bearer authentication for MCP requests', async () => {
+		const ctx = createExecutionContext();
+		const response = await worker.fetch(new Request('http://example.com/mcp', {
+			method: 'POST',
+			headers: {
+				Accept: 'application/json, text/event-stream',
+				'Content-Type': 'application/json',
+			},
+			body: JSON.stringify({
+				id: 0,
+				jsonrpc: '2.0',
+				method: 'initialize',
+				params: {
+					capabilities: {},
+					clientInfo: { name: 'unauthorised-test', version: '1.0.0' },
+					protocolVersion: LEGACY_MCP_PROTOCOL_VERSION,
+				},
+			}),
+		}), env, ctx);
+		await waitOnExecutionContext(ctx);
+
+		expect(response.status).toBe(401);
+		expect(response.headers.get('Cache-Control')).toBe('no-store');
+		expect(await response.json()).toEqual({ error: 'Unauthorized' });
+	});
+
+	it('supports the Claude legacy initialise handshake without a protocol session', async () => {
+		const response = await rawMcpRequest({
+			id: 0,
+			jsonrpc: '2.0',
+			method: 'initialize',
+			params: {
+				capabilities: {
+					extensions: {
+						'io.modelcontextprotocol/ui': {
+							mimeTypes: ['text/html;profile=mcp-app'],
+						},
+					},
+				},
+				clientInfo: {
+					name: 'claude-ai',
+					version: '0.1.0',
+				},
+				protocolVersion: LEGACY_MCP_PROTOCOL_VERSION,
+			},
+		});
+		const data = await parseMcpResponse(response);
+
+		expect(response.status).toBe(200);
+		expect(response.headers.get('mcp-session-id')).toBeNull();
+		expect(data.error).toBeUndefined();
+		expect(data.result.protocolVersion).toBe(LEGACY_MCP_PROTOCOL_VERSION);
+		expect(data.result.capabilities.tools).toBeDefined();
+		expect(data.result.serverInfo).toEqual({
+			name: 'keeproot-mcp',
+			version: '1.0.0',
+		});
+
+		const initializedResponse = await rawMcpRequest({
+			jsonrpc: '2.0',
+			method: 'notifications/initialized',
+		});
+		expect(initializedResponse.status).toBe(202);
+
+		const toolsResponse = await mcpRequest('tools/list');
+		expect(toolsResponse.response.status).toBe(200);
+		expect(toolsResponse.response.headers.get('mcp-session-id')).toBeNull();
+		expect(toolsResponse.data.result.tools.length).toBeGreaterThan(0);
+	});
+
+	it('supports modern MCP discovery and stateless tool listing', async () => {
+		const discovery = await modernMcpRequest('server/discover');
+
+		expect(discovery.response.status).toBe(200);
+		expect(discovery.response.headers.get('mcp-session-id')).toBeNull();
+		expect(discovery.data.error).toBeUndefined();
+		expect(discovery.data.result.resultType).toBe('complete');
+		expect(discovery.data.result.supportedVersions).toContain(MODERN_MCP_PROTOCOL_VERSION);
+		expect(discovery.data.result.capabilities.tools).toBeDefined();
+		expect(discovery.data.result._meta['io.modelcontextprotocol/serverInfo']).toEqual({
+			name: 'keeproot-mcp',
+			version: '1.0.0',
+		});
+
+		const toolsResponse = await modernMcpRequest('tools/list');
+		expect(toolsResponse.response.status).toBe(200);
+		expect(toolsResponse.data.error).toBeUndefined();
+		expect(toolsResponse.data.result.resultType).toBe('complete');
+		expect(toolsResponse.data.result.tools.map((tool: { name: string }) => tool.name))
+			.toEqual(expect.arrayContaining(['save_item', 'search_items', 'whoami']));
+
+		const whoAmI = await modernMcpRequest('tools/call', {
+			arguments: {},
+			name: 'whoami',
+		}, {
+			'Mcp-Name': 'whoami',
+		});
+		expect(whoAmI.response.status).toBe(200);
+		expect(whoAmI.data.error).toBeUndefined();
+		expect(whoAmI.data.result.resultType).toBe('complete');
+		expect(extractToolPayload(whoAmI.data.result).account.username).toBe(TEST_USERNAME);
+	});
+
+	it('rejects untrusted browser origins on the MCP endpoint', async () => {
+		const response = await rawMcpRequest({
+			id: 0,
+			jsonrpc: '2.0',
+			method: 'initialize',
+			params: {
+				capabilities: {},
+				clientInfo: { name: 'origin-test', version: '1.0.0' },
+				protocolVersion: LEGACY_MCP_PROTOCOL_VERSION,
+			},
+		}, {
+			Origin: 'https://malicious.example',
+		});
+
+		expect(response.status).toBe(403);
+		expect(response.headers.get('Cache-Control')).toBe('no-store');
 	});
 
 	it('responds with 401 if empty token provided', async () => {

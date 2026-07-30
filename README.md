@@ -16,7 +16,8 @@ You own the data and the infrastructure: no subscriptions, no hosted SaaS depend
 KeepRoot now exposes a remote MCP endpoint at `POST /mcp`.
 
 Current MCP implementation:
-- transport: Cloudflare Worker + `agents/mcp`
+- transport: Cloudflare Worker + `agents/mcp/server`
+- protocol: MCP SDK v2 stateless transport with modern `2026-07-28` discovery and legacy client compatibility
 - auth: `Authorization: Bearer <session-or-api-key>`
 - storage: D1 for structured state, R2 for content payloads
 - scope: item save/search/list/get/update, inbox triage, account profile, source records, and usage stats
@@ -109,7 +110,7 @@ KeepRoot/
 ## Requirements
 
 - Cloudflare account with Workers, D1, and R2 access
-- Node.js and npm
+- Node.js 20 or later and npm
 - Wrangler CLI via backend dependencies
 
 ---

@@ -1,4 +1,4 @@
-import { createMcpHandler } from 'agents/mcp';
+import { createMcpHandler } from 'agents/mcp/server';
 import { ingestEmailMessage } from './ingest/email';
 import { processIngestJob, type IngestJob } from './ingest/jobs';
 import { syncAllActiveSources } from './ingest/source-sync';
@@ -77,8 +77,7 @@ export default {
 			} else {
 				try {
 					await assertOrganizationSchemaReady(env);
-					const server = buildKeepRootMcpServer(env, authUser);
-					const handler = createMcpHandler(server, {
+					const handler = createMcpHandler(() => buildKeepRootMcpServer(env, authUser), {
 						authContext: {
 							props: {
 								tokenType: authUser.tokenType,
@@ -86,9 +85,10 @@ export default {
 								username: authUser.username,
 							},
 						},
-						enableJsonResponse: true,
+						corsOptions: false,
+						legacy: 'stateless',
+						responseMode: 'json',
 						route: '/mcp',
-						sessionIdGenerator: undefined,
 					});
 					response = await handler(request, env, ctx);
 				} catch (error) {
