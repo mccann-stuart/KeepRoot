@@ -257,6 +257,44 @@ describe('dashboard login', () => {
 		expect(authStatus.classList.contains('is-hidden')).toBe(false);
 	});
 
+	it('prevents registration from interrupting an active login ceremony', async () => {
+		let resolveAuthenticationOptions!: (response: Response) => void;
+		const authenticationOptions = new Promise<Response>((resolve) => {
+			resolveAuthenticationOptions = resolve;
+		});
+		const { fetchSpy } = await bootDashboard({
+			handleFetch: (url, method) => {
+				if (url.endsWith('/auth/generate-authentication') && method === 'POST') {
+					return authenticationOptions;
+				}
+				if (url.endsWith('/auth/verify-authentication') && method === 'POST') {
+					return jsonResponse({ token: 'new-session', verified: true });
+				}
+				return undefined;
+			},
+			sessionToken: null,
+		});
+
+		(document.getElementById('username-input') as HTMLInputElement).value = 'alice';
+		(document.getElementById('passkey-form') as HTMLFormElement).requestSubmit();
+		await flush();
+
+		const loginButton = document.getElementById('btn-login') as HTMLButtonElement;
+		const registerButton = document.getElementById('btn-register') as HTMLButtonElement;
+		expect(loginButton.disabled).toBe(true);
+		expect(registerButton.disabled).toBe(true);
+
+		registerButton.click();
+		await flush();
+		expect(fetchSpy.mock.calls.some(([input]) => String(input).endsWith('/auth/generate-registration'))).toBe(false);
+
+		resolveAuthenticationOptions(jsonResponse({ challenge: 'challenge-1' }));
+		await flush();
+		await flush();
+		expect(loginButton.disabled).toBe(false);
+		expect(registerButton.disabled).toBe(false);
+	});
+
 	it('revokes the current session before clearing local login state', async () => {
 		await bootDashboard({
 			handleFetch: (url, method) => {
