@@ -1267,13 +1267,18 @@ describe('KeepRoot Worker', () => {
 		mockTextFetch({
 			'https://feeds.example.com/root.xml': {
 				body: `<?xml version="1.0" encoding="UTF-8"?>
-					<rss version="2.0">
+					<rss version="2.0" xmlns:content="http://purl.org/rss/1.0/modules/content/">
 						<channel>
 							<title>KeepRoot Feed</title>
 							<item>
 								<title>Feed Story</title>
 								<link>https://feeds.example.com/posts/1</link>
-								<description>Fresh story from a synced source.</description>
+								<description>Two-line teaser only.</description>
+								<content:encoded><![CDATA[
+									<h2>Full feed story</h2>
+									<p>First complete paragraph from the source.</p>
+									<p>Second complete paragraph from the source.</p>
+								]]></content:encoded>
 							</item>
 						</channel>
 					</rss>`,
@@ -1371,6 +1376,67 @@ describe('KeepRoot Worker', () => {
 		const afterRemoval = await afterResponse.json() as any;
 		expect(afterRemoval.sources).toHaveLength(1);
 		expect(afterRemoval.sources[0].kind).toBe('email');
+
+		const runsBeforeReAdd = await env.KEEPROOT_DB.prepare(
+			'SELECT COUNT(*) AS count FROM source_runs WHERE source_id = ?',
+		)
+			.bind(rssSource.id)
+			.first<{ count: number }>();
+		const importedBookmark = await env.KEEPROOT_DB.prepare(
+			'SELECT id, source_id FROM bookmarks WHERE url = ? LIMIT 1',
+		)
+			.bind('https://feeds.example.com/posts/1')
+			.first<{ id: string; source_id: string | null }>();
+		if (!importedBookmark) {
+			throw new Error('Expected the RSS source to import its feed story');
+		}
+		expect(importedBookmark.source_id).toBe(rssSource.id);
+
+		const reAddCtx = createExecutionContext();
+		const reAddResponse = await worker.fetch(new Request('http://example.com/sources', {
+			method: 'POST',
+			headers: {
+				Authorization: `Bearer ${API_KEY}`,
+				'Content-Type': 'application/json',
+			},
+			body: JSON.stringify({
+				identifier: 'https://feeds.example.com/root.xml',
+				kind: 'rss',
+				name: 'Root Feed Restored',
+			}),
+		}), env, reAddCtx);
+		await waitOnExecutionContext(reAddCtx);
+
+		expect(reAddResponse.status).toBe(201);
+		const reactivatedSource = await reAddResponse.json() as any;
+		expect(reactivatedSource.id).toBe(rssSource.id);
+		expect(reactivatedSource.name).toBe('Root Feed Restored');
+		expect(reactivatedSource.status).toBe('active');
+
+		const runsAfterReAdd = await env.KEEPROOT_DB.prepare(
+			'SELECT COUNT(*) AS count FROM source_runs WHERE source_id = ?',
+		)
+			.bind(rssSource.id)
+			.first<{ count: number }>();
+		expect(runsAfterReAdd?.count).toBe((runsBeforeReAdd?.count ?? 0) + 1);
+
+		const restoredBookmark = await env.KEEPROOT_DB.prepare(
+			'SELECT source_id FROM bookmarks WHERE id = ? LIMIT 1',
+		)
+			.bind(importedBookmark.id)
+			.first<{ source_id: string | null }>();
+		expect(restoredBookmark?.source_id).toBe(rssSource.id);
+
+		const contentCtx = createExecutionContext();
+		const contentResponse = await worker.fetch(new Request(`http://example.com/bookmarks/${importedBookmark.id}`, {
+			headers: { Authorization: `Bearer ${API_KEY}` },
+		}), env, contentCtx);
+		await waitOnExecutionContext(contentCtx);
+
+		expect(contentResponse.status).toBe(200);
+		const restoredContent = await contentResponse.json() as any;
+		expect(restoredContent.markdownData).toContain('Second complete paragraph from the source.');
+		expect(restoredContent.markdownData).not.toBe('Two-line teaser only.');
 	});
 
 	it('validates REST source creation for feature-gated email and X bridge requirements', async () => {

@@ -327,7 +327,7 @@ export async function addSource(
 		: normalized.emailAlias;
 
 	await env.KEEPROOT_DB.prepare(
-		`INSERT OR REPLACE INTO sources
+		`INSERT INTO sources
 		(id, user_id, kind, name, normalized_identifier, poll_url, email_alias, status, config_json, last_polled_at, last_success_at, last_error, created_at, updated_at)
 		VALUES (
 			?,
@@ -337,14 +337,22 @@ export async function addSource(
 			?,
 			?,
 			?,
-			COALESCE((SELECT status FROM sources WHERE id = ?), 'active'),
+			'active',
 			?,
-			(SELECT last_polled_at FROM sources WHERE id = ?),
-			(SELECT last_success_at FROM sources WHERE id = ?),
-			(SELECT last_error FROM sources WHERE id = ?),
-			COALESCE((SELECT created_at FROM sources WHERE id = ?), ?),
+			NULL,
+			NULL,
+			NULL,
+			?,
 			?
-		)`,
+		)
+		ON CONFLICT(id) DO UPDATE SET
+			name = excluded.name,
+			normalized_identifier = excluded.normalized_identifier,
+			poll_url = excluded.poll_url,
+			email_alias = excluded.email_alias,
+			status = 'active',
+			config_json = excluded.config_json,
+			updated_at = excluded.updated_at`,
 	)
 		.bind(
 			id,
@@ -354,12 +362,7 @@ export async function addSource(
 			normalized.normalizedIdentifier,
 			normalized.pollUrl,
 			emailAlias,
-			id,
 			JSON.stringify(normalized.storedConfig),
-			id,
-			id,
-			id,
-			id,
 			now,
 			now,
 		)
