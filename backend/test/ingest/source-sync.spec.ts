@@ -64,6 +64,51 @@ describe('source-sync', () => {
         expect(items.saveItemContent).toHaveBeenCalledTimes(1);
 	});
 
+	it('prefers full RSS content and adds an append-only source tag', async () => {
+		const source = {
+			id: 'source-full-content',
+			kind: 'rss' as const,
+			name: 'Stratechery',
+			pollUrl: 'https://example.com/feed.xml',
+			userId: 'user-1',
+		};
+		const xmlResponse = `
+			<rss xmlns:content="http://purl.org/rss/1.0/modules/content/">
+				<channel>
+					<item>
+						<title>Full Feed Article</title>
+						<link>https://example.com/full-article</link>
+						<description>Two-line teaser only.</description>
+						<content:encoded><![CDATA[
+							<h2>Full article heading</h2>
+							<p>First complete paragraph from the paid feed.</p>
+							<p>Second complete paragraph from the paid feed.</p>
+						]]></content:encoded>
+					</item>
+				</channel>
+			</rss>
+		`;
+
+		vi.stubGlobal('fetch', vi.fn().mockResolvedValue(new Response(xmlResponse, { status: 200 })));
+
+		await syncSource(env as any, source);
+
+		expect(items.saveItemContent).toHaveBeenCalledWith(
+			env,
+			{ userId: 'user-1', username: 'testuser' },
+			expect.objectContaining({
+				markdownData: expect.stringContaining('Second complete paragraph from the paid feed.'),
+				sourceId: 'source-full-content',
+				tags: ['source: Stratechery'],
+				textContent: expect.stringContaining('First complete paragraph from the paid feed.'),
+			}),
+			'source_sync',
+			{ appendTags: true },
+		);
+		const payload = vi.mocked(items.saveItemContent).mock.calls[0][2];
+		expect(payload.markdownData).not.toBe('Two-line teaser only.');
+	});
+
 	it('handles redirects correctly', async () => {
 		const source = {
 			id: 'source-3',

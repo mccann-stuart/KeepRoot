@@ -1,11 +1,13 @@
 import { XMLParser } from 'fast-xml-parser';
+import { DOMParser } from 'linkedom';
+import TurndownService from 'turndown';
 import { saveItemContent } from '../storage/items';
 import { listActivePollableSources, markSourcePollingResult } from '../storage/sources';
 import { validateSafeUrl, type SourceKind, type StorageEnv } from '../storage/shared';
 
 interface FeedEntry {
+	content?: string;
 	publishedAt?: string;
-	summary?: string;
 	title: string;
 	url: string;
 }
@@ -27,12 +29,68 @@ function ensureArray<T>(value: T | T[] | undefined): T[] {
 
 function firstDefinedString(...values: Array<unknown>): string | undefined {
 	for (const value of values) {
-		if (typeof value === 'string' && value.trim()) {
-			return value.trim();
+		const text = typeof value === 'string'
+			? value
+			: value && typeof value === 'object'
+				? (value as Record<string, unknown>)['#text']
+				: undefined;
+		if (typeof text === 'string' && text.trim()) {
+			return text.trim();
 		}
 	}
 
 	return undefined;
+}
+
+function extractEntryContent(entry: FeedEntry): { markdownData: string; textContent: string } {
+	const rawContent = entry.content?.trim() || entry.title;
+	if (!/<[a-z][\s\S]*>/i.test(rawContent)) {
+		return {
+			markdownData: rawContent,
+			textContent: rawContent,
+		};
+	}
+
+	try {
+		const document = new DOMParser().parseFromString(`<article>${rawContent}</article>`, 'text/html');
+		const article = document.querySelector('article');
+		if (!article) {
+			throw new Error('Feed content did not produce an article root');
+		}
+		for (const element of article.querySelectorAll('script, style')) {
+			element.remove();
+		}
+
+		const textContent = article.textContent?.replace(/\s+/g, ' ').trim() || stripHtml(rawContent) || entry.title;
+		const markdownData = new TurndownService({
+			codeBlockStyle: 'fenced',
+			headingStyle: 'atx',
+		}).turndown(article).trim();
+
+		return {
+			markdownData: markdownData || textContent,
+			textContent,
+		};
+	} catch {
+		const textContent = stripHtml(rawContent) || entry.title;
+		return {
+			markdownData: textContent,
+			textContent,
+		};
+	}
+}
+
+function getSourceLabel(source: { kind: SourceKind; name?: string; pollUrl: string }): string {
+	const name = source.name?.trim();
+	if (name) {
+		return name;
+	}
+
+	try {
+		return new URL(source.pollUrl).hostname.replace(/^www\./, '');
+	} catch {
+		return source.kind.toUpperCase();
+	}
 }
 
 function extractAtomLink(entry: Record<string, unknown>): string | undefined {
@@ -68,8 +126,8 @@ function parseFeedEntries(xml: string): FeedEntry[] {
 			}
 
 			entries.push({
+				content: firstDefinedString(item['content:encoded'], item.description),
 				publishedAt: firstDefinedString(item.pubDate, item.isoDate),
-				summary: firstDefinedString(item.description, item['content:encoded']),
 				title: firstDefinedString(item.title) ?? link,
 				url: link,
 			});
@@ -87,8 +145,8 @@ function parseFeedEntries(xml: string): FeedEntry[] {
 			}
 
 			entries.push({
+				content: firstDefinedString(entry.content, entry.summary),
 				publishedAt: firstDefinedString(entry.updated, entry.published),
-				summary: firstDefinedString(entry.summary, entry.content),
 				title: firstDefinedString(entry.title) ?? link,
 				url: link,
 			});
@@ -216,7 +274,7 @@ export async function syncSource(
 	// Impact: Significantly reduces ingestion time by making independent external API/DB calls concurrently instead of sequentially.
 	const results = await Promise.allSettled(
 		entries.slice(0, 25).map(async (entry) => {
-			const summary = stripHtml(entry.summary ?? '');
+			const content = extractEntryContent(entry);
 			await saveItemContent(
 				env,
 				{
@@ -225,13 +283,16 @@ export async function syncSource(
 				},
 				{
 					notes: source.name ? `Saved from source: ${source.name}` : undefined,
+					markdownData: content.markdownData,
 					sourceId: source.id,
 					status: 'saved',
-					textContent: summary || entry.title,
+					tags: [`source: ${getSourceLabel(source)}`],
+					textContent: content.textContent,
 					title: entry.title,
 					url: entry.url,
 				},
 				'source_sync',
+				{ appendTags: true },
 			);
 		})
 	);
@@ -267,6 +328,7 @@ export async function syncAllActiveSources(env: StorageEnv): Promise<void> {
 			syncSource(env, {
 				id: source.id,
 				kind: source.kind,
+				name: source.name,
 				pollUrl: source.pollUrl,
 				userId: source.userId,
 			}).catch((error) => {

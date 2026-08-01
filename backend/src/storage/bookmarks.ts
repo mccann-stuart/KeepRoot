@@ -556,16 +556,28 @@ function prepareBookmarkTagsQuery(env: StorageEnv, bookmarkId: string): D1Prepar
 		.bind(bookmarkId);
 }
 
-async function syncTags(env: StorageEnv, userId: string, bookmarkId: string, tags: string[], createdAt: string): Promise<void> {
+async function syncTags(
+	env: StorageEnv,
+	userId: string,
+	bookmarkId: string,
+	tags: string[],
+	createdAt: string,
+	append: boolean = false,
+): Promise<void> {
 	const rawTags = [...new Set(tags.map((tag) => tag.trim()).filter(Boolean))];
 	if (rawTags.length === 0) {
-		await env.KEEPROOT_DB.prepare('DELETE FROM bookmark_tags WHERE bookmark_id = ?').bind(bookmarkId).run();
+		if (!append) {
+			await env.KEEPROOT_DB.prepare('DELETE FROM bookmark_tags WHERE bookmark_id = ?').bind(bookmarkId).run();
+		}
 		return;
 	}
 
-	const batchStatements = [
-		env.KEEPROOT_DB.prepare('DELETE FROM bookmark_tags WHERE bookmark_id = ?').bind(bookmarkId),
-	];
+	const batchStatements: D1PreparedStatement[] = [];
+	if (!append) {
+		batchStatements.push(
+			env.KEEPROOT_DB.prepare('DELETE FROM bookmark_tags WHERE bookmark_id = ?').bind(bookmarkId),
+		);
+	}
 
 	const normalizedTagsMap = new Map<string, string>();
 	for (const rawTag of rawTags) {
@@ -580,34 +592,15 @@ async function syncTags(env: StorageEnv, userId: string, bookmarkId: string, tag
 		normalizedTags.push({ normalized, name });
 	}
 
-	const placeholders = normalizedTags.map(() => '?').join(', ');
-	const existingTags = await env.KEEPROOT_DB.prepare(
-		`SELECT id, normalized_name FROM tags WHERE user_id = ? AND normalized_name IN (${placeholders})`,
-	)
-		.bind(userId, ...normalizedTags.map((tag) => tag.normalized))
-		.all<{ id: string; normalized_name: string }>();
-
-	const existingTagsMap = new Map<string, string>();
-	for (const row of existingTags.results) {
-		existingTagsMap.set(row.normalized_name, row.id);
-	}
-
 	for (const tag of normalizedTags) {
-		let tagId = existingTagsMap.get(tag.normalized);
-
-		if (!tagId) {
-			tagId = crypto.randomUUID();
-			batchStatements.push(
-				env.KEEPROOT_DB.prepare(
-					'INSERT INTO tags (id, user_id, name, normalized_name, created_at) VALUES (?, ?, ?, ?, ?)',
-				).bind(tagId, userId, tag.name, tag.normalized, createdAt),
-			);
-		}
-
 		batchStatements.push(
 			env.KEEPROOT_DB.prepare(
-				'INSERT OR IGNORE INTO bookmark_tags (bookmark_id, tag_id) VALUES (?, ?)',
-			).bind(bookmarkId, tagId),
+				'INSERT OR IGNORE INTO tags (id, user_id, name, normalized_name, created_at) VALUES (?, ?, ?, ?, ?)',
+			).bind(crypto.randomUUID(), userId, tag.name, tag.normalized, createdAt),
+			env.KEEPROOT_DB.prepare(
+				`INSERT OR IGNORE INTO bookmark_tags (bookmark_id, tag_id)
+				 SELECT ?, id FROM tags WHERE user_id = ? AND normalized_name = ?`,
+			).bind(bookmarkId, userId, tag.normalized),
 		);
 	}
 
@@ -671,6 +664,7 @@ export async function saveBookmark(
 	env: StorageEnv,
 	user: Pick<{ userId: string; username: string }, 'userId' | 'username'>,
 	payload: BookmarkPayload,
+	options: { appendTags?: boolean } = {},
 ): Promise<{ id: string; metadata: Record<string, unknown> }> {
 	if (!payload.url) {
 		throw new Error('Missing url');
@@ -902,7 +896,7 @@ export async function saveBookmark(
 		.run();
 
 	if (payload.tags) {
-		await syncTags(env, user.userId, bookmarkId, payload.tags, now);
+		await syncTags(env, user.userId, bookmarkId, payload.tags, now, options.appendTags);
 	}
 
 	if (hydratedImages.length) {

@@ -140,8 +140,9 @@ export async function saveItemContent(
 	user: Pick<AuthenticatedUser, 'userId' | 'username'>,
 	payload: BookmarkPayload,
 	reason: string = 'manual_save',
+	options: { appendTags?: boolean } = {},
 ): Promise<Record<string, unknown>> {
-	const { id, metadata } = await saveBookmark(env, user, payload);
+	const { id, metadata } = await saveBookmark(env, user, payload, options);
 	const inboxEntry = await upsertInboxEntry(env, {
 		bookmarkId: id,
 		reason,

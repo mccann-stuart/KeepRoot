@@ -451,19 +451,20 @@ export async function getSourceByEmailAlias(env: StorageEnv, emailAlias: string)
 	};
 }
 
-export async function listActivePollableSources(env: StorageEnv): Promise<Array<{ config: Record<string, unknown>; id: string; kind: SourceKind; lastPolledAt: string | null; pollUrl: string; userId: string }>> {
+export async function listActivePollableSources(env: StorageEnv): Promise<Array<{ config: Record<string, unknown>; id: string; kind: SourceKind; lastPolledAt: string | null; name: string; pollUrl: string; userId: string }>> {
 	const result = await env.KEEPROOT_DB.prepare(
-		`SELECT id, user_id, kind, poll_url, config_json, last_polled_at
+		`SELECT id, user_id, kind, name, poll_url, config_json, last_polled_at
 		FROM sources
 		WHERE status = 'active' AND poll_url IS NOT NULL`,
 	)
-		.all<{ config_json: string; id: string; kind: SourceKind; last_polled_at: string | null; poll_url: string; user_id: string }>();
+		.all<{ config_json: string; id: string; kind: SourceKind; last_polled_at: string | null; name: string; poll_url: string; user_id: string }>();
 
 	return result.results.map((row) => ({
 		config: parseConfig(row.config_json),
 		id: row.id,
 		kind: row.kind,
 		lastPolledAt: row.last_polled_at,
+		name: row.name,
 		pollUrl: row.poll_url,
 		userId: row.user_id,
 	}));
