@@ -1035,6 +1035,9 @@ function bindEvents() {
 
 	dom.passkeyForm.addEventListener('submit', async (event) => {
 		event.preventDefault();
+		if (dom.btnLogin.disabled || dom.btnRegister.disabled) {
+			return;
+		}
 		const username = dom.usernameInput.value.trim();
 		if (!username) {
 			showAuthError('Enter a username first');
@@ -1044,17 +1047,22 @@ function bindEvents() {
 		try {
 			showAuthError();
 			dom.btnLogin.disabled = true;
+			dom.btnRegister.disabled = true;
 			dom.btnLogin.textContent = 'Verifying…';
 			loginSuccess(await loginWithPasskey(api, username), username);
 		} catch (error) {
 			showAuthError(error instanceof Error ? error.message : 'Login failed');
 		} finally {
 			dom.btnLogin.disabled = false;
+			dom.btnRegister.disabled = false;
 			dom.btnLogin.textContent = 'Login';
 		}
 	});
 
 	dom.btnRegister.addEventListener('click', async () => {
+		if (dom.btnLogin.disabled || dom.btnRegister.disabled) {
+			return;
+		}
 		const username = dom.usernameInput.value.trim();
 		if (!username) {
 			showAuthError('Enter a username first');
@@ -1063,12 +1071,14 @@ function bindEvents() {
 
 		try {
 			showAuthError();
+			dom.btnLogin.disabled = true;
 			dom.btnRegister.disabled = true;
 			dom.btnRegister.textContent = 'Registering…';
 			loginSuccess(await registerWithPasskey(api, username), username);
 		} catch (error) {
 			showAuthError(error instanceof Error ? error.message : 'Registration failed');
 		} finally {
+			dom.btnLogin.disabled = false;
 			dom.btnRegister.disabled = false;
 			dom.btnRegister.textContent = 'Register';
 		}
