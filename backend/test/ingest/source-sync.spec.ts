@@ -93,19 +93,19 @@ describe('source-sync', () => {
 
 		await syncSource(env as any, source);
 
-		expect(items.saveItemContent).toHaveBeenCalledWith(
-			env,
-			{ userId: 'user-1', username: 'testuser' },
+		expect(items.saveItemContent).toHaveBeenCalledTimes(1);
+		const [, user, payload, reason, options] = vi.mocked(items.saveItemContent).mock.calls[0];
+		expect(user).toEqual({ userId: 'user-1', username: 'testuser' });
+		expect(payload).toEqual(
 			expect.objectContaining({
 				markdownData: expect.stringContaining('Second complete paragraph from the paid feed.'),
 				sourceId: 'source-full-content',
 				tags: ['source: Stratechery'],
 				textContent: expect.stringContaining('First complete paragraph from the paid feed.'),
 			}),
-			'source_sync',
-			{ appendTags: true },
 		);
-		const payload = vi.mocked(items.saveItemContent).mock.calls[0][2];
+		expect(reason).toBe('source_sync');
+		expect(options).toEqual({ appendTags: true });
 		expect(payload.markdownData).not.toBe('Two-line teaser only.');
 	});
 
