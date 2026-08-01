@@ -53,7 +53,7 @@
 	 */
 	"vars": {
 		// Registration is deliberately opt-in. Set to "1" only while adding an account.
-		"ALLOW_REGISTRATION": "0"
+		"ALLOW_REGISTRATION": "1"
 	},
 	"ratelimits": [
 		{
