@@ -118,6 +118,24 @@ export async function getValidAuthChallenge(
 		.first<ChallengeRow>();
 }
 
+export async function getLatestAuthChallengeUserId(
+	env: StorageEnv,
+	username: string,
+	type: StoredChallenge['type'],
+): Promise<string | null> {
+	const challenge = await env.KEEPROOT_DB.prepare(
+		`SELECT user_id
+		FROM auth_challenges
+		WHERE username = ? AND type = ?
+		ORDER BY created_at DESC
+		LIMIT 1`,
+	)
+		.bind(username, type)
+		.first<Pick<ChallengeRow, 'user_id'>>();
+
+	return challenge?.user_id ?? null;
+}
+
 export async function deleteAuthChallenge(env: StorageEnv, username: string, type: StoredChallenge['type']): Promise<void> {
 	await env.KEEPROOT_DB.prepare(
 		'DELETE FROM auth_challenges WHERE username = ? AND type = ?',

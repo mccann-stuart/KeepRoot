@@ -233,6 +233,30 @@ describe('dashboard login', () => {
 		expect(window.localStorage.getItem('keeproot_secret')).toBeNull();
 	});
 
+	it('shows authentication failures inside the open login dialog', async () => {
+		await bootDashboard({
+			handleFetch: (url, method) => {
+				if (url.endsWith('/auth/generate-authentication') && method === 'POST') {
+					return jsonResponse({ challenge: 'challenge-1' });
+				}
+				if (url.endsWith('/auth/verify-authentication') && method === 'POST') {
+					return jsonResponse({ error: 'Authentication failed' }, 400);
+				}
+				return undefined;
+			},
+			sessionToken: null,
+		});
+
+		(document.getElementById('username-input') as HTMLInputElement).value = 'alice';
+		(document.getElementById('passkey-form') as HTMLFormElement).requestSubmit();
+		await flush();
+		await flush();
+
+		const authStatus = document.getElementById('auth-status') as HTMLParagraphElement;
+		expect(authStatus.textContent).toBe('Authentication failed');
+		expect(authStatus.classList.contains('is-hidden')).toBe(false);
+	});
+
 	it('revokes the current session before clearing local login state', async () => {
 		await bootDashboard({
 			handleFetch: (url, method) => {

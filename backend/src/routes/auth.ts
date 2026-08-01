@@ -12,6 +12,7 @@ import {
 	deleteAuthChallenge,
 	deleteSessionByToken,
 	deleteUserSessions,
+	getLatestAuthChallengeUserId,
 	getUserByUsername,
 	getUserCredentials,
 	getValidAuthChallenge,
@@ -38,6 +39,12 @@ function isRegistrationAllowed(context: RouteContext): boolean {
 
 async function loadWebAuthn() {
 	return import('@simplewebauthn/server');
+}
+
+function createDecoyCredentialId(challengeUserId: string): string {
+	// Unknown usernames reuse an opaque server-generated value so repeated
+	// requests do not reveal whether the returned credential ID is genuine.
+	return challengeUserId.replaceAll('-', '');
 }
 
 function getExpectedOrigins(context: RouteContext): string[] {
@@ -163,8 +170,23 @@ async function handleGenerateAuthentication(context: RouteContext): Promise<Resp
 			return errorResponse(context.request, 'Username required', 400);
 		}
 
+		const [user, credentials, previousChallengeUserId] = await Promise.all([
+			getUserByUsername(context.env, normalizedUsername),
+			getUserCredentials(context.env, normalizedUsername),
+			getLatestAuthChallengeUserId(context.env, normalizedUsername, 'authentication'),
+		]);
+		const challengeUserId = user?.id ?? previousChallengeUserId ?? crypto.randomUUID();
+		const allowCredentials = credentials.length > 0
+			? credentials.map((credential) => ({
+				id: credential.credentialId,
+			}))
+			: [{
+				id: createDecoyCredentialId(challengeUserId),
+			}];
+
 		const { generateAuthenticationOptions } = await loadWebAuthn();
 		const options = await generateAuthenticationOptions({
+			allowCredentials,
 			rpID: context.rpID,
 			userVerification: 'preferred',
 		});
@@ -172,7 +194,7 @@ async function handleGenerateAuthentication(context: RouteContext): Promise<Resp
 		await storeAuthChallenge(context.env, {
 			challenge: options.challenge,
 			type: 'authentication',
-			userId: crypto.randomUUID(),
+			userId: challengeUserId,
 			username: normalizedUsername,
 		});
 

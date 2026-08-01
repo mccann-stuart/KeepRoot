@@ -6,6 +6,7 @@
 
 - Hardened server-side fetch paths by blocking unsafe bookmark URLs, source feed URLs, stored source poll URLs, redirects, and auto-hydrated Markdown/HTML image URLs that point at local, private, multicast, or reserved network targets.
 - Changed the dashboard service worker to cache only static app-shell assets and keep authenticated API reads network-only, with API/auth/MCP responses marked `Cache-Control: no-store`.
+- Fixed username-based passkey login when several KeepRoot accounts have credentials for the same Worker origin, and made authentication failures visible inside the login dialog.
 - Added regression coverage for unsafe bookmark URLs, unsafe source URLs, unsafe image hydration, and IPv4-mapped IPv6 SSRF cases.
 
 ### Key PRs

@@ -683,20 +683,36 @@ describe('KeepRoot Worker', () => {
 			generateAuthenticationOptionsMock.mockResolvedValue({
 				challenge: 'auth-challenge',
 			});
-			const request = new Request('http://example.com/auth/generate-authentication', {
+			const createRequest = () => new Request('http://example.com/auth/generate-authentication', {
 				method: 'POST',
-				headers: { 'Content-Type': 'application/json' },
+				headers: {
+					'CF-Connecting-IP': '203.0.113.50',
+					'Content-Type': 'application/json',
+				},
 				body: JSON.stringify({ username: 'nonexistent-user' }),
 			});
 			const ctx = createExecutionContext();
-			const response = await worker.fetch(request, env, ctx);
+			const response = await worker.fetch(createRequest(), env, ctx);
 			await waitOnExecutionContext(ctx);
 
 			expect(response.status).toBe(200);
 			expect(await response.json()).toEqual({ challenge: 'auth-challenge' });
+			expect(generateAuthenticationOptionsMock).toHaveBeenCalledTimes(1);
+			const firstAllowCredentials = generateAuthenticationOptionsMock.mock.calls[0][0].allowCredentials;
+			expect(firstAllowCredentials).toEqual([
+				{
+					id: expect.stringMatching(/^[0-9a-f]{32}$/),
+				},
+			]);
+
+			const retryContext = createExecutionContext();
+			const retryResponse = await worker.fetch(createRequest(), env, retryContext);
+			await waitOnExecutionContext(retryContext);
+			expect(retryResponse.status).toBe(200);
+			expect(generateAuthenticationOptionsMock.mock.calls[1][0].allowCredentials).toEqual(firstAllowCredentials);
 		});
 
-		it('generates authentication options successfully', async () => {
+		it('limits authentication to credentials registered for the supplied username', async () => {
 			await createUserWithCredential(env, 'existing-user', 'user-id', {
 				backedUp: false,
 				counter: 0,
@@ -723,7 +739,11 @@ describe('KeepRoot Worker', () => {
 			expect(await response.json()).toEqual({ challenge: 'auth-challenge' });
 			expect(generateAuthenticationOptionsMock).toHaveBeenCalledTimes(1);
 			const mockCalls = generateAuthenticationOptionsMock.mock.calls;
-			expect(mockCalls[0][0].allowCredentials).toBeUndefined();
+			expect(mockCalls[0][0].allowCredentials).toEqual([
+				{
+					id: 'cred-id',
+				},
+			]);
 		});
 
 		it('responds with 400 if invalid payload provided for verify authentication', async () => {

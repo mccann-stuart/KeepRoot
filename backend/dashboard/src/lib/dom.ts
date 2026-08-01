@@ -13,6 +13,7 @@ export function getDom() {
 		apiKeyTemplate: required<HTMLTemplateElement>('api-key-template'),
 		apiKeysList: required<HTMLDivElement>('api-keys-list'),
 		app: required<HTMLDivElement>('app'),
+		authStatus: required<HTMLParagraphElement>('auth-status'),
 		bookmarkList: required<HTMLDivElement>('bookmark-list'),
 		bookmarkTemplate: required<HTMLTemplateElement>('bookmark-item-template'),
 		brandTitle: required<HTMLButtonElement>('brand-title'),
