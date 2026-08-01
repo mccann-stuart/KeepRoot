@@ -65,6 +65,11 @@ function showToast(message: string, tone: 'error' | 'success' = 'success') {
 	}, 5000);
 }
 
+function showAuthError(message = '') {
+	dom.authStatus.textContent = message;
+	dom.authStatus.classList.toggle('is-hidden', !message);
+}
+
 function getResolvedTheme(theme: 'auto' | 'dark' | 'light'): 'dark' | 'light' {
 	if (theme !== 'auto') {
 		return theme;
@@ -919,6 +924,7 @@ async function logout() {
 }
 
 function loginSuccess(token: string, username: string) {
+	showAuthError();
 	if (dom.rememberUsernameInput.checked) {
 		saveRememberedUsername(username);
 	} else {
@@ -1031,16 +1037,17 @@ function bindEvents() {
 		event.preventDefault();
 		const username = dom.usernameInput.value.trim();
 		if (!username) {
-			showToast('Enter a username first', 'error');
+			showAuthError('Enter a username first');
 			return;
 		}
 
 		try {
+			showAuthError();
 			dom.btnLogin.disabled = true;
 			dom.btnLogin.textContent = 'Verifying…';
 			loginSuccess(await loginWithPasskey(api, username), username);
 		} catch (error) {
-			showToast(error instanceof Error ? error.message : 'Login failed', 'error');
+			showAuthError(error instanceof Error ? error.message : 'Login failed');
 		} finally {
 			dom.btnLogin.disabled = false;
 			dom.btnLogin.textContent = 'Login';
@@ -1050,16 +1057,17 @@ function bindEvents() {
 	dom.btnRegister.addEventListener('click', async () => {
 		const username = dom.usernameInput.value.trim();
 		if (!username) {
-			showToast('Enter a username first', 'error');
+			showAuthError('Enter a username first');
 			return;
 		}
 
 		try {
+			showAuthError();
 			dom.btnRegister.disabled = true;
 			dom.btnRegister.textContent = 'Registering…';
 			loginSuccess(await registerWithPasskey(api, username), username);
 		} catch (error) {
-			showToast(error instanceof Error ? error.message : 'Registration failed', 'error');
+			showAuthError(error instanceof Error ? error.message : 'Registration failed');
 		} finally {
 			dom.btnRegister.disabled = false;
 			dom.btnRegister.textContent = 'Register';

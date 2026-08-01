@@ -40,6 +40,12 @@ async function loadWebAuthn() {
 	return import('@simplewebauthn/server');
 }
 
+function createDecoyCredentialId(): string {
+	// Keep unknown-user responses generic and credential-shaped without allowing
+	// Safari to choose a passkey registered to a different KeepRoot username.
+	return crypto.randomUUID().replaceAll('-', '');
+}
+
 function getExpectedOrigins(context: RouteContext): string[] {
 	const requestOrigin = context.request.headers.get('Origin');
 	const expectedOrigins = [context.origin];
@@ -163,8 +169,23 @@ async function handleGenerateAuthentication(context: RouteContext): Promise<Resp
 			return errorResponse(context.request, 'Username required', 400);
 		}
 
+		const [user, credentials] = await Promise.all([
+			getUserByUsername(context.env, normalizedUsername),
+			getUserCredentials(context.env, normalizedUsername),
+		]);
+		const allowCredentials = credentials.length > 0
+			? credentials.map((credential) => ({
+				id: credential.credentialId,
+				transports: credential.transports as AuthenticatorTransportFuture[] | undefined,
+			}))
+			: [{
+				id: createDecoyCredentialId(),
+				transports: ['internal', 'hybrid'] as AuthenticatorTransportFuture[],
+			}];
+
 		const { generateAuthenticationOptions } = await loadWebAuthn();
 		const options = await generateAuthenticationOptions({
+			allowCredentials,
 			rpID: context.rpID,
 			userVerification: 'preferred',
 		});
@@ -172,7 +193,7 @@ async function handleGenerateAuthentication(context: RouteContext): Promise<Resp
 		await storeAuthChallenge(context.env, {
 			challenge: options.challenge,
 			type: 'authentication',
-			userId: crypto.randomUUID(),
+			userId: user?.id ?? crypto.randomUUID(),
 			username: normalizedUsername,
 		});
 

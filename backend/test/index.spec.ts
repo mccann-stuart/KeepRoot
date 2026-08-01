@@ -694,9 +694,16 @@ describe('KeepRoot Worker', () => {
 
 			expect(response.status).toBe(200);
 			expect(await response.json()).toEqual({ challenge: 'auth-challenge' });
+			expect(generateAuthenticationOptionsMock).toHaveBeenCalledTimes(1);
+			expect(generateAuthenticationOptionsMock.mock.calls[0][0].allowCredentials).toEqual([
+				{
+					id: expect.stringMatching(/^[0-9a-f]{32}$/),
+					transports: ['internal', 'hybrid'],
+				},
+			]);
 		});
 
-		it('generates authentication options successfully', async () => {
+		it('limits authentication to credentials registered for the supplied username', async () => {
 			await createUserWithCredential(env, 'existing-user', 'user-id', {
 				backedUp: false,
 				counter: 0,
@@ -723,7 +730,12 @@ describe('KeepRoot Worker', () => {
 			expect(await response.json()).toEqual({ challenge: 'auth-challenge' });
 			expect(generateAuthenticationOptionsMock).toHaveBeenCalledTimes(1);
 			const mockCalls = generateAuthenticationOptionsMock.mock.calls;
-			expect(mockCalls[0][0].allowCredentials).toBeUndefined();
+			expect(mockCalls[0][0].allowCredentials).toEqual([
+				{
+					id: 'cred-id',
+					transports: ['internal'],
+				},
+			]);
 		});
 
 		it('responds with 400 if invalid payload provided for verify authentication', async () => {
