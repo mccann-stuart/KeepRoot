@@ -1,17 +1,28 @@
-import { errorResponse, isProtectedApiPath, type RouteContext } from '../http';
+import { errorResponse, isProtectedApiPath, type ProtectedRouteContext, type RouteContext } from '../http';
+import { canAccessStoredMedia } from '../storage';
 
-async function handleStoredObjectRequest(context: RouteContext): Promise<Response> {
+export async function handleProtectedStoredObjectRoute(context: ProtectedRouteContext): Promise<Response | undefined> {
+	if ((context.request.method !== 'GET' && context.request.method !== 'HEAD')
+		|| (!context.pathname.startsWith('/images/') && !context.pathname.startsWith('/thumbs/'))) {
+		return undefined;
+	}
+
 	const objectKey = context.pathname.slice(1);
+	if (!(await canAccessStoredMedia(context.env, context.authUser.userId, objectKey))) {
+		return errorResponse(context.request, 'Not found', 404);
+	}
+
 	const objectBody = await context.env.KEEPROOT_CONTENT.get(objectKey);
 	if (!objectBody) {
-		return errorResponse('Not found', 404);
+		return errorResponse(context.request, 'Not found', 404);
 	}
 
 	const headers = new Headers();
 	objectBody.writeHttpMetadata(headers);
 	headers.set('etag', objectBody.httpEtag);
-	headers.set('Cache-Control', 'public, max-age=31536000, immutable');
-	return new Response(objectBody.body, { headers });
+	headers.set('Cache-Control', 'no-store');
+	headers.set('Vary', 'Authorization');
+	return new Response(context.request.method === 'HEAD' ? null : objectBody.body, { headers });
 }
 
 async function handleStaticAssetRequest(context: RouteContext): Promise<Response> {
@@ -29,10 +40,6 @@ function isPublicAssetPath(pathname: string): boolean {
 export async function handlePublicRoute(context: RouteContext): Promise<Response | undefined> {
 	if (context.request.method === 'OPTIONS') {
 		return new Response(null);
-	}
-
-	if (context.request.method === 'GET' && (context.pathname.startsWith('/images/') || context.pathname.startsWith('/thumbs/'))) {
-		return handleStoredObjectRequest(context);
 	}
 
 	if ((context.request.method === 'GET' || context.request.method === 'HEAD') && isPublicAssetPath(context.pathname)) {

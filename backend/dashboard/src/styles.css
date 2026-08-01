@@ -1620,6 +1620,11 @@ a {
 	align-items: flex-start;
 }
 
+.stack-item--expired {
+	border-color: color-mix(in srgb, var(--danger) 32%, var(--border-muted));
+	background: var(--danger-soft);
+}
+
 .result-card {
 	padding: 1rem;
 	border: 1px solid color-mix(in srgb, var(--accent) 32%, transparent);

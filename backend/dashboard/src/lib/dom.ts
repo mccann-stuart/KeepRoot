@@ -52,6 +52,7 @@ export function getDom() {
 		loginModal: required<HTMLDialogElement>('login-modal'),
 		loginView: required<HTMLElement>('login-view'),
 		logoutBtn: required<HTMLButtonElement>('logout-btn'),
+		logoutAllBtn: required<HTMLButtonElement>('logout-all-btn'),
 		markdownContainer: required<HTMLElement>('markdown-container'),
 		mcpAccountSummary: required<HTMLDivElement>('mcp-account-summary'),
 		mcpConnectionValue: required<HTMLInputElement>('mcp-endpoint-value'),

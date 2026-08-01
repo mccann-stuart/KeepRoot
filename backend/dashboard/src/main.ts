@@ -4,6 +4,7 @@ import { ApiError, KeepRootApi } from './lib/api';
 import { getDom } from './lib/dom';
 import { collectTags, filterBookmarks } from './lib/filters';
 import { escapeHtml, renderMarkdown } from './lib/markdown';
+import { loadProtectedMedia } from './lib/media';
 import { buildMcpPresets, getDefaultSourceKind, getMcpEndpoint, getSourceKindOptions, getSourceSummaryLine } from './lib/mcp';
 import { registerServiceWorker } from './lib/service-worker';
 import { buildDataSnapshot, createAppState, getBookmarkId, type AccountFeatures, type ApiKeyRecord, type BookmarkDetail, type BookmarkSummary, type HighlightRecord, type SmartListSummary, type SourceHealthRecord, type SourceRecord, type ToolUsageRecord, type ViewName } from './lib/state';
@@ -384,8 +385,11 @@ function renderApiKeys(keys: ApiKeyRecord[]) {
 		}
 
 		root.dataset.apiKeyId = key.id;
+		root.classList.toggle('stack-item--expired', key.expired);
 		name.textContent = key.name;
-		date.textContent = `Created ${new Date(key.createdAt).toLocaleDateString()}`;
+		date.textContent = key.expired
+			? `Expired ${new Date(key.expiresAt).toLocaleDateString()}`
+			: `Expires ${new Date(key.expiresAt).toLocaleDateString()}`;
 		deleteButton.dataset.apiKeyId = key.id;
 		dom.apiKeysList.appendChild(root);
 	}
@@ -709,6 +713,7 @@ async function loadBookmark(bookmarkId: string) {
 		renderReaderStats(bookmark);
 		dom.markdownContainer.innerHTML = '';
 		const fragment = renderMarkdown(bookmark.markdownData, highlights) as DocumentFragment;
+		await loadProtectedMedia(fragment, api);
 		dom.markdownContainer.appendChild(fragment);
 		renderBookmarkLists();
 
@@ -728,6 +733,10 @@ async function fetchApiKeys() {
 		const response = await api.listApiKeys();
 		state.apiKeys = response.keys ?? [];
 		renderApiKeys(state.apiKeys);
+		const expiredCount = state.apiKeys.filter((key) => key.expired).length;
+		if (expiredCount > 0) {
+			showToast(`${expiredCount} API key${expiredCount === 1 ? ' has' : 's have'} expired`, 'error');
+		}
 	} catch (error) {
 		dom.apiKeysList.innerHTML = '<p class="muted-copy">Failed to load API keys.</p>';
 		showToast(error instanceof Error ? error.message : 'Failed to load API keys', 'error');
@@ -781,7 +790,7 @@ async function fetchMcpData() {
 		renderSources(state.sources);
 	} catch (error) {
 		if (error instanceof ApiError && error.status === 401) {
-			logout();
+			clearLoginState('Session expired');
 			return;
 		}
 
@@ -836,7 +845,7 @@ async function refreshData(isSilent = false) {
 		}
 	} catch (error) {
 		if (error instanceof ApiError && error.status === 401) {
-			logout();
+			clearLoginState('Session expired');
 			return;
 		}
 
@@ -884,7 +893,7 @@ function openDialog(dialog: HTMLDialogElement) {
 	}
 }
 
-function logout() {
+function clearLoginState(message: string) {
 	clearSessionToken();
 	state.account = null;
 	state.sources = [];
@@ -894,7 +903,19 @@ function logout() {
 	stopPolling();
 	showLogin();
 	switchView('empty');
-	showToast('Logged out', 'success');
+	showToast(message, 'success');
+}
+
+async function logout() {
+	let message = 'Logged out';
+	try {
+		await api.logout();
+	} catch (error) {
+		if (!(error instanceof ApiError && error.status === 401)) {
+			message = 'Logged out locally; the server session could not be revoked';
+		}
+	}
+	clearLoginState(message);
 }
 
 function loginSuccess(token: string, username: string) {
@@ -990,7 +1011,21 @@ function bindEvents() {
 	dom.navMcp.addEventListener('click', () => switchView('mcp'));
 	dom.openSettingsBtn.addEventListener('click', () => switchView('settings'));
 	dom.mcpOpenApiKeysBtn.addEventListener('click', () => switchView('setup'));
-	dom.logoutBtn.addEventListener('click', logout);
+	dom.logoutBtn.addEventListener('click', () => void logout());
+	dom.logoutAllBtn.addEventListener('click', () => {
+		if (!window.confirm('Log out every device signed in to this account?')) {
+			return;
+		}
+
+		void runWithButtonBusy(dom.logoutAllBtn, 'Revoking…', async () => {
+			try {
+				await api.logoutAll();
+				clearLoginState('Logged out on all devices');
+			} catch (error) {
+				showToast(error instanceof Error ? error.message : 'Failed to revoke sessions', 'error');
+			}
+		});
+	});
 
 	dom.passkeyForm.addEventListener('submit', async (event) => {
 		event.preventDefault();

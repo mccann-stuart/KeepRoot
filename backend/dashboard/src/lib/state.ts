@@ -40,6 +40,8 @@ export interface SmartListSummary extends ListSummary {
 
 export interface ApiKeyRecord {
 	createdAt: string;
+	expired: boolean;
+	expiresAt: string;
 	id: string;
 	name: string;
 }

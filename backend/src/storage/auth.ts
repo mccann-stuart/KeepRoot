@@ -37,6 +37,7 @@ interface ChallengeRow {
 }
 
 interface ApiKeyRow {
+	expires_at: string;
 	id: string;
 	last_used_at: string | null;
 	user_id: string;
@@ -203,6 +204,26 @@ export async function createSession(
 	return rawToken;
 }
 
+export async function deleteSessionByToken(env: StorageEnv, token: string): Promise<boolean> {
+	const result = await env.KEEPROOT_DB.prepare(
+		'DELETE FROM sessions WHERE token_hash = ?',
+	)
+		.bind(await hashToken(token))
+		.run();
+
+	return Boolean(result.meta.changes);
+}
+
+export async function deleteUserSessions(env: StorageEnv, userId: string): Promise<number> {
+	const result = await env.KEEPROOT_DB.prepare(
+		'DELETE FROM sessions WHERE user_id = ?',
+	)
+		.bind(userId)
+		.run();
+
+	return result.meta.changes ?? 0;
+}
+
 export async function authenticateBearerToken(env: StorageEnv, token: string): Promise<AuthenticatedUser | null> {
 	const tokenHash = await hashToken(token);
 	const nowMs = Date.now();
@@ -225,12 +246,12 @@ export async function authenticateBearerToken(env: StorageEnv, token: string): P
 	}
 
 	const apiKey = await env.KEEPROOT_DB.prepare(
-		`SELECT id, user_id, username, last_used_at
+		`SELECT id, user_id, username, last_used_at, expires_at
 		FROM api_keys
-		WHERE secret_hash = ?
+		WHERE secret_hash = ? AND expires_at > ?
 		LIMIT 1`,
 	)
-		.bind(tokenHash)
+		.bind(tokenHash, now)
 		.first<ApiKeyRow>();
 
 	if (!apiKey) {

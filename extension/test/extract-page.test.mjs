@@ -4,7 +4,7 @@ import { extractPageContent } from '../src/content/extract-page.js';
 // Mock Readability and TurndownService
 vi.mock('@mozilla/readability', () => {
   return {
-    Readability: vi.fn().mockImplementation((doc) => {
+    Readability: vi.fn().mockImplementation(function (doc) {
       return {
         parse: () => {
           if (doc.type === 'fail') return null;
@@ -23,7 +23,7 @@ vi.mock('@mozilla/readability', () => {
 
 vi.mock('turndown', () => {
   return {
-    default: vi.fn().mockImplementation(() => {
+    default: vi.fn().mockImplementation(function () {
       return {
         turndown: (html) => {
           if (html === '<p>Mock Content</p>') return 'Mock Markdown Content';

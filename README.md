@@ -60,6 +60,11 @@ Security notes:
 - Server-side fetches validate initial URLs and redirects before fetching remote content.
 - Stored bookmark images are rewritten to R2-backed `/images/*` or `/thumbs/*` paths after safe hydration.
 - Browser extension API keys are stored in extension-local storage and can be revoked from the dashboard.
+- Registration is disabled unless `ALLOW_REGISTRATION` is exactly `"1"`; the checked-in Worker configuration keeps it off.
+- Authentication requests are rate-limited per connecting IP, while bookmark saves and immediate source/MCP sync work are rate-limited per account.
+- Stored `/images/*` and `/thumbs/*` objects require bearer authentication and ownership of a bookmark that references the object.
+- Dashboard logout revokes the current server-side session, and settings can revoke every session for the account.
+- API keys expire one year after creation and expired keys are highlighted in the dashboard.
 
 ---
 
@@ -110,7 +115,7 @@ KeepRoot/
 ## Requirements
 
 - Cloudflare account with Workers, D1, and R2 access
-- Node.js 20 or later and npm
+- Node.js 22.19 or later and npm
 - Wrangler CLI via backend dependencies
 
 ---
@@ -131,6 +136,12 @@ Edit `backend/wrangler.jsonc` to customize resource names if needed.
 |---|---|
 | D1 database | `keeproot` |
 | R2 bucket | `keeproot-content` |
+
+### Security environment variables
+
+`backend/wrangler.jsonc` sets `ALLOW_REGISTRATION` to `"0"`. Registration routes only work when the value is exactly `"1"`. Keep it disabled during normal operation; temporarily enable it, deploy, register the intended account, then restore `"0"` and deploy again.
+
+The same configuration declares Workers Rate Limit bindings for authentication and outbound-cost writes. These counters are per Cloudflare location and intentionally permissive under bursts, so public multi-tenant deployments should also add Cloudflare WAF rate-limiting rules for `/auth/*`, `/bookmarks`, `/sources`, and `/mcp` at the zone level.
 
 ### Optional MCP-related environment variables
 
@@ -192,10 +203,11 @@ npm run build
 
 ## First-Time Account Setup
 
-1. Open your Worker root URL in a WebAuthn-capable browser.
-2. Register a KeepRoot account.
-3. In dashboard settings, create an API key.
-4. Use that API key in the extension or your MCP client.
+1. Temporarily set `ALLOW_REGISTRATION` to `"1"` in `backend/wrangler.jsonc` and deploy.
+2. Open your Worker root URL in a WebAuthn-capable browser and register the intended account.
+3. Restore `ALLOW_REGISTRATION` to `"0"` and deploy again.
+4. In dashboard settings, create an API key.
+5. Use that API key in the extension or your MCP client.
 
 ---
 

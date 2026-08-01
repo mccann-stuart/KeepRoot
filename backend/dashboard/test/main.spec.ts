@@ -232,6 +232,27 @@ describe('dashboard login', () => {
 		expect(window.sessionStorage.getItem('keeproot_secret')).toBe('new-session');
 		expect(window.localStorage.getItem('keeproot_secret')).toBeNull();
 	});
+
+	it('revokes the current session before clearing local login state', async () => {
+		await bootDashboard({
+			handleFetch: (url, method) => {
+				if (url.endsWith('/auth/logout') && method === 'POST') {
+					return jsonResponse({ message: 'Logged out' });
+				}
+				return undefined;
+			},
+		});
+
+		(document.getElementById('logout-btn') as HTMLButtonElement).click();
+		await flush();
+		await flush();
+
+		expect(fetch).toHaveBeenCalledWith('/auth/logout', expect.objectContaining({
+			headers: expect.any(Headers),
+			method: 'POST',
+		}));
+		expect(window.sessionStorage.getItem('keeproot_secret')).toBeNull();
+	});
 });
 
 describe('dashboard MCP setup view', () => {
@@ -383,6 +404,47 @@ describe('dashboard MCP setup view', () => {
 		expect(window.localStorage.getItem('keeproot_highlights_bookmark-1')).toBeNull();
 		expect((document.getElementById('api-keys-list') as HTMLElement).textContent).toContain('No active API keys.');
 		expect((document.getElementById('current-view-title') as HTMLElement).textContent).toBe('Settings');
+	});
+
+	it('warns about expired API keys in the API key view', async () => {
+		await bootDashboard({
+			apiKeys: [{
+				createdAt: '2025-03-16T10:00:00.000Z',
+				expired: true,
+				expiresAt: '2026-03-16T10:00:00.000Z',
+				id: 'expired-key',
+				name: 'Old extension',
+			}],
+		});
+
+		(document.getElementById('setup-btn') as HTMLButtonElement).click();
+		await flush();
+		await flush();
+
+		expect((document.getElementById('api-keys-list') as HTMLElement).textContent).toContain('Expired');
+		expect((document.getElementById('toast') as HTMLElement).textContent).toContain('1 API key has expired');
+	});
+
+	it('revokes all sessions from settings and clears the current login', async () => {
+		await bootDashboard({
+			handleFetch: (url, method) => {
+				if (url.endsWith('/auth/logout-all') && method === 'POST') {
+					return jsonResponse({ revoked: 2 });
+				}
+				return undefined;
+			},
+		});
+
+		(document.getElementById('open-settings-btn') as HTMLButtonElement).click();
+		(document.getElementById('logout-all-btn') as HTMLButtonElement).click();
+		await flush();
+		await flush();
+
+		expect(fetch).toHaveBeenCalledWith('/auth/logout-all', expect.objectContaining({
+			headers: expect.any(Headers),
+			method: 'POST',
+		}));
+		expect(window.sessionStorage.getItem('keeproot_secret')).toBeNull();
 	});
 
 	it('does nothing when clear all data confirmation is cancelled', async () => {

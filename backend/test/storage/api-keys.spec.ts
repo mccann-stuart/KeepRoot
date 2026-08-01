@@ -26,6 +26,7 @@ describe('api-keys storage', () => {
             expect(result.metadata.name).toBe(name);
             expect(typeof result.metadata.id).toBe('string');
             expect(typeof result.metadata.createdAt).toBe('string');
+            expect(Date.parse(result.metadata.expiresAt)).toBeGreaterThan(Date.parse(result.metadata.createdAt));
 
             expect(prepareSpy).toHaveBeenCalledWith(
                 expect.stringContaining('INSERT INTO api_keys')
@@ -37,7 +38,8 @@ describe('api-keys storage', () => {
                 user.userId,
                 user.username,
                 name,
-                result.metadata.createdAt
+                result.metadata.createdAt,
+                result.metadata.expiresAt
             );
         });
     });
@@ -46,7 +48,12 @@ describe('api-keys storage', () => {
         it('should return mapped api keys', async () => {
             const all = vi.fn().mockResolvedValue({
                 results: [
-                    { id: 'k1', name: 'Key 1', created_at: '2023-01-01T00:00:00.000Z' }
+                    {
+                        id: 'k1',
+                        name: 'Key 1',
+                        created_at: '2023-01-01T00:00:00.000Z',
+                        expires_at: '2024-01-01T00:00:00.000Z',
+                    }
                 ]
             });
             const bind = vi.fn().mockReturnValue({ all });
@@ -55,10 +62,16 @@ describe('api-keys storage', () => {
             const result = await listApiKeys(env as any, 'u1');
 
             expect(result).toEqual([
-                { id: 'k1', name: 'Key 1', createdAt: '2023-01-01T00:00:00.000Z' }
+                {
+                    id: 'k1',
+                    name: 'Key 1',
+                    createdAt: '2023-01-01T00:00:00.000Z',
+                    expired: true,
+                    expiresAt: '2024-01-01T00:00:00.000Z',
+                }
             ]);
             expect(prepareSpy).toHaveBeenCalledWith(
-                expect.stringContaining('SELECT id, name, created_at')
+                expect.stringContaining('SELECT id, name, created_at, expires_at')
             );
             expect(bind).toHaveBeenCalledWith('u1');
         });

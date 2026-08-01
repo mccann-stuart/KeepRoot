@@ -1,4 +1,4 @@
-import { getTableColumnNames, type StorageEnv } from './shared';
+import { getTableColumnNames, runSchemaStatement, type StorageEnv } from './shared';
 
 const REQUIRED_BOOKMARK_COLUMNS = [
 	'list_id',
