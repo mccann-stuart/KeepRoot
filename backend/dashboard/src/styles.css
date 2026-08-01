@@ -1561,7 +1561,6 @@ a {
 }
 
 .mcp-code-card__header,
-.mcp-source-item,
 .mcp-meta {
 	display: flex;
 	flex-wrap: wrap;
@@ -1584,14 +1583,27 @@ a {
 }
 
 .mcp-source-item {
-	width: 100%;
+	display: grid;
+	min-width: 0;
+	gap: 0.65rem;
+}
+
+.mcp-source-summary {
+	min-width: 0;
+}
+
+.mcp-source-summary .muted-copy,
+.mcp-source-meta .muted-copy {
+	overflow-wrap: anywhere;
 }
 
 .mcp-source-meta {
-	display: grid;
-	justify-items: end;
-	gap: 0.25rem;
-	text-align: right;
+	display: flex;
+	flex-wrap: wrap;
+	align-items: center;
+	justify-content: flex-start;
+	gap: 0.35rem 0.55rem;
+	text-align: left;
 }
 
 .stack-list {
@@ -1623,6 +1635,16 @@ a {
 .stack-item--expired {
 	border-color: color-mix(in srgb, var(--danger) 32%, var(--border-muted));
 	background: var(--danger-soft);
+}
+
+.stack-item.mcp-source-row {
+	display: grid;
+	grid-template-columns: minmax(0, 1fr) auto;
+	align-items: start;
+}
+
+.mcp-source-row > .btn {
+	justify-self: end;
 }
 
 .result-card {
@@ -2029,14 +2051,17 @@ a {
 		border-radius: 22px;
 	}
 
-	.mcp-source-meta {
-		justify-items: start;
-		text-align: left;
-	}
-
 	.stack-item {
 		align-items: stretch;
 		flex-direction: column;
+	}
+
+	.stack-item.mcp-source-row {
+		grid-template-columns: 1fr;
+	}
+
+	.mcp-source-row > .btn {
+		justify-self: start;
 	}
 }
 

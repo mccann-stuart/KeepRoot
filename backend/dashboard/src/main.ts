@@ -584,11 +584,11 @@ function renderSources(sources: SourceRecord[]) {
 
 	for (const source of sources) {
 		const item = document.createElement('article');
-		item.className = 'stack-item stack-item--split';
+		item.className = 'stack-item stack-item--split mcp-source-row';
 		item.dataset.sourceId = source.id;
 		item.innerHTML = `
 			<div class="mcp-source-item">
-				<div>
+				<div class="mcp-source-summary">
 					<h3>${escapeHtml(source.name)}</h3>
 					<p class="muted-copy">${escapeHtml(source.kind)} · ${escapeHtml(getSourceSummaryLine(source))}</p>
 				</div>

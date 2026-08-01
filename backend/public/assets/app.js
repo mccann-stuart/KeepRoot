@@ -85,9 +85,9 @@ Please report this to https://github.com/markedjs/marked.`,t){let n="<p>An error
 				${e.lastError?`<p class="muted-copy">${I(e.lastError)}</p>`:""}
 			</div>
 			<span class="pill">${I(e.status)}</span>
-		`,i.mcpSourceHealthList.appendChild(r)}}function $r(t){if(i.mcpSourcesList.innerHTML="",!t.length){i.mcpSourcesList.innerHTML='<p class="muted-copy">No sources configured yet.</p>';return}for(let e of t){let r=document.createElement("article");r.className="stack-item stack-item--split",r.dataset.sourceId=e.id,r.innerHTML=`
+		`,i.mcpSourceHealthList.appendChild(r)}}function $r(t){if(i.mcpSourcesList.innerHTML="",!t.length){i.mcpSourcesList.innerHTML='<p class="muted-copy">No sources configured yet.</p>';return}for(let e of t){let r=document.createElement("article");r.className="stack-item stack-item--split mcp-source-row",r.dataset.sourceId=e.id,r.innerHTML=`
 			<div class="mcp-source-item">
-				<div>
+				<div class="mcp-source-summary">
 					<h3>${I(e.name)}</h3>
 					<p class="muted-copy">${I(e.kind)} \xB7 ${I(ha(e))}</p>
 				</div>

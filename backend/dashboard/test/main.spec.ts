@@ -311,7 +311,7 @@ describe('dashboard MCP setup view', () => {
 				kind: 'rss',
 				lastSuccessAt: '2026-03-16T10:00:00.000Z',
 				name: 'Root Feed',
-				normalizedIdentifier: 'https://feeds.example.com/root.xml',
+				normalizedIdentifier: 'https://stratechery.passport.online/feed/rss/CKUAnRo8JmG4KgQiTEmUn',
 				status: 'active',
 			}],
 		});
@@ -333,6 +333,9 @@ describe('dashboard MCP setup view', () => {
 		expect((document.getElementById('mcp-source-bridge-field') as HTMLElement).classList.contains('is-hidden')).toBe(false);
 		expect((document.getElementById('mcp-sources-list') as HTMLElement).textContent).toContain('Root Feed');
 		expect((document.getElementById('mcp-sources-list') as HTMLElement).textContent).toContain('Remove');
+		const sourceRow = document.querySelector<HTMLElement>('[data-source-id="source-1"]');
+		expect(sourceRow?.classList.contains('mcp-source-row')).toBe(true);
+		expect(sourceRow?.querySelector('.mcp-source-summary')?.textContent).toContain('CKUAnRo8JmG4KgQiTEmUn');
 	});
 
 	it('clears all data from settings after confirmation and preserves the session token', async () => {
