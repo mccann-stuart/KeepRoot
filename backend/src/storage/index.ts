@@ -5,6 +5,7 @@ export * from './bookmarks';
 export * from './inbox';
 export * from './items';
 export * from './lists';
+export * from './media';
 export * from './organization';
 export * from './search';
 export * from './shared';

@@ -6,6 +6,7 @@ import initialSchemaSql from '../migrations/0001_initial.sql?raw';
 import organizationSchemaSql from '../migrations/0002_organization.sql?raw';
 import mcpServerSchemaSql from '../migrations/0003_mcp_server.sql?raw';
 import bookmarkHotPathSchemaSql from '../migrations/0004_bookmark_hot_path.sql?raw';
+import securityHardeningSchemaSql from '../migrations/0005_security_hardening.sql?raw';
 
 const API_KEY = 'test-api-key-12345';
 const TEST_USER_ID = 'test-user-id';
@@ -68,6 +69,13 @@ function envWithAllowedExtensionIds(...ids: string[]): typeof env & { ALLOWED_EX
 	};
 }
 
+function envWithRegistrationEnabled(baseEnv: typeof env = env): Omit<typeof env, 'ALLOW_REGISTRATION'> & { ALLOW_REGISTRATION: string } {
+	return {
+		...baseEnv,
+		ALLOW_REGISTRATION: '1',
+	};
+}
+
 async function execStatements(sql: string, allowExisting = false): Promise<void> {
 	const statements = sql
 		.split(/;\s*\n/g)
@@ -100,6 +108,7 @@ async function resetDatabase(): Promise<void> {
 	await execStatements(organizationSchemaSql, true);
 	await execStatements(mcpServerSchemaSql, true);
 	await execStatements(bookmarkHotPathSchemaSql, true);
+	await execStatements(securityHardeningSchemaSql, true);
 	await execStatements(`
 		DELETE FROM bookmark_tags;
 		DELETE FROM bookmark_images;
@@ -144,8 +153,8 @@ async function seedApiKey(): Promise<void> {
 		.run();
 
 	await env.KEEPROOT_DB.prepare(
-		`INSERT INTO api_keys (id, secret_hash, user_id, username, name, created_at)
-		VALUES (?, ?, ?, ?, ?, ?)`,
+		`INSERT INTO api_keys (id, secret_hash, user_id, username, name, created_at, expires_at)
+		VALUES (?, ?, ?, ?, ?, ?, ?)`,
 	)
 		.bind(
 			'test-api-key-id',
@@ -154,6 +163,7 @@ async function seedApiKey(): Promise<void> {
 			TEST_USERNAME,
 			'Test Key',
 			createdAt,
+			new Date(Date.now() + 365 * 24 * 60 * 60 * 1000).toISOString(),
 		)
 		.run();
 }
@@ -299,6 +309,8 @@ async function mcpCallTool(name: string, args: Record<string, unknown> = {}): Pr
 describe('KeepRoot Worker', () => {
 	beforeEach(async () => {
 		vi.restoreAllMocks();
+		generateAuthenticationOptionsMock.mockReset();
+		generateRegistrationOptionsMock.mockReset();
 		verifyRegistrationResponseMock.mockReset();
 		verifyAuthenticationResponseMock.mockReset();
 		delete (env as { INGEST_QUEUE?: unknown }).INGEST_QUEUE;
@@ -464,6 +476,20 @@ describe('KeepRoot Worker', () => {
 	});
 
 	describe('handleAuthRoute', () => {
+		it('keeps registration disabled unless explicitly enabled', async () => {
+			const request = new Request('http://example.com/auth/generate-registration', {
+				method: 'POST',
+				headers: { 'Content-Type': 'application/json' },
+				body: JSON.stringify({ username: 'new-user' }),
+			});
+			const ctx = createExecutionContext();
+			const response = await worker.fetch(request, env, ctx);
+			await waitOnExecutionContext(ctx);
+
+			expect(response.status).toBe(403);
+			expect(await response.json()).toEqual({ error: 'Registration is disabled' });
+		});
+
 		it('responds with 400 if username is missing during registration generation', async () => {
 			const request = new Request('http://example.com/auth/generate-registration', {
 				method: 'POST',
@@ -471,14 +497,14 @@ describe('KeepRoot Worker', () => {
 				body: JSON.stringify({}),
 			});
 			const ctx = createExecutionContext();
-			const response = await worker.fetch(request, env, ctx);
+			const response = await worker.fetch(request, envWithRegistrationEnabled(), ctx);
 			await waitOnExecutionContext(ctx);
 
 			expect(response.status).toBe(400);
 			expect(await response.json()).toEqual({ error: 'Username required' });
 		});
 
-		it('responds with 400 if user already exists during registration generation', async () => {
+		it('does not reveal that a user already exists during registration generation', async () => {
 			await createUserWithCredential(env, 'existing-user', 'user-id', {
 				backedUp: false,
 				counter: 0,
@@ -487,6 +513,9 @@ describe('KeepRoot Worker', () => {
 				publicKey: new Uint8Array([1]),
 				transports: ['internal'],
 			});
+			generateRegistrationOptionsMock.mockResolvedValue({
+				challenge: 'registration-challenge',
+			});
 
 			const request = new Request('http://example.com/auth/generate-registration', {
 				method: 'POST',
@@ -494,11 +523,11 @@ describe('KeepRoot Worker', () => {
 				body: JSON.stringify({ username: 'existing-user' }),
 			});
 			const ctx = createExecutionContext();
-			const response = await worker.fetch(request, env, ctx);
+			const response = await worker.fetch(request, envWithRegistrationEnabled(), ctx);
 			await waitOnExecutionContext(ctx);
 
-			expect(response.status).toBe(400);
-			expect(await response.json()).toEqual({ error: 'User already exists' });
+			expect(response.status).toBe(200);
+			expect(await response.json()).toEqual({ challenge: 'registration-challenge' });
 		});
 
 		it('generates registration options successfully', async () => {
@@ -512,7 +541,7 @@ describe('KeepRoot Worker', () => {
 				body: JSON.stringify({ username: 'new-user' }),
 			});
 			const ctx = createExecutionContext();
-			const response = await worker.fetch(request, env, ctx);
+			const response = await worker.fetch(request, envWithRegistrationEnabled(), ctx);
 			await waitOnExecutionContext(ctx);
 
 			expect(response.status).toBe(200);
@@ -529,7 +558,7 @@ describe('KeepRoot Worker', () => {
 				body: JSON.stringify({ username: 'new-user' }), // missing response
 			});
 			const ctx = createExecutionContext();
-			const response = await worker.fetch(request, env, ctx);
+			const response = await worker.fetch(request, envWithRegistrationEnabled(), ctx);
 			await waitOnExecutionContext(ctx);
 
 			expect(response.status).toBe(400);
@@ -543,11 +572,11 @@ describe('KeepRoot Worker', () => {
 				body: JSON.stringify({ username: 'new-user', response: {} }),
 			});
 			const ctx = createExecutionContext();
-			const response = await worker.fetch(request, env, ctx);
+			const response = await worker.fetch(request, envWithRegistrationEnabled(), ctx);
 			await waitOnExecutionContext(ctx);
 
 			expect(response.status).toBe(400);
-			expect(await response.json()).toEqual({ error: 'Session expired' });
+			expect(await response.json()).toEqual({ error: 'Registration failed' });
 		});
 
 		it('responds with 400 if user already exists during verify registration', async () => {
@@ -587,11 +616,11 @@ describe('KeepRoot Worker', () => {
 				body: JSON.stringify({ username: 'existing-user', response: { rawId: 'registration-credential' } }),
 			});
 			const ctx = createExecutionContext();
-			const response = await worker.fetch(request, env, ctx);
+			const response = await worker.fetch(request, envWithRegistrationEnabled(), ctx);
 			await waitOnExecutionContext(ctx);
 
 			expect(response.status).toBe(400);
-			expect(await response.json()).toEqual({ error: 'User already exists' });
+			expect(await response.json()).toEqual({ error: 'Registration failed' });
 		});
 
 		it('verifies registration successfully and creates a token', async () => {
@@ -627,7 +656,7 @@ describe('KeepRoot Worker', () => {
 				}),
 			});
 			const ctx = createExecutionContext();
-			const response = await worker.fetch(request, env, ctx);
+			const response = await worker.fetch(request, envWithRegistrationEnabled(), ctx);
 			await waitOnExecutionContext(ctx);
 
 			expect(response.status).toBe(200);
@@ -650,7 +679,10 @@ describe('KeepRoot Worker', () => {
 			expect(await response.json()).toEqual({ error: 'Username required' });
 		});
 
-		it('responds with 404 if user not found during generate authentication', async () => {
+		it('does not reveal that a user is missing during authentication generation', async () => {
+			generateAuthenticationOptionsMock.mockResolvedValue({
+				challenge: 'auth-challenge',
+			});
 			const request = new Request('http://example.com/auth/generate-authentication', {
 				method: 'POST',
 				headers: { 'Content-Type': 'application/json' },
@@ -660,8 +692,8 @@ describe('KeepRoot Worker', () => {
 			const response = await worker.fetch(request, env, ctx);
 			await waitOnExecutionContext(ctx);
 
-			expect(response.status).toBe(404);
-			expect(await response.json()).toEqual({ error: 'User not found' });
+			expect(response.status).toBe(200);
+			expect(await response.json()).toEqual({ challenge: 'auth-challenge' });
 		});
 
 		it('generates authentication options successfully', async () => {
@@ -691,12 +723,7 @@ describe('KeepRoot Worker', () => {
 			expect(await response.json()).toEqual({ challenge: 'auth-challenge' });
 			expect(generateAuthenticationOptionsMock).toHaveBeenCalledTimes(1);
 			const mockCalls = generateAuthenticationOptionsMock.mock.calls;
-			expect(mockCalls[0][0].allowCredentials).toEqual([
-				{
-					id: 'cred-id',
-					transports: ['internal'],
-				},
-			]);
+			expect(mockCalls[0][0].allowCredentials).toBeUndefined();
 		});
 
 		it('responds with 400 if invalid payload provided for verify authentication', async () => {
@@ -724,10 +751,10 @@ describe('KeepRoot Worker', () => {
 			await waitOnExecutionContext(ctx);
 
 			expect(response.status).toBe(400);
-			expect(await response.json()).toEqual({ error: 'Session expired' });
+			expect(await response.json()).toEqual({ error: 'Authentication failed' });
 		});
 
-		it('responds with 404 if user not found for verify authentication', async () => {
+		it('uses the generic authentication failure when a user is missing during verification', async () => {
 			await storeAuthChallenge(env, {
 				challenge: 'auth-challenge',
 				type: 'authentication',
@@ -744,8 +771,8 @@ describe('KeepRoot Worker', () => {
 			const response = await worker.fetch(request, env, ctx);
 			await waitOnExecutionContext(ctx);
 
-			expect(response.status).toBe(404);
-			expect(await response.json()).toEqual({ error: 'User not found' });
+			expect(response.status).toBe(400);
+			expect(await response.json()).toEqual({ error: 'Authentication failed' });
 		});
 
 		it('responds with 400 if authenticator not registered for verify authentication', async () => {
@@ -775,7 +802,7 @@ describe('KeepRoot Worker', () => {
 			await waitOnExecutionContext(ctx);
 
 			expect(response.status).toBe(400);
-			expect(await response.json()).toEqual({ error: 'Authenticator not registered' });
+			expect(await response.json()).toEqual({ error: 'Authentication failed' });
 		});
 
 		it('responds with 400 if verification fails during verify authentication', async () => {
@@ -809,7 +836,7 @@ describe('KeepRoot Worker', () => {
 			await waitOnExecutionContext(ctx);
 
 			expect(response.status).toBe(400);
-			expect(await response.json()).toEqual({ error: 'Verification failed' });
+			expect(await response.json()).toEqual({ error: 'Authentication failed' });
 		});
 
 		it('verifies authentication successfully and creates a token', async () => {
@@ -851,6 +878,58 @@ describe('KeepRoot Worker', () => {
 			expect(data).toHaveProperty('verified', true);
 		});
 	});
+
+	it('revokes the current server-side session on logout', async () => {
+		const sessionToken = await createSession(env, {
+			userId: TEST_USER_ID,
+			username: TEST_USERNAME,
+		});
+		const logoutContext = createExecutionContext();
+		const logoutResponse = await worker.fetch(new Request('http://example.com/auth/logout', {
+			method: 'POST',
+			headers: { Authorization: `Bearer ${sessionToken}` },
+		}), env, logoutContext);
+		await waitOnExecutionContext(logoutContext);
+
+		expect(logoutResponse.status).toBe(200);
+		expect(await logoutResponse.json()).toEqual({ message: 'Logged out' });
+
+		const retryContext = createExecutionContext();
+		const retryResponse = await worker.fetch(new Request('http://example.com/bookmarks', {
+			headers: { Authorization: `Bearer ${sessionToken}` },
+		}), env, retryContext);
+		await waitOnExecutionContext(retryContext);
+		expect(retryResponse.status).toBe(401);
+	});
+
+	it('can revoke every session for the signed-in user', async () => {
+		const firstSession = await createSession(env, {
+			userId: TEST_USER_ID,
+			username: TEST_USERNAME,
+		});
+		const secondSession = await createSession(env, {
+			userId: TEST_USER_ID,
+			username: TEST_USERNAME,
+		});
+		const logoutContext = createExecutionContext();
+		const logoutResponse = await worker.fetch(new Request('http://example.com/auth/logout-all', {
+			method: 'POST',
+			headers: { Authorization: `Bearer ${firstSession}` },
+		}), env, logoutContext);
+		await waitOnExecutionContext(logoutContext);
+
+		expect(logoutResponse.status).toBe(200);
+		expect((await logoutResponse.json() as { revoked: number }).revoked).toBe(2);
+
+		for (const token of [firstSession, secondSession]) {
+			const retryContext = createExecutionContext();
+			const retryResponse = await worker.fetch(new Request('http://example.com/bookmarks', {
+				headers: { Authorization: `Bearer ${token}` },
+			}), env, retryContext);
+			await waitOnExecutionContext(retryContext);
+			expect(retryResponse.status).toBe(401);
+		}
+	});
 	it('accepts browser extension origins during passkey registration verification', async () => {
 		verifyRegistrationResponseMock.mockResolvedValue({
 			registrationInfo: {
@@ -886,7 +965,7 @@ describe('KeepRoot Worker', () => {
 			}),
 		});
 		const ctx = createExecutionContext();
-		const response = await worker.fetch(request, envWithAllowedExtensionIds('keeproot'), ctx);
+		const response = await worker.fetch(request, envWithRegistrationEnabled(envWithAllowedExtensionIds('keeproot')), ctx);
 		await waitOnExecutionContext(ctx);
 
 		expect(response.status).toBe(200);
@@ -923,11 +1002,11 @@ describe('KeepRoot Worker', () => {
 			}),
 		});
 		const ctx = createExecutionContext();
-		const response = await worker.fetch(request, envWithAllowedExtensionIds('keeproot'), ctx);
+		const response = await worker.fetch(request, envWithRegistrationEnabled(envWithAllowedExtensionIds('keeproot')), ctx);
 		await waitOnExecutionContext(ctx);
 
 		expect(response.status).toBe(400);
-		expect(await response.json()).toEqual({ error: 'Verification failed' });
+		expect(await response.json()).toEqual({ error: 'Registration failed' });
 	});
 
 	it('accepts browser extension origins during passkey authentication verification', async () => {
@@ -1037,6 +1116,115 @@ describe('KeepRoot Worker', () => {
 
 		expect(response.status).toBe(200);
 		expect(response.headers.get('Cache-Control')).toBe('no-store');
+	});
+
+	it('applies browser isolation and privacy headers to every response', async () => {
+		const ctx = createExecutionContext();
+		const response = await worker.fetch(new Request('http://example.com/'), env, ctx);
+		await waitOnExecutionContext(ctx);
+
+		expect(response.headers.get('Referrer-Policy')).toBe('no-referrer');
+		expect(response.headers.get('Permissions-Policy')).toBe('camera=(), geolocation=(), microphone=(), payment=(), usb=()');
+		expect(response.headers.get('Cross-Origin-Opener-Policy')).toBe('same-origin');
+		expect(response.headers.get('Cross-Origin-Resource-Policy')).toBe('same-origin');
+		expect(response.headers.get('Content-Security-Policy')).toContain("img-src 'self' blob:");
+	});
+
+	it('rate limits authentication traffic by connecting IP', async () => {
+		const limit = vi.fn().mockResolvedValue({ success: false });
+		const limitedEnv = {
+			...env,
+			AUTH_RATE_LIMITER: { limit },
+		} as any;
+		const ctx = createExecutionContext();
+		const response = await worker.fetch(new Request('http://example.com/auth/generate-authentication', {
+			method: 'POST',
+			headers: {
+				'CF-Connecting-IP': '203.0.113.8',
+				'Content-Type': 'application/json',
+			},
+			body: JSON.stringify({ username: 'testuser' }),
+		}), limitedEnv, ctx);
+		await waitOnExecutionContext(ctx);
+
+		expect(response.status).toBe(429);
+		expect(response.headers.get('Retry-After')).toBe('60');
+		expect(limit).toHaveBeenCalledWith({ key: '203.0.113.8' });
+	});
+
+	it('rate limits authenticated bookmark saves by user', async () => {
+		const limit = vi.fn().mockResolvedValue({ success: false });
+		const limitedEnv = {
+			...env,
+			WRITE_RATE_LIMITER: { limit },
+		} as any;
+		const ctx = createExecutionContext();
+		const response = await worker.fetch(new Request('http://example.com/bookmarks', {
+			method: 'POST',
+			headers: {
+				Authorization: `Bearer ${API_KEY}`,
+				'Content-Type': 'application/json',
+			},
+			body: JSON.stringify({ markdownData: '# Limited', url: 'https://example.com/limited' }),
+		}), limitedEnv, ctx);
+		await waitOnExecutionContext(ctx);
+
+		expect(response.status).toBe(429);
+		expect(limit).toHaveBeenCalledWith({ key: `${TEST_USER_ID}:bookmark-save` });
+	});
+
+	it('rate limits outbound MCP saves by user before invoking the tool', async () => {
+		const limit = vi.fn().mockResolvedValue({ success: false });
+		const limitedEnv = {
+			...env,
+			WRITE_RATE_LIMITER: { limit },
+		} as any;
+		const ctx = createExecutionContext();
+		const response = await worker.fetch(new Request('http://example.com/mcp', {
+			method: 'POST',
+			headers: {
+				Accept: 'application/json, text/event-stream',
+				Authorization: `Bearer ${API_KEY}`,
+				'Content-Type': 'application/json',
+			},
+			body: JSON.stringify({
+				id: 'limited-save',
+				jsonrpc: '2.0',
+				method: 'tools/call',
+				params: {
+					arguments: { url: 'https://example.com/limited' },
+					name: 'save_item',
+				},
+			}),
+		}), limitedEnv, ctx);
+		await waitOnExecutionContext(ctx);
+
+		expect(response.status).toBe(429);
+		expect(limit).toHaveBeenCalledWith({ key: `${TEST_USER_ID}:mcp-save-item` });
+	});
+
+	it('rate limits immediate source syncs by user', async () => {
+		const limit = vi.fn().mockResolvedValue({ success: false });
+		const limitedEnv = {
+			...env,
+			WRITE_RATE_LIMITER: { limit },
+		} as any;
+		const ctx = createExecutionContext();
+		const response = await worker.fetch(new Request('http://example.com/sources', {
+			method: 'POST',
+			headers: {
+				Authorization: `Bearer ${API_KEY}`,
+				'Content-Type': 'application/json',
+			},
+			body: JSON.stringify({
+				identifier: 'https://example.com/feed.xml',
+				kind: 'rss',
+			}),
+		}), limitedEnv, ctx);
+		await waitOnExecutionContext(ctx);
+
+		expect(response.status).toBe(429);
+		expect(limit).toHaveBeenCalledWith({ key: `${TEST_USER_ID}:source-sync` });
 	});
 
 	it('protects and serves MCP dashboard account and stats routes', async () => {
@@ -1408,6 +1596,41 @@ describe('KeepRoot Worker', () => {
 
 		const imageObjects = await env.KEEPROOT_CONTENT.list({ prefix: 'images/' });
 		expect(imageObjects.objects.length).toBeGreaterThan(0);
+		const imagePath = getData.markdownData.match(/\((\/images\/[a-f0-9]{64})\)/)?.[1];
+		expect(imagePath).toBeDefined();
+		if (!imagePath) {
+			throw new Error('Expected a rewritten image path');
+		}
+
+		const unauthorizedContext = createExecutionContext();
+		const unauthorizedResponse = await worker.fetch(new Request(`http://example.com${imagePath}`), env, unauthorizedContext);
+		await waitOnExecutionContext(unauthorizedContext);
+		expect(unauthorizedResponse.status).toBe(401);
+
+		const ownerContext = createExecutionContext();
+		const ownerResponse = await worker.fetch(new Request(`http://example.com${imagePath}`, {
+			headers: {
+				Authorization: `Bearer ${API_KEY}`,
+				Origin: 'http://example.com',
+			},
+		}), env, ownerContext);
+		await waitOnExecutionContext(ownerContext);
+		expect(ownerResponse.status).toBe(200);
+		expect(ownerResponse.headers.get('Cache-Control')).toBe('no-store');
+		expect(ownerResponse.headers.get('Content-Type')).toBe('image/png');
+		expect(ownerResponse.headers.get('Vary')).toBe('Authorization, Origin');
+
+		await seedUser('other-user-id', 'other-user');
+		const otherKey = await createApiKey(env, {
+			userId: 'other-user-id',
+			username: 'other-user',
+		}, 'Other user');
+		const otherContext = createExecutionContext();
+		const otherResponse = await worker.fetch(new Request(`http://example.com${imagePath}`, {
+			headers: { Authorization: `Bearer ${otherKey.secret}` },
+		}), env, otherContext);
+		await waitOnExecutionContext(otherContext);
+		expect(otherResponse.status).toBe(404);
 
 		await waitOnExecutionContext(ctx);
 	});
@@ -1678,6 +1901,7 @@ describe('KeepRoot Worker', () => {
 		expect(createData.secret).toBeDefined();
 		expect(createData.metadata.name).toBe('My Extension');
 		expect(createData.metadata.id).toBeDefined();
+		expect(Date.parse(createData.metadata.expiresAt)).toBeGreaterThan(Date.parse(createData.metadata.createdAt));
 
 		const listReq = new Request('http://example.com/api-keys', {
 			headers: { Authorization: `Bearer ${API_KEY}` },
@@ -1692,6 +1916,22 @@ describe('KeepRoot Worker', () => {
 		});
 		const testRes = await worker.fetch(testReq, env, ctx);
 		expect(testRes.status).toBe(200);
+
+		await env.KEEPROOT_DB.prepare('UPDATE api_keys SET expires_at = ? WHERE id = ?')
+			.bind('2000-01-01T00:00:00.000Z', createData.metadata.id)
+			.run();
+		const expiredReq = new Request('http://example.com/bookmarks', {
+			headers: { Authorization: `Bearer ${createData.secret}` },
+		});
+		const expiredRes = await worker.fetch(expiredReq, env, ctx);
+		expect(expiredRes.status).toBe(401);
+
+		const expiredListRes = await worker.fetch(listReq, env, ctx);
+		const expiredListData = (await expiredListRes.json()) as any;
+		expect(expiredListData.keys.find((key: any) => key.id === createData.metadata.id)).toMatchObject({
+			expired: true,
+			expiresAt: '2000-01-01T00:00:00.000Z',
+		});
 
 		const delReq = new Request(`http://example.com/api-keys/${createData.metadata.id}`, {
 			method: 'DELETE',

@@ -83,6 +83,39 @@ export class KeepRootApi {
 		return this.request('/api-keys');
 	}
 
+	logout(): Promise<{ message: string }> {
+		return this.request('/auth/logout', {
+			method: 'POST',
+		});
+	}
+
+	logoutAll(): Promise<{ revoked: number }> {
+		return this.request('/auth/logout-all', {
+			method: 'POST',
+		});
+	}
+
+	async getStoredMedia(path: string): Promise<Blob> {
+		if (!/^\/(?:images|thumbs)\//.test(path)) {
+			throw new ApiError('Invalid stored media path', 400);
+		}
+
+		const token = this.getToken();
+		if (!token) {
+			throw new ApiError('Unauthorized', 401);
+		}
+
+		const response = await fetch(path, {
+			headers: { Authorization: `Bearer ${token}` },
+		});
+		if (!response.ok) {
+			const payload = await response.json().catch(() => ({} as { error?: string }));
+			throw new ApiError(payload.error || `API Error (${response.status})`, response.status);
+		}
+
+		return response.blob();
+	}
+
 	getAccount(): Promise<AccountSummary> {
 		return this.request('/account');
 	}

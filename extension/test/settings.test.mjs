@@ -1,6 +1,10 @@
-import { describe, expect, it, vi } from 'vitest';
+import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { DEFAULT_SETTINGS, getExtensionSettings, normalizeWorkerUrl, saveExtensionSettings } from '../src/shared/settings.js';
 import * as webextensionApi from '../src/shared/webextension-api.js';
+
+beforeEach(() => {
+  vi.restoreAllMocks();
+});
 
 describe('DEFAULT_SETTINGS', () => {
   it('has empty default values for apiSecret and workerUrl', () => {

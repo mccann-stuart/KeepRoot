@@ -11,13 +11,16 @@ const TRACKING_QUERY_KEYS = new Set([
 ]);
 
 export const SESSION_TTL_SECONDS = 60 * 60 * 24 * 7;
+export const API_KEY_TTL_SECONDS = 60 * 60 * 24 * 365;
 export const MAX_AUTO_FETCH_IMAGES = 12;
 export const encoder = new TextEncoder();
 
 export interface StorageEnv {
+	ALLOW_REGISTRATION?: string;
 	ASSETS?: Fetcher;
 	AI?: Ai;
 	ALLOWED_EXTENSION_IDS?: string;
+	AUTH_RATE_LIMITER: RateLimit;
 	BROWSER?: Fetcher;
 	EMAIL_SOURCE_DOMAIN?: string;
 	ENABLE_X_SOURCES?: string;
@@ -26,6 +29,7 @@ export interface StorageEnv {
 	KEEPROOT_CONTENT: R2Bucket;
 	KEEPROOT_VECTOR_INDEX?: Vectorize;
 	MCP_EMAIL_DOMAIN?: string;
+	WRITE_RATE_LIMITER: RateLimit;
 	X_SOURCE_BRIDGE_BASE_URL?: string;
 }
 
@@ -152,7 +156,7 @@ export interface SourceListOptions extends PaginationInput {
 }
 
 export function bufferToBase64URL(buffer: ArrayBuffer | Uint8Array): string {
-	return Buffer.from(buffer).toString('base64url');
+	return Buffer.from(buffer instanceof Uint8Array ? buffer : new Uint8Array(buffer)).toString('base64url');
 }
 
 export function base64URLToUint8Array(value: string): Uint8Array {

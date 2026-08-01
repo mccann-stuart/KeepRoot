@@ -5,11 +5,13 @@ import type {
 	VerifiedAuthenticationResponse,
 	VerifiedRegistrationResponse,
 } from '@simplewebauthn/server';
-import { errorResponse, isAllowedRequestOrigin, jsonResponse, parseJson, type RouteContext } from '../http';
+import { errorResponse, isAllowedRequestOrigin, jsonResponse, parseJson, type ProtectedRouteContext, type RouteContext } from '../http';
 import {
 	createSession,
 	createUserWithCredential,
 	deleteAuthChallenge,
+	deleteSessionByToken,
+	deleteUserSessions,
 	getUserByUsername,
 	getUserCredentials,
 	getValidAuthChallenge,
@@ -18,6 +20,21 @@ import {
 } from '../storage';
 
 const RP_NAME = 'KeepRoot';
+const MIN_AUTH_RESPONSE_MS = 150;
+
+async function withMinimumAuthDuration(task: () => Promise<Response>): Promise<Response> {
+	const startedAt = Date.now();
+	const response = await task();
+	const remainingMs = MIN_AUTH_RESPONSE_MS - (Date.now() - startedAt);
+	if (remainingMs > 0) {
+		await new Promise((resolve) => setTimeout(resolve, remainingMs));
+	}
+	return response;
+}
+
+function isRegistrationAllowed(context: RouteContext): boolean {
+	return context.env.ALLOW_REGISTRATION === '1';
+}
 
 async function loadWebAuthn() {
 	return import('@simplewebauthn/server');
@@ -35,16 +52,15 @@ function getExpectedOrigins(context: RouteContext): string[] {
 }
 
 async function handleGenerateRegistration(context: RouteContext): Promise<Response> {
+	if (!isRegistrationAllowed(context)) {
+		return errorResponse(context.request, 'Registration is disabled', 403);
+	}
+
 	try {
 		const { username } = await parseJson<{ username?: string }>(context.request);
 		const normalizedUsername = username?.trim();
 		if (!normalizedUsername) {
 			return errorResponse(context.request, 'Username required', 400);
-		}
-
-		const existingUser = await getUserByUsername(context.env, normalizedUsername);
-		if (existingUser) {
-			return errorResponse(context.request, 'User already exists', 400);
 		}
 
 		const { generateRegistrationOptions } = await loadWebAuthn();
@@ -76,6 +92,10 @@ async function handleGenerateRegistration(context: RouteContext): Promise<Respon
 }
 
 async function handleVerifyRegistration(context: RouteContext): Promise<Response> {
+	if (!isRegistrationAllowed(context)) {
+		return errorResponse(context.request, 'Registration is disabled', 403);
+	}
+
 	try {
 		const body = await parseJson<{ response: RegistrationResponseJSON; username?: string }>(context.request);
 		const normalizedUsername = body.username?.trim();
@@ -85,7 +105,7 @@ async function handleVerifyRegistration(context: RouteContext): Promise<Response
 
 		const challenge = await getValidAuthChallenge(context.env, normalizedUsername, 'registration');
 		if (!challenge?.user_id) {
-			return errorResponse(context.request, 'Session expired', 400);
+			return errorResponse(context.request, 'Registration failed', 400);
 		}
 
 		const expectedOrigins = getExpectedOrigins(context);
@@ -100,16 +120,16 @@ async function handleVerifyRegistration(context: RouteContext): Promise<Response
 			});
 		} catch (error) {
 			console.error(error);
-			return errorResponse(context.request, 'Verification failed', 400);
+			return errorResponse(context.request, 'Registration failed', 400);
 		}
 
 		if (!verification.verified || !verification.registrationInfo) {
-			return errorResponse(context.request, 'Verification failed', 400);
+			return errorResponse(context.request, 'Registration failed', 400);
 		}
 
 		const existingUser = await getUserByUsername(context.env, normalizedUsername);
 		if (existingUser) {
-			return errorResponse(context.request, 'User already exists', 400);
+			return errorResponse(context.request, 'Registration failed', 400);
 		}
 
 		const { credential, credentialBackedUp, credentialDeviceType } = verification.registrationInfo;
@@ -131,7 +151,7 @@ async function handleVerifyRegistration(context: RouteContext): Promise<Response
 		return jsonResponse(context.request, { token, verified: true });
 	} catch (error) {
 		console.error(error);
-		return errorResponse(context.request, 'Unable to verify registration', 500);
+		return errorResponse(context.request, 'Registration failed', 400);
 	}
 }
 
@@ -143,18 +163,8 @@ async function handleGenerateAuthentication(context: RouteContext): Promise<Resp
 			return errorResponse(context.request, 'Username required', 400);
 		}
 
-		const user = await getUserByUsername(context.env, normalizedUsername);
-		if (!user) {
-			return errorResponse(context.request, 'User not found', 404);
-		}
-
 		const { generateAuthenticationOptions } = await loadWebAuthn();
-		const credentials = await getUserCredentials(context.env, normalizedUsername);
 		const options = await generateAuthenticationOptions({
-			allowCredentials: credentials.map((credential) => ({
-				id: credential.credentialId,
-				transports: credential.transports as AuthenticatorTransportFuture[] | undefined,
-			})),
 			rpID: context.rpID,
 			userVerification: 'preferred',
 		});
@@ -162,7 +172,7 @@ async function handleGenerateAuthentication(context: RouteContext): Promise<Resp
 		await storeAuthChallenge(context.env, {
 			challenge: options.challenge,
 			type: 'authentication',
-			userId: user.id,
+			userId: crypto.randomUUID(),
 			username: normalizedUsername,
 		});
 
@@ -183,18 +193,18 @@ async function handleVerifyAuthentication(context: RouteContext): Promise<Respon
 
 		const challenge = await getValidAuthChallenge(context.env, normalizedUsername, 'authentication');
 		if (!challenge) {
-			return errorResponse(context.request, 'Session expired', 400);
+			return errorResponse(context.request, 'Authentication failed', 400);
 		}
 
 		const user = await getUserByUsername(context.env, normalizedUsername);
 		if (!user) {
-			return errorResponse(context.request, 'User not found', 404);
+			return errorResponse(context.request, 'Authentication failed', 400);
 		}
 
 		const authenticators = await getUserCredentials(context.env, normalizedUsername);
 		const authenticator = authenticators.find((credential) => credential.credentialId === body.response.rawId);
 		if (!authenticator) {
-			return errorResponse(context.request, 'Authenticator not registered', 400);
+			return errorResponse(context.request, 'Authentication failed', 400);
 		}
 
 		const expectedOrigins = getExpectedOrigins(context);
@@ -215,11 +225,11 @@ async function handleVerifyAuthentication(context: RouteContext): Promise<Respon
 			});
 		} catch (error) {
 			console.error(error);
-			return errorResponse(context.request, 'Verification failed', 400);
+			return errorResponse(context.request, 'Authentication failed', 400);
 		}
 
 		if (!verification.verified || !verification.authenticationInfo) {
-			return errorResponse(context.request, 'Verification failed', 400);
+			return errorResponse(context.request, 'Authentication failed', 400);
 		}
 
 		await updateCredentialCounter(context.env, normalizedUsername, authenticator.credentialId, verification.authenticationInfo.newCounter);
@@ -233,7 +243,7 @@ async function handleVerifyAuthentication(context: RouteContext): Promise<Respon
 		return jsonResponse(context.request, { token, verified: true });
 	} catch (error) {
 		console.error(error);
-		return errorResponse(context.request, 'Unable to verify authentication', 500);
+		return errorResponse(context.request, 'Authentication failed', 400);
 	}
 }
 
@@ -241,15 +251,35 @@ export async function handleAuthRoute(context: RouteContext): Promise<Response |
 	if (context.request.method === 'POST') {
 		switch (context.pathname) {
 			case '/auth/generate-registration':
-				return handleGenerateRegistration(context);
+				return withMinimumAuthDuration(() => handleGenerateRegistration(context));
 			case '/auth/verify-registration':
-				return handleVerifyRegistration(context);
+				return withMinimumAuthDuration(() => handleVerifyRegistration(context));
 			case '/auth/generate-authentication':
-				return handleGenerateAuthentication(context);
+				return withMinimumAuthDuration(() => handleGenerateAuthentication(context));
 			case '/auth/verify-authentication':
-				return handleVerifyAuthentication(context);
+				return withMinimumAuthDuration(() => handleVerifyAuthentication(context));
 		}
 	}
 
 	return undefined;
+}
+
+export async function handleProtectedAuthRoute(context: ProtectedRouteContext): Promise<Response | undefined> {
+	if (context.request.method !== 'POST' || (context.pathname !== '/auth/logout' && context.pathname !== '/auth/logout-all')) {
+		return undefined;
+	}
+
+	if (context.authUser.tokenType !== 'session') {
+		return errorResponse(context.request, 'Session authentication required', 403);
+	}
+
+	if (context.pathname === '/auth/logout-all') {
+		const revoked = await deleteUserSessions(context.env, context.authUser.userId);
+		return jsonResponse(context.request, { revoked });
+	}
+
+	const authorization = context.request.headers.get('Authorization');
+	const token = authorization?.startsWith('Bearer ') ? authorization.slice(7) : '';
+	await deleteSessionByToken(context.env, token);
+	return jsonResponse(context.request, { message: 'Logged out' });
 }

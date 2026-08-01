@@ -1,6 +1,6 @@
 const CACHE_NAME = 'keeproot-v2';
 const STATIC_ASSETS = ['/', '/assets/app.css', '/assets/app.js'];
-const API_PREFIXES = ['/account', '/api-keys', '/bookmarks', '/lists', '/smart-lists', '/sources', '/stats'];
+const API_PREFIXES = ['/account', '/api-keys', '/auth', '/bookmarks', '/images', '/lists', '/smart-lists', '/sources', '/stats', '/thumbs'];
 
 self.addEventListener('install', (event) => {
 	event.waitUntil(

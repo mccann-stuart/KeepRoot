@@ -82,6 +82,15 @@ export function resolveCorsOrigin(request: Request, env?: StorageEnv): string | 
 	return isAllowedRequestOrigin(origin, requestUrlOrigin, env) ? origin : null;
 }
 
+export function appendVaryHeader(headers: Headers, value: string): void {
+	const values = new Set((headers.get('Vary') ?? '')
+		.split(',')
+		.map((entry) => entry.trim())
+		.filter(Boolean));
+	values.add(value);
+	headers.set('Vary', [...values].join(', '));
+}
+
 export function applyCorsHeaders(request: Request, headers: Headers, env?: StorageEnv): Headers {
 	for (const [key, value] of Object.entries(corsHeaders)) {
 		headers.set(key, value);
@@ -90,7 +99,7 @@ export function applyCorsHeaders(request: Request, headers: Headers, env?: Stora
 	const allowedOrigin = resolveCorsOrigin(request, env);
 	if (allowedOrigin) {
 		headers.set('Access-Control-Allow-Origin', allowedOrigin);
-		headers.set('Vary', 'Origin');
+		appendVaryHeader(headers, 'Origin');
 	}
 
 	return headers;
@@ -111,7 +120,9 @@ export function jsonResponse(
 		: typeof statusOrHeaders === 'number'
 			? statusOrHeaders
 			: 200;
-	const initHeaders = request ? (typeof statusOrHeaders === 'number' ? headers : statusOrHeaders) : statusOrHeaders;
+	const initHeaders: HeadersInit | undefined = request
+		? (typeof statusOrHeaders === 'number' ? headers : statusOrHeaders)
+		: (typeof statusOrHeaders === 'number' ? undefined : statusOrHeaders);
 	const responseHeaders = request
 		? applyCorsHeaders(request, new Headers(initHeaders))
 		: new Headers(initHeaders);
@@ -132,14 +143,14 @@ export function textResponse(
 	headers?: HeadersInit,
 ): Response {
 	const request = requestOrBody instanceof Request ? requestOrBody : null;
-	const body = request ? bodyOrContentType : requestOrBody;
+	const body: string = requestOrBody instanceof Request ? bodyOrContentType : requestOrBody;
 	const contentType = request ? String(contentTypeOrStatus) : bodyOrContentType;
 	const status = request
 		? typeof statusOrHeaders === 'number' ? statusOrHeaders : 200
 		: typeof contentTypeOrStatus === 'number' ? contentTypeOrStatus : 200;
 	const initHeaders = request
 		? (typeof statusOrHeaders === 'number' ? headers : statusOrHeaders)
-		: statusOrHeaders;
+		: (typeof statusOrHeaders === 'number' ? undefined : statusOrHeaders);
 	const responseHeaders = request
 		? applyCorsHeaders(request, new Headers(initHeaders))
 		: new Headers(initHeaders);
@@ -165,7 +176,11 @@ export async function parseJson<T>(request: Request): Promise<T> {
 }
 
 export function isProtectedApiPath(pathname: string): boolean {
-	return pathname === '/account'
+	return pathname === '/auth/logout'
+		|| pathname === '/auth/logout-all'
+		|| pathname.startsWith('/images/')
+		|| pathname.startsWith('/thumbs/')
+		|| pathname === '/account'
 		|| pathname === '/account/data'
 		|| pathname === '/stats'
 		|| pathname === '/api-keys'
@@ -178,4 +193,32 @@ export function isProtectedApiPath(pathname: string): boolean {
 		|| pathname.startsWith('/lists/')
 		|| pathname === '/smart-lists'
 		|| pathname.startsWith('/smart-lists/');
+}
+
+export async function enforceRateLimit(
+	rateLimiter: RateLimit,
+	key: string,
+	action: string,
+): Promise<Response | null> {
+	try {
+		const { success } = await rateLimiter.limit({ key });
+		if (success) {
+			return null;
+		}
+
+		console.warn(JSON.stringify({
+			action,
+			event: 'rate_limited',
+		}));
+		return jsonResponse({ error: 'Too many requests' }, 429, {
+			'Retry-After': '60',
+		});
+	} catch (error) {
+		console.error(JSON.stringify({
+			action,
+			error: error instanceof Error ? error.message : String(error),
+			event: 'rate_limit_unavailable',
+		}));
+		return errorResponse('Rate limiting unavailable', 503);
+	}
 }
