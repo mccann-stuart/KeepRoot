@@ -238,6 +238,7 @@ export default {
 					payload: {
 						id: source.id,
 						kind: source.kind,
+						name: source.name,
 						pollUrl: source.pollUrl,
 						userId: source.userId,
 					},

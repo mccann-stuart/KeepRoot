@@ -20,6 +20,7 @@ export type IngestJob =
 		payload: {
 			id: string;
 			kind: 'rss' | 'youtube' | 'x' | 'email';
+			name?: string;
 			pollUrl: string;
 			userId: string;
 		};
@@ -48,6 +49,7 @@ export async function processIngestJob(env: StorageEnv, job: IngestJob): Promise
 		await syncSource(env, {
 			id: job.payload.id,
 			kind: job.payload.kind,
+			name: job.payload.name,
 			pollUrl: job.payload.pollUrl,
 			userId: job.payload.userId,
 		});

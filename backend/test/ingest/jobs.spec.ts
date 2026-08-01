@@ -73,6 +73,7 @@ describe('processIngestJob', () => {
             payload: {
                 id: 'source1',
                 kind: 'rss',
+                name: 'Example Feed',
                 pollUrl: 'https://example.com/feed.xml',
                 userId: 'user1'
             }
@@ -88,6 +89,7 @@ describe('processIngestJob', () => {
                 {
                     id: 'source1',
                     kind: 'rss',
+                    name: 'Example Feed',
                     pollUrl: 'https://example.com/feed.xml',
                     userId: 'user1'
                 }

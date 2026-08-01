@@ -9,6 +9,7 @@ export async function maybeQueueSourceSync(
 	const pollUrl = typeof source.pollUrl === 'string' ? source.pollUrl : null;
 	const kind = typeof source.kind === 'string' ? source.kind as SourceKind : null;
 	const id = typeof source.id === 'string' ? source.id : null;
+	const name = typeof source.name === 'string' ? source.name : undefined;
 	const userId = typeof (source as { userId?: unknown }).userId === 'string' ? (source as { userId: string }).userId : null;
 
 	if (!id || !kind || !pollUrl || !userId) {
@@ -21,6 +22,7 @@ export async function maybeQueueSourceSync(
 			payload: {
 				id,
 				kind,
+				name,
 				pollUrl,
 				userId,
 			},
@@ -32,6 +34,7 @@ export async function maybeQueueSourceSync(
 	await syncSource(env, {
 		id,
 		kind,
+		name,
 		pollUrl,
 		userId,
 	});
