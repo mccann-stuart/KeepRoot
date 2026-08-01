@@ -685,7 +685,10 @@ describe('KeepRoot Worker', () => {
 			});
 			const createRequest = () => new Request('http://example.com/auth/generate-authentication', {
 				method: 'POST',
-				headers: { 'Content-Type': 'application/json' },
+				headers: {
+					'CF-Connecting-IP': '203.0.113.50',
+					'Content-Type': 'application/json',
+				},
 				body: JSON.stringify({ username: 'nonexistent-user' }),
 			});
 			const ctx = createExecutionContext();
