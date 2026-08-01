@@ -8,7 +8,7 @@ describe('sources storage', () => {
             vi.restoreAllMocks();
         });
 
-        it('handles duplicate sources correctly by updating rather than crashing', async () => {
+        it('reactivates duplicate sources without replacing their stored row', async () => {
             const userId = 'test-user-id';
             const kind = 'rss';
             const identifier = 'https://example.com/feed';
@@ -58,7 +58,10 @@ describe('sources storage', () => {
 
             expect(prepareSpy).toHaveBeenCalledTimes(4);
             expect(prepareSpy.mock.calls[0][0]).toContain('SELECT id, email_alias');
-            expect(prepareSpy.mock.calls[1][0]).toContain('INSERT OR REPLACE INTO sources');
+            expect(prepareSpy.mock.calls[1][0]).toContain('INSERT INTO sources');
+            expect(prepareSpy.mock.calls[1][0]).toContain('ON CONFLICT(id) DO UPDATE');
+            expect(prepareSpy.mock.calls[1][0]).toContain("status = 'active'");
+            expect(prepareSpy.mock.calls[1][0]).not.toContain('INSERT OR REPLACE');
 
             expect(batchSpy).toHaveBeenCalledTimes(1);
         });
