@@ -683,24 +683,30 @@ describe('KeepRoot Worker', () => {
 			generateAuthenticationOptionsMock.mockResolvedValue({
 				challenge: 'auth-challenge',
 			});
-			const request = new Request('http://example.com/auth/generate-authentication', {
+			const createRequest = () => new Request('http://example.com/auth/generate-authentication', {
 				method: 'POST',
 				headers: { 'Content-Type': 'application/json' },
 				body: JSON.stringify({ username: 'nonexistent-user' }),
 			});
 			const ctx = createExecutionContext();
-			const response = await worker.fetch(request, env, ctx);
+			const response = await worker.fetch(createRequest(), env, ctx);
 			await waitOnExecutionContext(ctx);
 
 			expect(response.status).toBe(200);
 			expect(await response.json()).toEqual({ challenge: 'auth-challenge' });
 			expect(generateAuthenticationOptionsMock).toHaveBeenCalledTimes(1);
-			expect(generateAuthenticationOptionsMock.mock.calls[0][0].allowCredentials).toEqual([
+			const firstAllowCredentials = generateAuthenticationOptionsMock.mock.calls[0][0].allowCredentials;
+			expect(firstAllowCredentials).toEqual([
 				{
 					id: expect.stringMatching(/^[0-9a-f]{32}$/),
-					transports: ['internal', 'hybrid'],
 				},
 			]);
+
+			const retryContext = createExecutionContext();
+			const retryResponse = await worker.fetch(createRequest(), env, retryContext);
+			await waitOnExecutionContext(retryContext);
+			expect(retryResponse.status).toBe(200);
+			expect(generateAuthenticationOptionsMock.mock.calls[1][0].allowCredentials).toEqual(firstAllowCredentials);
 		});
 
 		it('limits authentication to credentials registered for the supplied username', async () => {
@@ -733,7 +739,6 @@ describe('KeepRoot Worker', () => {
 			expect(mockCalls[0][0].allowCredentials).toEqual([
 				{
 					id: 'cred-id',
-					transports: ['internal'],
 				},
 			]);
 		});

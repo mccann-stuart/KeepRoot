@@ -12,6 +12,7 @@ import {
 	deleteAuthChallenge,
 	deleteSessionByToken,
 	deleteUserSessions,
+	getLatestAuthChallengeUserId,
 	getUserByUsername,
 	getUserCredentials,
 	getValidAuthChallenge,
@@ -40,10 +41,10 @@ async function loadWebAuthn() {
 	return import('@simplewebauthn/server');
 }
 
-function createDecoyCredentialId(): string {
-	// Keep unknown-user responses generic and credential-shaped without allowing
-	// Safari to choose a passkey registered to a different KeepRoot username.
-	return crypto.randomUUID().replaceAll('-', '');
+function createDecoyCredentialId(challengeUserId: string): string {
+	// Unknown usernames reuse an opaque server-generated value so repeated
+	// requests do not reveal whether the returned credential ID is genuine.
+	return challengeUserId.replaceAll('-', '');
 }
 
 function getExpectedOrigins(context: RouteContext): string[] {
@@ -169,18 +170,18 @@ async function handleGenerateAuthentication(context: RouteContext): Promise<Resp
 			return errorResponse(context.request, 'Username required', 400);
 		}
 
-		const [user, credentials] = await Promise.all([
+		const [user, credentials, previousChallengeUserId] = await Promise.all([
 			getUserByUsername(context.env, normalizedUsername),
 			getUserCredentials(context.env, normalizedUsername),
+			getLatestAuthChallengeUserId(context.env, normalizedUsername, 'authentication'),
 		]);
+		const challengeUserId = user?.id ?? previousChallengeUserId ?? crypto.randomUUID();
 		const allowCredentials = credentials.length > 0
 			? credentials.map((credential) => ({
 				id: credential.credentialId,
-				transports: credential.transports as AuthenticatorTransportFuture[] | undefined,
 			}))
 			: [{
-				id: createDecoyCredentialId(),
-				transports: ['internal', 'hybrid'] as AuthenticatorTransportFuture[],
+				id: createDecoyCredentialId(challengeUserId),
 			}];
 
 		const { generateAuthenticationOptions } = await loadWebAuthn();
@@ -193,7 +194,7 @@ async function handleGenerateAuthentication(context: RouteContext): Promise<Resp
 		await storeAuthChallenge(context.env, {
 			challenge: options.challenge,
 			type: 'authentication',
-			userId: user?.id ?? crypto.randomUUID(),
+			userId: challengeUserId,
 			username: normalizedUsername,
 		});
 
