@@ -52,6 +52,8 @@
 	 * https://developers.cloudflare.com/workers/configuration/secrets/
 	 */
 	"vars": {
+		// Browser extension origins are denied unless their exact extension ID is listed.
+		"ALLOWED_EXTENSION_IDS": "[\"jgdahkljlabhpmeifmnnibejdkcbhphf\"]",
 		// Registration is deliberately opt-in. Set to "1" only while adding an account.
 		"ALLOW_REGISTRATION": "1"
 	},
