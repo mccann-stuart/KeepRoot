@@ -7,6 +7,7 @@ import { validateSafeUrl, type SourceKind, type StorageEnv } from '../storage/sh
 
 interface FeedEntry {
 	content?: string;
+	id: string;
 	publishedAt?: string;
 	title: string;
 	url: string;
@@ -124,9 +125,11 @@ function parseFeedEntries(xml: string): FeedEntry[] {
 			if (!link) {
 				continue;
 			}
+			const id = firstDefinedString(item.guid, item.link) ?? link;
 
 			entries.push({
 				content: firstDefinedString(item['content:encoded'], item.description),
+				id,
 				publishedAt: firstDefinedString(item.pubDate, item.isoDate),
 				title: firstDefinedString(item.title) ?? link,
 				url: link,
@@ -146,6 +149,7 @@ function parseFeedEntries(xml: string): FeedEntry[] {
 
 			entries.push({
 				content: firstDefinedString(entry.content, entry.summary),
+				id: firstDefinedString(entry.id, link) ?? link,
 				publishedAt: firstDefinedString(entry.updated, entry.published),
 				title: firstDefinedString(entry.title) ?? link,
 				url: link,
@@ -284,6 +288,7 @@ export async function syncSource(
 				{
 					notes: source.name ? `Saved from source: ${source.name}` : undefined,
 					markdownData: content.markdownData,
+					sourceEntryId: entry.id,
 					sourceId: source.id,
 					status: 'saved',
 					tags: [`source: ${getSourceLabel(source)}`],
@@ -292,7 +297,10 @@ export async function syncSource(
 					url: entry.url,
 				},
 				'source_sync',
-				{ appendTags: true },
+				{
+					appendTags: true,
+					skipInboxForExisting: true,
+				},
 			);
 		})
 	);

@@ -665,7 +665,7 @@ export async function saveBookmark(
 	user: Pick<{ userId: string; username: string }, 'userId' | 'username'>,
 	payload: BookmarkPayload,
 	options: { appendTags?: boolean } = {},
-): Promise<{ id: string; metadata: Record<string, unknown> }> {
+): Promise<{ created: boolean; id: string; metadata: Record<string, unknown> }> {
 	if (!payload.url) {
 		throw new Error('Missing url');
 	}
@@ -694,6 +694,7 @@ export async function saveBookmark(
 	const processingState = (payload.processingState ?? 'ready').trim().toLowerCase() || 'ready';
 	const status = normalizeStatus(payload.status);
 	const siteName = payload.siteName?.trim() || domain;
+	const sourceEntryId = payload.sourceEntryId?.trim() || null;
 	const sourceId = payload.sourceId ?? null;
 	const hydratedImages = await hydrateImagePayloads(payload, normalizedUrl);
 
@@ -791,7 +792,17 @@ export async function saveBookmark(
 	await putIfMissing(env.KEEPROOT_CONTENT, contentKey, contentJson, 'application/json');
 
 	const urlHash = await sha256Hex(canonicalUrl);
-	const existingBookmark = await env.KEEPROOT_DB.prepare(
+	const existingBySourceEntry = sourceId && sourceEntryId
+		? await env.KEEPROOT_DB.prepare(
+			`SELECT id, created_at, is_read
+			FROM bookmarks
+			WHERE user_id = ? AND source_id = ? AND source_entry_id = ?
+			LIMIT 1`,
+		)
+			.bind(user.userId, sourceId, sourceEntryId)
+			.first<{ created_at: string; id: string; is_read: number }>()
+		: null;
+	const existingBookmark = existingBySourceEntry ?? await env.KEEPROOT_DB.prepare(
 		`SELECT id, created_at, is_read
 		FROM bookmarks
 		WHERE user_id = ? AND url_hash = ?
@@ -806,7 +817,7 @@ export async function saveBookmark(
 	if (existingBookmark) {
 		await env.KEEPROOT_DB.prepare(
 			`UPDATE bookmarks
-			SET url = ?, canonical_url = ?, url_hash = ?, title = ?, site_name = ?, domain = ?, status = ?, notes = ?, source_id = ?, processing_state = ?,
+			SET url = ?, canonical_url = ?, url_hash = ?, title = ?, site_name = ?, domain = ?, status = ?, notes = ?, source_id = ?, source_entry_id = ?, processing_state = ?,
 				updated_at = ?, last_fetched_at = ?, content_hash = ?, content_ref = ?, content_type = ?,
 				content_length = ?, excerpt = ?, word_count = ?, lang = ?, list_id = ?, pinned = ?, sort_order = ?, is_read = ?
 			WHERE id = ? AND user_id = ?`,
@@ -821,6 +832,7 @@ export async function saveBookmark(
 				status,
 				notes,
 				sourceId,
+				sourceEntryId,
 				processingState,
 				now,
 				now,
@@ -842,8 +854,8 @@ export async function saveBookmark(
 	} else {
 		await env.KEEPROOT_DB.prepare(
 			`INSERT INTO bookmarks
-			(id, user_id, url, canonical_url, url_hash, title, site_name, domain, status, notes, source_id, processing_state, created_at, updated_at, last_fetched_at, content_hash, content_ref, content_type, content_length, excerpt, word_count, lang, list_id, pinned, sort_order, is_read)
-			VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+			(id, user_id, url, canonical_url, url_hash, title, site_name, domain, status, notes, source_id, source_entry_id, processing_state, created_at, updated_at, last_fetched_at, content_hash, content_ref, content_type, content_length, excerpt, word_count, lang, list_id, pinned, sort_order, is_read)
+			VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
 		)
 			.bind(
 				bookmarkId,
@@ -857,6 +869,7 @@ export async function saveBookmark(
 				status,
 				notes,
 				sourceId,
+				sourceEntryId,
 				processingState,
 				createdAt,
 				now,
@@ -906,6 +919,7 @@ export async function saveBookmark(
 	await refreshBookmarkIndexes(env, bookmarkId);
 
 	return {
+		created: !existingBookmark,
 		id: bookmarkId,
 		metadata: compactObject({
 			contentHash,

@@ -7,6 +7,7 @@ import organizationSchemaSql from '../migrations/0002_organization.sql?raw';
 import mcpServerSchemaSql from '../migrations/0003_mcp_server.sql?raw';
 import bookmarkHotPathSchemaSql from '../migrations/0004_bookmark_hot_path.sql?raw';
 import securityHardeningSchemaSql from '../migrations/0005_security_hardening.sql?raw';
+import sourceEntryIdentitySchemaSql from '../migrations/0006_source_entry_identity.sql?raw';
 
 const API_KEY = 'test-api-key-12345';
 const TEST_USER_ID = 'test-user-id';
@@ -109,6 +110,7 @@ async function resetDatabase(): Promise<void> {
 	await execStatements(mcpServerSchemaSql, true);
 	await execStatements(bookmarkHotPathSchemaSql, true);
 	await execStatements(securityHardeningSchemaSql, true);
+	await execStatements(sourceEntryIdentitySchemaSql, true);
 	await execStatements(`
 		DELETE FROM bookmark_tags;
 		DELETE FROM bookmark_images;
@@ -2460,21 +2462,26 @@ describe('KeepRoot Worker', () => {
 
 	it('manages MCP sources, subscriptions, and inbox sync state', async () => {
 		(env as { MCP_EMAIL_DOMAIN?: string }).MCP_EMAIL_DOMAIN = 'mail.keeproot.test';
-		mockTextFetch({
-			'https://feeds.example.com/root.xml': {
-				body: `<?xml version="1.0" encoding="UTF-8"?>
+		let feedItemUrl = 'https://feeds.example.com/posts/1?revision=1';
+		vi.spyOn(globalThis, 'fetch').mockImplementation(async (input) => {
+			const url = typeof input === 'string' ? input : input instanceof URL ? input.toString() : input.url;
+			if (url !== 'https://feeds.example.com/root.xml') {
+				throw new Error(`Unexpected fetch URL: ${url}`);
+			}
+			return new Response(`<?xml version="1.0" encoding="UTF-8"?>
 					<rss version="2.0">
 						<channel>
 							<title>KeepRoot Feed</title>
 							<item>
 								<title>Feed Story</title>
-								<link>https://feeds.example.com/posts/1</link>
+								<link>${feedItemUrl}</link>
+								<guid isPermaLink="false">root-feed-story-1</guid>
 								<description>Fresh story from a synced source.</description>
 							</item>
 						</channel>
-					</rss>`,
-				contentType: 'application/rss+xml; charset=utf-8',
-			},
+					</rss>`, {
+				headers: { 'Content-Type': 'application/rss+xml; charset=utf-8' },
+			});
 		});
 
 		const emailSource = await mcpCallTool('add_source', {
@@ -2510,6 +2517,21 @@ describe('KeepRoot Worker', () => {
 		await mcpCallTool('mark_done', {
 			id: inbox.payload.entries[0].id,
 		});
+
+		feedItemUrl = 'https://feeds.example.com/posts/1?revision=2';
+		const repeatedSync = await mcpCallTool('add_source', {
+			identifier: 'https://feeds.example.com/root.xml',
+			kind: 'rss',
+			name: 'Root Feed',
+		});
+		expect(repeatedSync.payload.id).toBe(rssSourceId);
+
+		const inboxAfterRepeatedSync = await mcpCallTool('list_inbox');
+		expect(inboxAfterRepeatedSync.payload.entries).toHaveLength(0);
+
+		const statsAfterRepeatedSync = await mcpCallTool('get_stats');
+		expect(statsAfterRepeatedSync.payload.items.total).toBe(1);
+		expect(statsAfterRepeatedSync.payload.inbox.pending).toBe(0);
 
 		const removed = await mcpCallTool('remove_source', {
 			id: rssSourceId,
