@@ -305,6 +305,14 @@ npm run build
 
 `npm run build` produces a packaged WebExtension in `extension/build/webextension`.
 
+To publish clean Chrome and Safari downloads with the Cloudflare Worker:
+
+```bash
+npm run package:downloads
+```
+
+This rebuilds the WebExtension, syncs the Safari Xcode project, strips generated and user-specific Xcode state, and writes `keeproot-chrome.zip` and `keeproot-safari.zip` to `backend/public/downloads/`. Wrangler uploads that directory with the dashboard's static assets. The dashboard exposes the files at `/downloads/keeproot-chrome.zip` and `/downloads/keeproot-safari.zip`.
+
 ### Load unpacked extension in Chrome
 
 1. Open `chrome://extensions`.

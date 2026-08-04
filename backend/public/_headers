@@ -1,0 +1,4 @@
+/downloads/*
+  Cache-Control: public, max-age=3600, must-revalidate
+  Content-Disposition: attachment
+  X-Content-Type-Options: nosniff

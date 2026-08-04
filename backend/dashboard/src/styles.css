@@ -1450,6 +1450,15 @@ a {
 	margin-bottom: 0.85rem;
 }
 
+.extension-download-panel {
+	display: grid;
+	gap: 0.1rem;
+}
+
+.extension-download-panel .btn {
+	text-decoration: none;
+}
+
 .stack-form {
 	display: grid;
 	gap: 0.9rem;
