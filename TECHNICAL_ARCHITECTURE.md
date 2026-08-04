@@ -455,8 +455,9 @@ The higher-level tools should compose the same canonical and retrieval layers in
 1. Cron or manual action identifies active sources.
 2. Queue fan-out runs source-specific sync jobs.
 3. Feed entries become candidate items.
-4. Candidate items go through the same dedupe and save path as manual saves.
-5. Source health is recorded in `source_runs`.
+4. Candidate items dedupe by stable RSS GUID or Atom ID within the source, then by canonical URL.
+5. Existing items refresh their content and provenance without returning to the inbox; only new items create inbox entries.
+6. Source health is recorded in `source_runs`.
 
 ### Email ingestion
 1. Email Routing forwards inbound mail to the Worker `email()` handler.

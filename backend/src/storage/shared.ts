@@ -66,6 +66,7 @@ export interface BookmarkPayload {
 	processingState?: string;
 	siteName?: string;
 	sortOrder?: number;
+	sourceEntryId?: string;
 	sourceId?: string | null;
 	status?: string;
 	tags?: string[];

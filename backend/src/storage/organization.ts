@@ -7,6 +7,7 @@ const REQUIRED_BOOKMARK_COLUMNS = [
 	'is_read',
 	'notes',
 	'source_id',
+	'source_entry_id',
 	'processing_state',
 	'search_updated_at',
 	'embedding_updated_at',
@@ -81,6 +82,9 @@ export async function ensureMcpSchema(env: StorageEnv): Promise<void> {
 	}
 	if (!bookmarkColumns.has('source_id')) {
 		await runSchemaStatement(env, 'ALTER TABLE bookmarks ADD COLUMN source_id TEXT');
+	}
+	if (!bookmarkColumns.has('source_entry_id')) {
+		await runSchemaStatement(env, 'ALTER TABLE bookmarks ADD COLUMN source_entry_id TEXT');
 	}
 	if (!bookmarkColumns.has('processing_state')) {
 		await runSchemaStatement(env, "ALTER TABLE bookmarks ADD COLUMN processing_state TEXT NOT NULL DEFAULT 'ready'");
@@ -206,6 +210,7 @@ export async function ensureMcpSchema(env: StorageEnv): Promise<void> {
 	);
 
 	await runSchemaStatement(env, 'CREATE INDEX IF NOT EXISTS idx_bookmarks_source_id ON bookmarks(source_id)');
+	await runSchemaStatement(env, 'CREATE UNIQUE INDEX IF NOT EXISTS idx_bookmarks_source_entry_identity ON bookmarks(source_id, source_entry_id) WHERE source_id IS NOT NULL AND source_entry_id IS NOT NULL');
 	await runSchemaStatement(env, 'CREATE INDEX IF NOT EXISTS idx_bookmarks_processing_state ON bookmarks(processing_state)');
 	await runSchemaStatement(env, 'CREATE INDEX IF NOT EXISTS idx_account_settings_user_id ON account_settings(user_id)');
 	await runSchemaStatement(env, 'CREATE INDEX IF NOT EXISTS idx_sources_user_kind_status ON sources(user_id, kind, status)');

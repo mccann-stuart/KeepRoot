@@ -78,6 +78,7 @@ describe('source-sync', () => {
 					<item>
 						<title>Full Feed Article</title>
 						<link>https://example.com/full-article</link>
+						<guid isPermaLink="false">stratechery-post-1</guid>
 						<description>Two-line teaser only.</description>
 						<content:encoded><![CDATA[
 							<h2>Full article heading</h2>
@@ -99,13 +100,17 @@ describe('source-sync', () => {
 		expect(payload).toEqual(
 			expect.objectContaining({
 				markdownData: expect.stringContaining('Second complete paragraph from the paid feed.'),
+				sourceEntryId: 'stratechery-post-1',
 				sourceId: 'source-full-content',
 				tags: ['source: Stratechery'],
 				textContent: expect.stringContaining('First complete paragraph from the paid feed.'),
 			}),
 		);
 		expect(reason).toBe('source_sync');
-		expect(options).toEqual({ appendTags: true });
+		expect(options).toEqual({
+			appendTags: true,
+			skipInboxForExisting: true,
+		});
 		expect(payload.markdownData).not.toBe('Two-line teaser only.');
 	});
 
