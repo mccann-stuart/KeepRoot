@@ -191,6 +191,22 @@ async function bootDashboard(options?: {
 	return { fetchSpy };
 }
 
+describe('dashboard extension downloads', () => {
+	beforeEach(() => {
+		document.body.innerHTML = bodyMarkup;
+	});
+
+	it('links to the Chrome and Safari bundles served by the Worker', () => {
+		const chromeDownload = document.getElementById('download-chrome-extension') as HTMLAnchorElement;
+		const safariDownload = document.getElementById('download-safari-extension') as HTMLAnchorElement;
+
+		expect(chromeDownload.getAttribute('href')).toBe('/downloads/keeproot-chrome.zip');
+		expect(chromeDownload.getAttribute('download')).toBe('keeproot-chrome.zip');
+		expect(safariDownload.getAttribute('href')).toBe('/downloads/keeproot-safari.zip');
+		expect(safariDownload.getAttribute('download')).toBe('keeproot-safari.zip');
+	});
+});
+
 describe('dashboard login', () => {
 	beforeEach(() => {
 		vi.restoreAllMocks();

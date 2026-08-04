@@ -15,6 +15,7 @@
     "archive:safari": "npm run archive:safari:macos",
     "archive:safari:ios": "npm run build:safari && SAFARI_PLATFORM=ios node archive-safari.js",
     "archive:safari:macos": "npm run build:safari && SAFARI_PLATFORM=macos node archive-safari.js",
+    "package:downloads": "npm run build:safari && node package-downloads.js",
     "watch": "node build.js --watch",
     "test": "vitest run"
   },
