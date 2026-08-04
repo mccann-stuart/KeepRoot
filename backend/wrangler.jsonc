@@ -20,6 +20,11 @@
 			"./dashboard/src"
 		]
 	},
+	"triggers": {
+		"crons": [
+			"0 */2 * * *"
+		]
+	},
 	/**
 	 * Smart Placement
 	 * https://developers.cloudflare.com/workers/configuration/smart-placement/#smart-placement
