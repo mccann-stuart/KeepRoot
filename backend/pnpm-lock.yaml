@@ -25,7 +25,7 @@ importers:
         version: 13.3.2
       agents:
         specifier: 0.20.1
-        version: 0.20.1(@babel/core@8.0.1)(@babel/runtime@7.29.7)(@cloudflare/workers-types@5.20260731.1)(@modelcontextprotocol/client@2.0.0)(@modelcontextprotocol/sdk@1.30.0(@cfworker/json-schema@4.1.1)(supports-color@10.2.2)(zod@4.4.3))(@modelcontextprotocol/server@2.0.0)(react@19.2.8)(rolldown@1.2.1)(vite@8.2.0(@types/node@25.9.5)(esbuild@0.28.1)(yaml@2.9.0))(zod@4.4.3)
+        version: 0.20.1(@babel/core@8.0.1)(@babel/runtime@7.29.7)(@cloudflare/workers-types@5.20260731.1)(@modelcontextprotocol/client@2.0.0)(@modelcontextprotocol/sdk@1.30.0(@cfworker/json-schema@4.1.1)(zod@4.4.3))(@modelcontextprotocol/server@2.0.0)(react@19.2.8)(rolldown@1.2.1)(vite@8.2.0(@types/node@25.9.5)(esbuild@0.28.1)(yaml@2.9.0))(zod@4.4.3)
       dompurify:
         specifier: ^3.4.12
         version: 3.4.12
@@ -38,6 +38,9 @@ importers:
       marked:
         specifier: ^16.3.0
         version: 16.4.2
+      mitata:
+        specifier: ^1.0.34
+        version: 1.0.34
       pdfjs-dist:
         specifier: ^5.5.207
         version: 5.7.284
@@ -56,7 +59,7 @@ importers:
     devDependencies:
       '@cloudflare/vitest-pool-workers':
         specifier: ^0.19.1
-        version: 0.19.1(@cloudflare/workers-types@5.20260731.1)(@vitest/runner@4.1.10)(@vitest/snapshot@4.1.10)(vitest@4.1.10(@types/node@25.9.5)(jsdom@26.1.0(supports-color@10.2.2))(vite@8.2.0(@types/node@25.9.5)(esbuild@0.28.1)(yaml@2.9.0)))
+        version: 0.19.1(@cloudflare/workers-types@5.20260731.1)(@vitest/runner@4.1.10)(@vitest/snapshot@4.1.10)(vitest@4.1.10(@types/node@25.9.5)(jsdom@26.1.0)(vite@8.2.0(@types/node@25.9.5)(esbuild@0.28.1)(yaml@2.9.0)))
       '@types/node':
         specifier: ^25.4.0
         version: 25.9.5
@@ -68,13 +71,13 @@ importers:
         version: 0.28.1
       jsdom:
         specifier: ^26.1.0
-        version: 26.1.0(supports-color@10.2.2)
+        version: 26.1.0
       typescript:
         specifier: ^5.5.2
         version: 5.9.3
       vitest:
         specifier: ^4.1.10
-        version: 4.1.10(@types/node@25.9.5)(jsdom@26.1.0(supports-color@10.2.2))(vite@8.2.0(@types/node@25.9.5)(esbuild@0.28.1)(yaml@2.9.0))
+        version: 4.1.10(@types/node@25.9.5)(jsdom@26.1.0)(vite@8.2.0(@types/node@25.9.5)(esbuild@0.28.1)(yaml@2.9.0))
       wrangler:
         specifier: 4.116.0
         version: 4.116.0(@cloudflare/workers-types@5.20260731.1)
@@ -1638,6 +1641,9 @@ packages:
     engines: {node: '>=22.0.0'}
     hasBin: true
 
+  mitata@1.0.34:
+    resolution: {integrity: sha512-Mc3zrtNBKIMeHSCQ0XqRLo1vbdIx1wvFV9c8NJAiyho6AjNfMY8bVhbS12bwciUdd1t4rj8099CH3N3NFahaUA==}
+
   ms@2.1.3:
     resolution: {integrity: sha512-6FlzubTLZG3J2a/NVCAleEhjzq5oxgHyaCU9yYXvcLsvoVaHJq/s5xXI6/XXP6tz7R9xAOtHnSO/tXtF3WRTlA==}
 
@@ -2333,14 +2339,14 @@ snapshots:
     optionalDependencies:
       workerd: 1.20260730.1
 
-  '@cloudflare/vitest-pool-workers@0.19.1(@cloudflare/workers-types@5.20260731.1)(@vitest/runner@4.1.10)(@vitest/snapshot@4.1.10)(vitest@4.1.10(@types/node@25.9.5)(jsdom@26.1.0(supports-color@10.2.2))(vite@8.2.0(@types/node@25.9.5)(esbuild@0.28.1)(yaml@2.9.0)))':
+  '@cloudflare/vitest-pool-workers@0.19.1(@cloudflare/workers-types@5.20260731.1)(@vitest/runner@4.1.10)(@vitest/snapshot@4.1.10)(vitest@4.1.10(@types/node@25.9.5)(jsdom@26.1.0)(vite@8.2.0(@types/node@25.9.5)(esbuild@0.28.1)(yaml@2.9.0)))':
     dependencies:
       '@vitest/runner': 4.1.10
       '@vitest/snapshot': 4.1.10
       cjs-module-lexer: 1.2.3
       esbuild: 0.28.1
       miniflare: 4.20260730.0
-      vitest: 4.1.10(@types/node@25.9.5)(jsdom@26.1.0(supports-color@10.2.2))(vite@8.2.0(@types/node@25.9.5)(esbuild@0.28.1)(yaml@2.9.0))
+      vitest: 4.1.10(@types/node@25.9.5)(jsdom@26.1.0)(vite@8.2.0(@types/node@25.9.5)(esbuild@0.28.1)(yaml@2.9.0))
       wrangler: 4.116.0(@cloudflare/workers-types@5.20260731.1)
       zod: 3.25.76
     transitivePeerDependencies:
@@ -2639,7 +2645,7 @@ snapshots:
     dependencies:
       zod: 4.4.3
 
-  '@modelcontextprotocol/sdk@1.30.0(@cfworker/json-schema@4.1.1)(supports-color@10.2.2)(zod@4.4.3)':
+  '@modelcontextprotocol/sdk@1.30.0(@cfworker/json-schema@4.1.1)(zod@4.4.3)':
     dependencies:
       '@hono/node-server': 2.0.12(hono@4.12.32)
       ajv: 8.20.0
@@ -2649,8 +2655,8 @@ snapshots:
       cross-spawn: 7.0.6
       eventsource: 3.0.7
       eventsource-parser: 3.1.0
-      express: 5.2.1(supports-color@10.2.2)
-      express-rate-limit: 8.6.1(express@5.2.1(supports-color@10.2.2))(supports-color@10.2.2)
+      express: 5.2.1
+      express-rate-limit: 8.6.1(express@5.2.1)
       hono: 4.12.32
       jose: 6.2.5
       json-schema-typed: 8.0.2
@@ -2995,12 +3001,12 @@ snapshots:
 
   agent-base@7.1.4: {}
 
-  agents@0.20.1(@babel/core@8.0.1)(@babel/runtime@7.29.7)(@cloudflare/workers-types@5.20260731.1)(@modelcontextprotocol/client@2.0.0)(@modelcontextprotocol/sdk@1.30.0(@cfworker/json-schema@4.1.1)(supports-color@10.2.2)(zod@4.4.3))(@modelcontextprotocol/server@2.0.0)(react@19.2.8)(rolldown@1.2.1)(vite@8.2.0(@types/node@25.9.5)(esbuild@0.28.1)(yaml@2.9.0))(zod@4.4.3):
+  agents@0.20.1(@babel/core@8.0.1)(@babel/runtime@7.29.7)(@cloudflare/workers-types@5.20260731.1)(@modelcontextprotocol/client@2.0.0)(@modelcontextprotocol/sdk@1.30.0(@cfworker/json-schema@4.1.1)(zod@4.4.3))(@modelcontextprotocol/server@2.0.0)(react@19.2.8)(rolldown@1.2.1)(vite@8.2.0(@types/node@25.9.5)(esbuild@0.28.1)(yaml@2.9.0))(zod@4.4.3):
     dependencies:
       '@babel/plugin-proposal-decorators': 8.0.2(@babel/core@8.0.1)
       '@cfworker/json-schema': 4.1.1
       '@modelcontextprotocol/client': 2.0.0
-      '@modelcontextprotocol/sdk': 1.30.0(@cfworker/json-schema@4.1.1)(supports-color@10.2.2)(zod@4.4.3)
+      '@modelcontextprotocol/sdk': 1.30.0(@cfworker/json-schema@4.1.1)(zod@4.4.3)
       '@modelcontextprotocol/server': 2.0.0
       '@rolldown/plugin-babel': 0.2.3(@babel/core@8.0.1)(@babel/runtime@7.29.7)(rolldown@1.2.1)(vite@8.2.0(@types/node@25.9.5)(esbuild@0.28.1)(yaml@2.9.0))
       cron-schedule: 6.0.0
@@ -3051,11 +3057,11 @@ snapshots:
 
   blake3-wasm@2.1.5: {}
 
-  body-parser@2.3.0(supports-color@10.2.2):
+  body-parser@2.3.0:
     dependencies:
       bytes: 3.1.2
       content-type: 2.0.0
-      debug: 4.4.3(supports-color@10.2.2)
+      debug: 4.4.3
       http-errors: 2.0.1
       iconv-lite: 0.7.3
       on-finished: 2.4.1
@@ -3150,11 +3156,9 @@ snapshots:
       whatwg-mimetype: 4.0.0
       whatwg-url: 14.2.0
 
-  debug@4.4.3(supports-color@10.2.2):
+  debug@4.4.3:
     dependencies:
       ms: 2.1.3
-    optionalDependencies:
-      supports-color: 10.2.2
 
   decimal.js@10.6.0: {}
 
@@ -3287,28 +3291,28 @@ snapshots:
 
   expect-type@1.4.0: {}
 
-  express-rate-limit@8.6.1(express@5.2.1(supports-color@10.2.2))(supports-color@10.2.2):
+  express-rate-limit@8.6.1(express@5.2.1):
     dependencies:
-      debug: 4.4.3(supports-color@10.2.2)
-      express: 5.2.1(supports-color@10.2.2)
+      debug: 4.4.3
+      express: 5.2.1
       ip-address: 10.4.0
     transitivePeerDependencies:
       - supports-color
 
-  express@5.2.1(supports-color@10.2.2):
+  express@5.2.1:
     dependencies:
       accepts: 2.0.0
-      body-parser: 2.3.0(supports-color@10.2.2)
+      body-parser: 2.3.0
       content-disposition: 1.1.0
       content-type: 1.0.5
       cookie: 0.7.2
       cookie-signature: 1.2.2
-      debug: 4.4.3(supports-color@10.2.2)
+      debug: 4.4.3
       depd: 2.0.0
       encodeurl: 2.0.0
       escape-html: 1.0.3
       etag: 1.8.1
-      finalhandler: 2.1.1(supports-color@10.2.2)
+      finalhandler: 2.1.1
       fresh: 2.0.0
       http-errors: 2.0.1
       merge-descriptors: 2.0.0
@@ -3319,9 +3323,9 @@ snapshots:
       proxy-addr: 2.0.7
       qs: 6.15.3
       range-parser: 1.3.0
-      router: 2.2.0(supports-color@10.2.2)
-      send: 1.2.1(supports-color@10.2.2)
-      serve-static: 2.2.1(supports-color@10.2.2)
+      router: 2.2.0
+      send: 1.2.1
+      serve-static: 2.2.1
       statuses: 2.0.2
       type-is: 2.1.0
       vary: 1.1.2
@@ -3350,9 +3354,9 @@ snapshots:
     optionalDependencies:
       picomatch: 4.0.5
 
-  finalhandler@2.1.1(supports-color@10.2.2):
+  finalhandler@2.1.1:
     dependencies:
-      debug: 4.4.3(supports-color@10.2.2)
+      debug: 4.4.3
       encodeurl: 2.0.0
       escape-html: 1.0.3
       on-finished: 2.4.1
@@ -3425,17 +3429,17 @@ snapshots:
       statuses: 2.0.2
       toidentifier: 1.0.1
 
-  http-proxy-agent@7.0.2(supports-color@10.2.2):
+  http-proxy-agent@7.0.2:
     dependencies:
       agent-base: 7.1.4
-      debug: 4.4.3(supports-color@10.2.2)
+      debug: 4.4.3
     transitivePeerDependencies:
       - supports-color
 
-  https-proxy-agent@7.0.6(supports-color@10.2.2):
+  https-proxy-agent@7.0.6:
     dependencies:
       agent-base: 7.1.4
-      debug: 4.4.3(supports-color@10.2.2)
+      debug: 4.4.3
     transitivePeerDependencies:
       - supports-color
 
@@ -3469,14 +3473,14 @@ snapshots:
 
   js-tokens@10.0.0: {}
 
-  jsdom@26.1.0(supports-color@10.2.2):
+  jsdom@26.1.0:
     dependencies:
       cssstyle: 4.6.0
       data-urls: 5.0.0
       decimal.js: 10.6.0
       html-encoding-sniffer: 4.0.0
-      http-proxy-agent: 7.0.2(supports-color@10.2.2)
-      https-proxy-agent: 7.0.6(supports-color@10.2.2)
+      http-proxy-agent: 7.0.2
+      https-proxy-agent: 7.0.6
       is-potential-custom-element-name: 1.0.1
       nwsapi: 2.2.24
       parse5: 7.3.0
@@ -3610,6 +3614,8 @@ snapshots:
       - bufferutil
       - utf-8-validate
 
+  mitata@1.0.34: {}
+
   ms@2.1.3: {}
 
   nanoid@3.3.16: {}
@@ -3739,9 +3745,9 @@ snapshots:
       '@rolldown/binding-win32-arm64-msvc': 1.2.1
       '@rolldown/binding-win32-x64-msvc': 1.2.1
 
-  router@2.2.0(supports-color@10.2.2):
+  router@2.2.0:
     dependencies:
-      debug: 4.4.3(supports-color@10.2.2)
+      debug: 4.4.3
       depd: 2.0.0
       is-promise: 4.0.0
       parseurl: 1.3.3
@@ -3759,9 +3765,9 @@ snapshots:
 
   semver@7.8.5: {}
 
-  send@1.2.1(supports-color@10.2.2):
+  send@1.2.1:
     dependencies:
-      debug: 4.4.3(supports-color@10.2.2)
+      debug: 4.4.3
       encodeurl: 2.0.0
       escape-html: 1.0.3
       etag: 1.8.1
@@ -3775,12 +3781,12 @@ snapshots:
     transitivePeerDependencies:
       - supports-color
 
-  serve-static@2.2.1(supports-color@10.2.2):
+  serve-static@2.2.1:
     dependencies:
       encodeurl: 2.0.0
       escape-html: 1.0.3
       parseurl: 1.3.3
-      send: 1.2.1(supports-color@10.2.2)
+      send: 1.2.1
     transitivePeerDependencies:
       - supports-color
 
@@ -3965,7 +3971,7 @@ snapshots:
       fsevents: 2.3.3
       yaml: 2.9.0
 
-  vitest@4.1.10(@types/node@25.9.5)(jsdom@26.1.0(supports-color@10.2.2))(vite@8.2.0(@types/node@25.9.5)(esbuild@0.28.1)(yaml@2.9.0)):
+  vitest@4.1.10(@types/node@25.9.5)(jsdom@26.1.0)(vite@8.2.0(@types/node@25.9.5)(esbuild@0.28.1)(yaml@2.9.0)):
     dependencies:
       '@vitest/expect': 4.1.10
       '@vitest/mocker': 4.1.10(vite@8.2.0(@types/node@25.9.5)(esbuild@0.28.1)(yaml@2.9.0))
@@ -3989,7 +3995,7 @@ snapshots:
       why-is-node-running: 2.3.0
     optionalDependencies:
       '@types/node': 25.9.5
-      jsdom: 26.1.0(supports-color@10.2.2)
+      jsdom: 26.1.0
     transitivePeerDependencies:
       - msw
 
