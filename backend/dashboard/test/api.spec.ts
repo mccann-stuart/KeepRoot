@@ -20,6 +20,18 @@ describe('KeepRootApi', () => {
 		}));
 		const headers = fetchSpy.mock.calls[0][1].headers as Headers;
 		expect(headers.get('Authorization')).toBe('Bearer token-123');
+		expect(fetchSpy.mock.calls[0][1].credentials).toBe('same-origin');
+	});
+
+	it('falls back to the same-origin session cookie when no bearer token is in memory', async () => {
+		fetchSpy.mockResolvedValue(new Response(JSON.stringify({ keys: [] }), { status: 200 }));
+		const cookieApi = new KeepRootApi(() => null);
+
+		await cookieApi.listBookmarks();
+
+		const request = fetchSpy.mock.calls[0][1];
+		expect(request.credentials).toBe('same-origin');
+		expect((request.headers as Headers).get('Authorization')).toBeNull();
 	});
 
 	it('surfaces API errors with status codes', async () => {

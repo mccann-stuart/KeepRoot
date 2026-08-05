@@ -1642,7 +1642,21 @@ async function init() {
 	hydrateInitialUI();
 	state.secret = loadSessionToken();
 
-	if (state.secret) {
+	if (!state.secret) {
+		try {
+			await fetchAccount();
+		} catch (error) {
+			if (!(error instanceof ApiError && error.status === 401)) {
+				showToast(error instanceof Error ? error.message : 'Failed to restore session', 'error');
+			}
+			showLogin();
+			switchView('empty');
+			await registerServiceWorker();
+			return;
+		}
+	}
+
+	if (state.secret || state.account) {
 		showApp();
 		switchView('inbox', 'inbox', null);
 		await refreshData();

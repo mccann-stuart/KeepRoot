@@ -54,6 +54,7 @@ async function bootDashboard(options?: {
 	account?: Record<string, unknown>;
 	apiKeys?: Array<Record<string, unknown>>;
 	beforeImport?: () => void;
+	cookieSession?: boolean;
 	handleFetch?: (url: string, method: string, init?: RequestInit) => Response | Promise<Response> | undefined;
 	rememberedUsername?: string;
 	sessionToken?: string | null;
@@ -133,6 +134,9 @@ async function bootDashboard(options?: {
 		}
 
 		if (url.endsWith('/account') && method === 'GET') {
+			if (!window.sessionStorage.getItem('keeproot_secret') && !options?.cookieSession) {
+				return jsonResponse({ error: 'Unauthorized' }, 401);
+			}
 			return jsonResponse(options?.account ?? {
 				account: {
 					displayName: 'Test User',
@@ -220,6 +224,19 @@ describe('dashboard login', () => {
 
 		expect((document.getElementById('username-input') as HTMLInputElement).value).toBe('alice');
 		expect((document.getElementById('remember-username-input') as HTMLInputElement).checked).toBe(true);
+	});
+
+	it('restores a seven-day cookie session after browser session storage is lost', async () => {
+		const { fetchSpy } = await bootDashboard({
+			cookieSession: true,
+			sessionToken: null,
+		});
+
+		expect(document.getElementById('app')?.classList.contains('is-hidden')).toBe(false);
+		const accountCall = fetchSpy.mock.calls.find(([input]) => String(input).endsWith('/account'));
+		expect(accountCall).toBeDefined();
+		expect((accountCall?.[1]?.headers as Headers).get('Authorization')).toBeNull();
+		expect(accountCall?.[1]?.credentials).toBe('same-origin');
 	});
 
 	it('remembers the trimmed username after a successful login', async () => {

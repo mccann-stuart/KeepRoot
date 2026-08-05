@@ -1,4 +1,6 @@
-import { parseStringArray, type AuthenticatedUser, type StorageEnv } from './storage';
+import { parseStringArray, SESSION_TTL_SECONDS, type AuthenticatedUser, type StorageEnv } from './storage';
+
+export const DASHBOARD_SESSION_COOKIE_NAME = 'keeproot_session';
 
 export const corsHeaders = {
 	'Access-Control-Allow-Methods': 'GET, POST, PATCH, DELETE, OPTIONS',
@@ -16,6 +18,11 @@ export interface RouteContext<Env extends StorageEnv = StorageEnv> {
 
 export interface ProtectedRouteContext<Env extends StorageEnv = StorageEnv> extends RouteContext<Env> {
 	authUser: AuthenticatedUser;
+}
+
+export interface RequestAuthToken {
+	source: 'bearer' | 'cookie';
+	token: string;
 }
 
 const EXTENSION_ORIGIN_PROTOCOLS = new Set([
@@ -52,6 +59,76 @@ export function createRouteContext<Env extends StorageEnv>(request: Request, env
 		rpID: url.hostname,
 		url,
 	};
+}
+
+function getCookie(request: Request, name: string): string | null {
+	const cookieHeader = request.headers.get('Cookie');
+	if (!cookieHeader) {
+		return null;
+	}
+
+	for (const part of cookieHeader.split(';')) {
+		const separatorIndex = part.indexOf('=');
+		if (separatorIndex < 0 || part.slice(0, separatorIndex).trim() !== name) {
+			continue;
+		}
+
+		const value = part.slice(separatorIndex + 1).trim();
+		return value || null;
+	}
+
+	return null;
+}
+
+function isCookieAuthenticatedRequestAllowed(request: Request): boolean {
+	if (request.method === 'GET' || request.method === 'HEAD') {
+		return true;
+	}
+
+	return request.headers.get('Origin') === new URL(request.url).origin;
+}
+
+export function getRequestAuthToken(request: Request, allowDashboardCookie = true): RequestAuthToken | null {
+	const authorization = request.headers.get('Authorization');
+	if (authorization?.startsWith('Bearer ')) {
+		const token = authorization.slice(7).trim();
+		return token ? { source: 'bearer', token } : null;
+	}
+
+	if (!allowDashboardCookie || !isCookieAuthenticatedRequestAllowed(request)) {
+		return null;
+	}
+
+	const token = getCookie(request, DASHBOARD_SESSION_COOKIE_NAME);
+	return token ? { source: 'cookie', token } : null;
+}
+
+function dashboardSessionCookieAttributes(request: Request): string[] {
+	const attributes = [
+		'HttpOnly',
+		'Path=/',
+		'SameSite=Strict',
+	];
+	if (new URL(request.url).protocol === 'https:') {
+		attributes.push('Secure');
+	}
+	return attributes;
+}
+
+export function createDashboardSessionCookie(request: Request, token: string): string {
+	return [
+		`${DASHBOARD_SESSION_COOKIE_NAME}=${token}`,
+		`Max-Age=${SESSION_TTL_SECONDS}`,
+		...dashboardSessionCookieAttributes(request),
+	].join('; ');
+}
+
+export function clearDashboardSessionCookie(request: Request): string {
+	return [
+		`${DASHBOARD_SESSION_COOKIE_NAME}=`,
+		'Max-Age=0',
+		...dashboardSessionCookieAttributes(request),
+	].join('; ');
 }
 
 export function isAllowedRequestOrigin(origin: string, requestUrlOrigin: string, env?: StorageEnv): boolean {

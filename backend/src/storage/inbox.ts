@@ -101,8 +101,10 @@ export async function listInbox(env: StorageEnv, userId: string, options: Pagina
 	const hasMore = result.results.length > limit;
 	const rows = hasMore ? result.results.slice(0, limit) : result.results;
 
-	return {
-		entries: rows.map((row) => compactObject({
+	const entries = new Array(rows.length);
+	let i = 0;
+	for (const row of rows) {
+		entries[i++] = compactObject({
 			createdAt: row.created_at,
 			id: row.id,
 			item: {
@@ -123,7 +125,11 @@ export async function listInbox(env: StorageEnv, userId: string, options: Pagina
 				})
 				: null,
 			state: row.state,
-		})),
+		});
+	}
+
+	return {
+		entries,
 		nextCursor: hasMore ? String(offset + limit) : null,
 	};
 }

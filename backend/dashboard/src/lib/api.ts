@@ -29,15 +29,15 @@ export class KeepRootApi {
 		}
 		if (requiresAuth) {
 			const token = this.getToken();
-			if (!token) {
-				throw new ApiError('Unauthorized', 401);
+			if (token) {
+				headers.set('Authorization', `Bearer ${token}`);
 			}
-			headers.set('Authorization', `Bearer ${token}`);
 		}
 
 		const response = await fetch(endpoint, {
 			...options,
 			body: options.bodyJson !== undefined ? JSON.stringify(options.bodyJson) : options.body,
+			credentials: 'same-origin',
 			headers,
 		});
 
@@ -101,12 +101,9 @@ export class KeepRootApi {
 		}
 
 		const token = this.getToken();
-		if (!token) {
-			throw new ApiError('Unauthorized', 401);
-		}
-
 		const response = await fetch(path, {
-			headers: { Authorization: `Bearer ${token}` },
+			credentials: 'same-origin',
+			headers: token ? { Authorization: `Bearer ${token}` } : undefined,
 		});
 		if (!response.ok) {
 			const payload = await response.json().catch(() => ({} as { error?: string }));
