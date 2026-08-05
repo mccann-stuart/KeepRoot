@@ -4,7 +4,7 @@ import { processIngestJob, type IngestJob } from './ingest/jobs';
 import { syncAllActiveSources } from './ingest/source-sync';
 import { buildKeepRootMcpServer } from './mcp/server';
 import { assertOrganizationSchemaReady, authenticateBearerToken, listActivePollableSources, SchemaCompatibilityError, type StorageEnv } from './storage';
-import { appendVaryHeader, corsHeaders, createRouteContext, enforceRateLimit, errorResponse, isProtectedApiPath, resolveCorsOrigin, type ProtectedRouteContext } from './http';
+import { appendVaryHeader, corsHeaders, createRouteContext, enforceRateLimit, errorResponse, getRequestAuthToken, isProtectedApiPath, resolveCorsOrigin, type ProtectedRouteContext } from './http';
 import { handleAuthRoute, handleProtectedAuthRoute } from './routes/auth';
 import { handleAccountRoute } from './routes/account';
 import { handleApiKeyRoute } from './routes/api-keys';
@@ -141,9 +141,8 @@ export default {
 		if (authRateLimitResponse) {
 			response = authRateLimitResponse;
 		} else if (context.pathname === '/mcp') {
-			const authHeader = request.headers.get('Authorization');
-			const token = authHeader?.startsWith('Bearer ') ? authHeader.slice(7) : null;
-			const authUser = token ? await authenticateBearerToken(env, token) : null;
+			const requestAuth = getRequestAuthToken(request, false);
+			const authUser = requestAuth ? await authenticateBearerToken(env, requestAuth.token) : null;
 
 			if (!authUser) {
 				response = errorResponse('Unauthorized', 401);
@@ -187,9 +186,8 @@ export default {
 				} else if (!isProtectedApiPath(context.pathname)) {
 					response = errorResponse('Not found', 404);
 				} else {
-					const authHeader = request.headers.get('Authorization');
-					const token = authHeader?.startsWith('Bearer ') ? authHeader.slice(7) : null;
-					const authUser = token ? await authenticateBearerToken(env, token) : null;
+					const requestAuth = getRequestAuthToken(request);
+					const authUser = requestAuth ? await authenticateBearerToken(env, requestAuth.token) : null;
 
 					if (!authUser) {
 						response = errorResponse('Unauthorized', 401);
