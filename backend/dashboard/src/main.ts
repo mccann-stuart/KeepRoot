@@ -664,8 +664,17 @@ async function markBookmarkAsRead(bookmarkId: string) {
 }
 
 async function loadBookmark(bookmarkId: string) {
+	const previousBookmarkId = state.currentBookmarkId;
 	state.currentBookmarkId = bookmarkId;
 	switchView('content');
+
+	if (previousBookmarkId && previousBookmarkId !== bookmarkId) {
+		void markBookmarkAsRead(previousBookmarkId)
+			.then(() => renderBookmarkLists())
+			.catch((error) => {
+				showToast(error instanceof Error ? error.message : 'Failed to update bookmark', 'error');
+			});
+	}
 
 	dom.markdownContainer.innerHTML = '<div class="panel"><p class="muted-copy">Loading bookmark…</p></div>';
 	dom.viewTitle.textContent = 'Loading…';
@@ -721,12 +730,6 @@ async function loadBookmark(bookmarkId: string) {
 		await loadProtectedMedia(fragment, api);
 		dom.markdownContainer.appendChild(fragment);
 		renderBookmarkLists();
-
-		if (!bookmark.metadata?.isRead) {
-			void markBookmarkAsRead(bookmarkId).catch((error) => {
-				showToast(error instanceof Error ? error.message : 'Failed to update bookmark', 'error');
-			});
-		}
 	} catch (error) {
 		dom.markdownContainer.innerHTML = '<div class="panel"><p class="muted-copy">Failed to load bookmark content.</p></div>';
 		showToast(error instanceof Error ? error.message : 'Failed to load bookmark', 'error');
