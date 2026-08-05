@@ -542,43 +542,49 @@ describe('dashboard MCP setup view', () => {
 		expect(window.sessionStorage.getItem('keeproot_secret')).toBe('session-secret');
 	});
 
-	it('marks an unread bookmark as read after opening it in the reader', async () => {
-		let bookmarkIsRead = false;
+	it('keeps the active bookmark unread until another bookmark is selected', async () => {
+		const readState = new Map([
+			['bookmark-1', false],
+			['bookmark-2', false],
+		]);
 
 		const { fetchSpy } = await bootDashboard({
 			handleFetch: (url, method, init) => {
 				if (url.endsWith('/bookmarks') && method === 'GET') {
 					return jsonResponse({
-						keys: [{
-							id: 'bookmark-1',
+						keys: ['bookmark-1', 'bookmark-2'].map((id, index) => ({
+							id,
 							metadata: {
 								createdAt: '2026-03-16T10:00:00.000Z',
-								isRead: bookmarkIsRead,
-								title: 'Unread article',
-								url: 'https://example.com/articles/unread',
+								isRead: readState.get(id),
+								title: `Unread article ${index + 1}`,
+								url: `https://example.com/articles/unread-${index + 1}`,
 								wordCount: 400,
 							},
-						}],
+						})),
 					});
 				}
 
-				if (url.endsWith('/bookmarks/bookmark-1') && method === 'GET') {
+				const bookmarkMatch = url.match(/\/bookmarks\/(bookmark-[12])$/);
+				if (bookmarkMatch && method === 'GET') {
+					const id = bookmarkMatch[1];
+					const articleNumber = id === 'bookmark-1' ? 1 : 2;
 					return jsonResponse({
-						id: 'bookmark-1',
-						markdownData: '# Unread article',
+						id,
+						markdownData: `# Unread article ${articleNumber}`,
 						metadata: {
 							createdAt: '2026-03-16T10:00:00.000Z',
-							isRead: bookmarkIsRead,
-							title: 'Unread article',
-							url: 'https://example.com/articles/unread',
+							isRead: readState.get(id),
+							title: `Unread article ${articleNumber}`,
+							url: `https://example.com/articles/unread-${articleNumber}`,
 							wordCount: 400,
 						},
 					});
 				}
 
-				if (url.endsWith('/bookmarks/bookmark-1') && method === 'PATCH') {
+				if (bookmarkMatch && method === 'PATCH') {
 					expect(init?.body).toBe(JSON.stringify({ isRead: true }));
-					bookmarkIsRead = true;
+					readState.set(bookmarkMatch[1], true);
 					return jsonResponse({ message: 'Updated successfully' });
 				}
 
@@ -586,12 +592,27 @@ describe('dashboard MCP setup view', () => {
 			},
 		});
 
-		const bookmarkCard = document.querySelector('.bookmark-card') as HTMLElement | null;
+		const bookmarkCard = document.querySelector<HTMLElement>('[data-bookmark-id="bookmark-1"]');
 		expect(bookmarkCard).not.toBeNull();
 		expect(bookmarkCard?.tabIndex).toBe(0);
-		expect(bookmarkCard?.getAttribute('aria-label')).toBe('Open Unread article');
+		expect(bookmarkCard?.getAttribute('aria-label')).toBe('Open Unread article 1');
 
 		bookmarkCard?.dispatchEvent(new KeyboardEvent('keydown', { bubbles: true, key: 'Enter' }));
+		await flush();
+		await flush();
+		await flush();
+
+		expect(fetchSpy).not.toHaveBeenCalledWith('/bookmarks/bookmark-1', expect.objectContaining({
+			headers: expect.any(Headers),
+			method: 'PATCH',
+		}));
+		expect(readState.get('bookmark-1')).toBe(false);
+		expect((document.getElementById('current-view-title') as HTMLElement).textContent).toBe('Reader');
+		expect((document.getElementById('library-workspace') as HTMLElement).classList.contains('is-hidden')).toBe(false);
+		expect((document.getElementById('inbox-view') as HTMLElement).classList.contains('is-hidden')).toBe(false);
+		expect((document.getElementById('content-view') as HTMLElement).classList.contains('is-hidden')).toBe(false);
+
+		document.querySelector<HTMLElement>('[data-bookmark-id="bookmark-2"]')?.click();
 		await flush();
 		await flush();
 		await flush();
@@ -600,10 +621,12 @@ describe('dashboard MCP setup view', () => {
 			headers: expect.any(Headers),
 			method: 'PATCH',
 		}));
-		expect((document.getElementById('current-view-title') as HTMLElement).textContent).toBe('Reader');
-		expect((document.getElementById('library-workspace') as HTMLElement).classList.contains('is-hidden')).toBe(false);
-		expect((document.getElementById('inbox-view') as HTMLElement).classList.contains('is-hidden')).toBe(false);
-		expect((document.getElementById('content-view') as HTMLElement).classList.contains('is-hidden')).toBe(false);
+		expect(fetchSpy).not.toHaveBeenCalledWith('/bookmarks/bookmark-2', expect.objectContaining({
+			headers: expect.any(Headers),
+			method: 'PATCH',
+		}));
+		expect(readState.get('bookmark-1')).toBe(true);
+		expect(readState.get('bookmark-2')).toBe(false);
 	});
 
 	it('keeps a bookmark visible after pinning by moving it into the pinned panel', async () => {
