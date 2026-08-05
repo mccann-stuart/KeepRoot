@@ -3,7 +3,7 @@ import { DOMParser } from 'linkedom';
 import TurndownService from 'turndown';
 import { saveItemContent } from '../storage/items';
 import { listActivePollableSources, markSourcePollingResult } from '../storage/sources';
-import { validateSafeUrl, type SourceKind, type StorageEnv } from '../storage/shared';
+import { fetchWithRedirects, validateSafeUrl, type SourceKind, type StorageEnv } from '../storage/shared';
 
 interface FeedEntry {
 	content?: string;
@@ -194,66 +194,26 @@ export async function syncSource(
 		throw new Error(errorText);
 	}
 
-	let currentUrl = source.pollUrl;
-	let response: Response | null = null;
-	let redirectCount = 0;
-
-	while (redirectCount < 5) {
-		response = await fetch(currentUrl, {
+	let { response, currentUrl, errorText } = await fetchWithRedirects(
+		source.pollUrl,
+		{
 			headers: {
 				Accept: 'application/rss+xml, application/atom+xml, application/xml, text/xml;q=0.9, */*;q=0.5',
 				'User-Agent': 'KeepRoot/1.0 (+https://keeproot.local)',
 			},
-			redirect: 'manual',
-		});
-
-		if ([301, 302, 303, 307, 308].includes(response.status)) {
-			await response.body?.cancel().catch(() => {});
-			const location = response.headers.get('location');
-			if (!location) {
-				const errorText = 'Redirect missing location header';
-				await markSourcePollingResult(env, {
-					discoveredCount: 0,
-					errorText,
-					id: source.id,
-					runType: 'poll',
-					savedCount: 0,
-					status: 'error',
-				});
-				throw new Error(errorText);
-			}
-			let nextUrl: string;
-			try {
-				nextUrl = new URL(location, currentUrl).toString();
-			} catch {
-				const errorText = 'Invalid redirect location URL';
-				await markSourcePollingResult(env, {
-					discoveredCount: 0,
-					errorText,
-					id: source.id,
-					runType: 'poll',
-					savedCount: 0,
-					status: 'error',
-				});
-				throw new Error(errorText);
-			}
-			if (!(await validateSafeUrl(nextUrl))) {
-				const errorText = 'Unsafe redirect URL';
-				await markSourcePollingResult(env, {
-					discoveredCount: 0,
-					errorText,
-					id: source.id,
-					runType: 'poll',
-					savedCount: 0,
-					status: 'error',
-				});
-				throw new Error(errorText);
-			}
-			currentUrl = nextUrl;
-			redirectCount += 1;
-			continue;
 		}
-		break;
+	);
+
+	if (errorText) {
+		await markSourcePollingResult(env, {
+			discoveredCount: 0,
+			errorText,
+			id: source.id,
+			runType: 'poll',
+			savedCount: 0,
+			status: 'error',
+		});
+		throw new Error(errorText);
 	}
 
 	if (!response || !response.ok) {

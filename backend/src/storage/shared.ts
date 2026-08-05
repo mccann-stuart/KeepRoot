@@ -504,3 +504,50 @@ export async function validateSafeUrl(url: string): Promise<boolean> {
 		return false;
 	}
 }
+
+export interface FetchWithRedirectsResult {
+	response: Response | null;
+	currentUrl: string;
+	errorText?: string;
+}
+
+export async function fetchWithRedirects(
+	url: string,
+	init: RequestInit = {},
+	fetchImpl: typeof fetch = fetch,
+): Promise<FetchWithRedirectsResult> {
+	let currentUrl = url;
+	let response: Response | null = null;
+	let redirectCount = 0;
+
+	const fetchInit = { ...init, redirect: 'manual' as any };
+
+	while (redirectCount < 5) {
+		if (!(await validateSafeUrl(currentUrl))) {
+			return { response: null, currentUrl, errorText: 'Unsafe redirect URL' };
+		}
+
+		response = await fetchImpl(currentUrl, fetchInit);
+
+		if ([301, 302, 303, 307, 308].includes(response.status)) {
+			await response.body?.cancel().catch(() => {
+				// Safely ignore cancellation errors during redirect body cleanup
+			});
+			const location = response.headers.get('location');
+			if (!location) {
+				return { response: null, currentUrl, errorText: 'Redirect missing location header' };
+			}
+			try {
+				currentUrl = new URL(location, currentUrl).toString();
+			} catch {
+				return { response: null, currentUrl, errorText: 'Invalid redirect location URL' };
+			}
+			redirectCount += 1;
+			continue;
+		}
+
+		break;
+	}
+
+	return { response, currentUrl };
+}

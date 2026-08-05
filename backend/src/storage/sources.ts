@@ -1,4 +1,4 @@
-import { compactObject, validateSafeUrl, type SourceKind, type SourceListOptions, type StorageEnv } from './shared';
+import { compactObject, fetchWithRedirects, validateSafeUrl, type SourceKind, type SourceListOptions, type StorageEnv } from './shared';
 
 interface SourceRow {
 	config_json: string;
@@ -140,36 +140,7 @@ async function resolveYouTubePollUrl(identifier: string): Promise<{ normalizedId
 	}
 
 	try {
-		let currentUrl = normalizedUrl;
-		let response: Response | null = null;
-		let redirectCount = 0;
-
-		while (redirectCount < 5) {
-			if (!await validateSafeUrl(currentUrl)) {
-				break;
-			}
-
-			response = await fetch(currentUrl, { redirect: 'manual' });
-
-			if ([301, 302, 303, 307, 308].includes(response.status)) {
-				await response.body?.cancel().catch(() => {
-					// Safely ignore cancellation errors during redirect body cleanup
-				});
-				const location = response.headers.get('location');
-				if (!location) {
-					break;
-				}
-				try {
-					currentUrl = new URL(location, currentUrl).toString();
-				} catch {
-					break;
-				}
-				redirectCount += 1;
-				continue;
-			}
-
-			break;
-		}
+		let { response } = await fetchWithRedirects(normalizedUrl);
 
 		if (response && response.ok) {
 			const html = await response.text();
