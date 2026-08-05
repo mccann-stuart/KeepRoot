@@ -485,7 +485,9 @@ describe('KeepRoot Worker', () => {
 				body: JSON.stringify({ username: 'new-user' }),
 			});
 			const ctx = createExecutionContext();
-			const response = await worker.fetch(request, env, ctx);
+
+			const envWithRegistrationDisabled = { ...env, ALLOW_REGISTRATION: '0' };
+			const response = await worker.fetch(request, envWithRegistrationDisabled, ctx);
 			await waitOnExecutionContext(ctx);
 
 			expect(response.status).toBe(403);

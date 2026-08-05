@@ -627,18 +627,37 @@ async function syncImages(env: StorageEnv, bookmarkId: string, images: BookmarkI
 	const uploadPromises: Promise<void>[] = [];
 	const seenKeys = new Set<string>();
 
+	let chunkPlaceholders: string[] = [];
+	let chunkBindings: any[] = [];
+
 	for (const { image, bytes, imageHash, key } of processedImages) {
 		if (!seenKeys.has(key)) {
 			seenKeys.add(key);
 			uploadPromises.push(putIfMissing(env.KEEPROOT_CONTENT, key, bytes, image.contentType ?? 'application/octet-stream'));
 
-			batchStatements.push(
-				env.KEEPROOT_DB.prepare(
-					`INSERT OR REPLACE INTO bookmark_images (bookmark_id, image_hash, r2_key, width, height, type, created_at)
-					VALUES (?, ?, ?, ?, ?, ?, ?)`,
-				).bind(bookmarkId, imageHash, key, image.width ?? null, image.height ?? null, image.contentType ?? null, createdAt)
-			);
+			chunkPlaceholders.push('(?, ?, ?, ?, ?, ?, ?)');
+			chunkBindings.push(bookmarkId, imageHash, key, image.width ?? null, image.height ?? null, image.contentType ?? null, createdAt);
+
+			if (chunkPlaceholders.length >= 14) {
+				batchStatements.push(
+					env.KEEPROOT_DB.prepare(
+						`INSERT OR REPLACE INTO bookmark_images (bookmark_id, image_hash, r2_key, width, height, type, created_at)
+						VALUES ${chunkPlaceholders.join(', ')}`,
+					).bind(...chunkBindings)
+				);
+				chunkPlaceholders = [];
+				chunkBindings = [];
+			}
 		}
+	}
+
+	if (chunkPlaceholders.length > 0) {
+		batchStatements.push(
+			env.KEEPROOT_DB.prepare(
+				`INSERT OR REPLACE INTO bookmark_images (bookmark_id, image_hash, r2_key, width, height, type, created_at)
+				VALUES ${chunkPlaceholders.join(', ')}`,
+			).bind(...chunkBindings)
+		);
 	}
 
 	await Promise.all([
