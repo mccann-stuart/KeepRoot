@@ -304,7 +304,7 @@ export async function getTableColumnNames(env: StorageEnv, tableName: string): P
 	if (!/^[a-zA-Z0-9_]+$/.test(tableName)) {
 		throw new Error(`Invalid table name: ${tableName}`);
 	}
-	const result = await env.KEEPROOT_DB.prepare(`PRAGMA table_info(${tableName})`).all<D1ColumnInfo>();
+	const result = await env.KEEPROOT_DB.prepare('SELECT name FROM pragma_table_info(?)').bind(tableName).all<D1ColumnInfo>();
 	return new Set(result.results.map((column) => column.name));
 }
 
