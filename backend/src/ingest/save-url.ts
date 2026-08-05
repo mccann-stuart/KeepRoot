@@ -83,7 +83,6 @@ async function extractPdfContent(url: string, bytes: ArrayBuffer, responseTitle?
 	const loadingTask = getDocument({
 		data: new Uint8Array(bytes),
 		disableFontFace: true,
-		isEvalSupported: false,
 		isImageDecoderSupported: false,
 		isOffscreenCanvasSupported: false,
 		useWorkerFetch: false,
