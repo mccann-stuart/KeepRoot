@@ -77,6 +77,13 @@ function envWithRegistrationEnabled(baseEnv: typeof env = env): Omit<typeof env,
 	};
 }
 
+function envWithRegistrationDisabled(): Omit<typeof env, 'ALLOW_REGISTRATION'> & { ALLOW_REGISTRATION: string } {
+	return {
+		...env,
+		ALLOW_REGISTRATION: '0',
+	};
+}
+
 async function execStatements(sql: string, allowExisting = false): Promise<void> {
 	const statements = sql
 		.split(/;\s*\n/g)
@@ -478,28 +485,28 @@ describe('KeepRoot Worker', () => {
 	});
 
 	describe('handleAuthRoute', () => {
-		it('keeps registration disabled unless explicitly enabled', async () => {
+		it('keeps registration disabled when explicitly disabled', async () => {
 			const request = new Request('http://example.com/auth/generate-registration', {
 				method: 'POST',
 				headers: { 'Content-Type': 'application/json' },
 				body: JSON.stringify({ username: 'new-user' }),
 			});
 			const ctx = createExecutionContext();
-			const response = await worker.fetch(request, { ...env, ALLOW_REGISTRATION: '0' } as any, ctx);
+			const response = await worker.fetch(request, envWithRegistrationDisabled(), ctx);
 			await waitOnExecutionContext(ctx);
 
 			expect(response.status).toBe(403);
 			expect(await response.json()).toEqual({ error: 'Registration is disabled' });
 		});
 
-		it('responds with 400 if username is missing during registration generation', async () => {
+		it('enables registration in the standard test environment', async () => {
 			const request = new Request('http://example.com/auth/generate-registration', {
 				method: 'POST',
 				headers: { 'Content-Type': 'application/json' },
 				body: JSON.stringify({}),
 			});
 			const ctx = createExecutionContext();
-			const response = await worker.fetch(request, envWithRegistrationEnabled(), ctx);
+			const response = await worker.fetch(request, env, ctx);
 			await waitOnExecutionContext(ctx);
 
 			expect(response.status).toBe(400);
@@ -885,7 +892,7 @@ describe('KeepRoot Worker', () => {
 				verified: true,
 			});
 
-			const request = new Request('http://example.com/auth/verify-authentication', {
+			const request = new Request('https://example.com/auth/verify-authentication', {
 				method: 'POST',
 				headers: { 'Content-Type': 'application/json' },
 				body: JSON.stringify({ username: 'existing-user', response: { rawId: 'cred-id' } }),
@@ -895,9 +902,47 @@ describe('KeepRoot Worker', () => {
 			await waitOnExecutionContext(ctx);
 
 			expect(response.status).toBe(200);
-			const data = await response.json();
+			const data = await response.json() as { token: string; verified: boolean };
 			expect(data).toHaveProperty('token');
 			expect(data).toHaveProperty('verified', true);
+
+			const setCookie = response.headers.get('Set-Cookie');
+			expect(setCookie).toContain(`keeproot_session=${data.token}`);
+			expect(setCookie).toContain('Max-Age=604800');
+			expect(setCookie).toContain('HttpOnly');
+			expect(setCookie).toContain('SameSite=Strict');
+			expect(setCookie).toContain('Secure');
+
+			const cookie = setCookie!.split(';', 1)[0];
+			const accountContext = createExecutionContext();
+			const accountResponse = await worker.fetch(new Request('https://example.com/account', {
+				headers: { Cookie: cookie },
+			}), env, accountContext);
+			await waitOnExecutionContext(accountContext);
+			expect(accountResponse.status).toBe(200);
+
+			const crossOriginLogoutContext = createExecutionContext();
+			const crossOriginLogoutResponse = await worker.fetch(new Request('https://example.com/auth/logout', {
+				headers: {
+					Cookie: cookie,
+					Origin: 'https://attacker.example',
+				},
+				method: 'POST',
+			}), env, crossOriginLogoutContext);
+			await waitOnExecutionContext(crossOriginLogoutContext);
+			expect(crossOriginLogoutResponse.status).toBe(401);
+
+			const logoutContext = createExecutionContext();
+			const logoutResponse = await worker.fetch(new Request('https://example.com/auth/logout', {
+				headers: {
+					Cookie: cookie,
+					Origin: 'https://example.com',
+				},
+				method: 'POST',
+			}), env, logoutContext);
+			await waitOnExecutionContext(logoutContext);
+			expect(logoutResponse.status).toBe(200);
+			expect(logoutResponse.headers.get('Set-Cookie')).toContain('Max-Age=0');
 		});
 	});
 

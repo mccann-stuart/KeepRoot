@@ -1,8 +1,11 @@
 import { describe, expect, it } from 'vitest';
 import {
+	clearDashboardSessionCookie,
 	corsHeaders,
+	createDashboardSessionCookie,
 	createRouteContext,
 	errorResponse,
+	getRequestAuthToken,
 	jsonResponse,
 	normalizePathname,
 	resolveCorsOrigin,
@@ -10,6 +13,53 @@ import {
 } from '../src/http';
 
 describe('http utilities', () => {
+	describe('dashboard session cookies', () => {
+		it('creates a secure seven-day cookie for HTTPS requests', () => {
+			const request = new Request('https://example.com/auth/verify-authentication');
+
+			expect(createDashboardSessionCookie(request, 'session-token')).toBe(
+				'keeproot_session=session-token; Max-Age=604800; HttpOnly; Path=/; SameSite=Strict; Secure',
+			);
+			expect(clearDashboardSessionCookie(request)).toBe(
+				'keeproot_session=; Max-Age=0; HttpOnly; Path=/; SameSite=Strict; Secure',
+			);
+		});
+
+		it('accepts dashboard cookies for reads and same-origin writes only', () => {
+			const headers = { Cookie: 'other=value; keeproot_session=session-token' };
+
+			expect(getRequestAuthToken(new Request('https://example.com/account', { headers }))).toEqual({
+				source: 'cookie',
+				token: 'session-token',
+			});
+			expect(getRequestAuthToken(new Request('https://example.com/bookmarks', {
+				headers: { ...headers, Origin: 'https://example.com' },
+				method: 'POST',
+			}))).toEqual({
+				source: 'cookie',
+				token: 'session-token',
+			});
+			expect(getRequestAuthToken(new Request('https://example.com/bookmarks', {
+				headers: { ...headers, Origin: 'https://attacker.example' },
+				method: 'POST',
+			}))).toBeNull();
+		});
+
+		it('prefers bearer tokens and can disable cookie authentication', () => {
+			const request = new Request('https://example.com/account', {
+				headers: {
+					Authorization: 'Bearer api-token',
+					Cookie: 'keeproot_session=session-token',
+				},
+			});
+
+			expect(getRequestAuthToken(request)).toEqual({ source: 'bearer', token: 'api-token' });
+			expect(getRequestAuthToken(new Request('https://example.com/account', {
+				headers: { Cookie: 'keeproot_session=session-token' },
+			}), false)).toBeNull();
+		});
+	});
+
 	describe('createRouteContext', () => {
 		it('extracts route context for a standard URL', () => {
 			const request = new Request('https://example.com/path/to/resource');

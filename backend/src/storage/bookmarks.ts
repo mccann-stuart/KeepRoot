@@ -592,15 +592,30 @@ async function syncTags(
 		normalizedTags.push({ normalized, name });
 	}
 
-	for (const tag of normalizedTags) {
+	const CHUNK_SIZE = 50;
+	for (let i = 0; i < normalizedTags.length; i += CHUNK_SIZE) {
+		const chunk = normalizedTags.slice(i, i + CHUNK_SIZE);
+
+		const tagValues: string[] = [];
+		const tagBindings: (string | number)[] = [];
+		const bookmarkTagValues: string[] = [];
+		const bookmarkTagBindings: (string | number)[] = [];
+
+		for (const tag of chunk) {
+			tagValues.push('(?, ?, ?, ?, ?)');
+			tagBindings.push(crypto.randomUUID(), userId, tag.name, tag.normalized, createdAt);
+
+			bookmarkTagValues.push('SELECT ?, id FROM tags WHERE user_id = ? AND normalized_name = ?');
+			bookmarkTagBindings.push(bookmarkId, userId, tag.normalized);
+		}
+
 		batchStatements.push(
 			env.KEEPROOT_DB.prepare(
-				'INSERT OR IGNORE INTO tags (id, user_id, name, normalized_name, created_at) VALUES (?, ?, ?, ?, ?)',
-			).bind(crypto.randomUUID(), userId, tag.name, tag.normalized, createdAt),
+				`INSERT OR IGNORE INTO tags (id, user_id, name, normalized_name, created_at) VALUES ${tagValues.join(', ')}`,
+			).bind(...tagBindings),
 			env.KEEPROOT_DB.prepare(
-				`INSERT OR IGNORE INTO bookmark_tags (bookmark_id, tag_id)
-				 SELECT ?, id FROM tags WHERE user_id = ? AND normalized_name = ?`,
-			).bind(bookmarkId, userId, tag.normalized),
+				`INSERT OR IGNORE INTO bookmark_tags (bookmark_id, tag_id) ${bookmarkTagValues.join(' UNION ALL ')}`,
+			).bind(...bookmarkTagBindings),
 		);
 	}
 
