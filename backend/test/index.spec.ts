@@ -77,6 +77,13 @@ function envWithRegistrationEnabled(baseEnv: typeof env = env): Omit<typeof env,
 	};
 }
 
+function envWithRegistrationDisabled(): Omit<typeof env, 'ALLOW_REGISTRATION'> & { ALLOW_REGISTRATION: string } {
+	return {
+		...env,
+		ALLOW_REGISTRATION: '0',
+	};
+}
+
 async function execStatements(sql: string, allowExisting = false): Promise<void> {
 	const statements = sql
 		.split(/;\s*\n/g)
@@ -478,28 +485,28 @@ describe('KeepRoot Worker', () => {
 	});
 
 	describe('handleAuthRoute', () => {
-		it('keeps registration disabled unless explicitly enabled', async () => {
+		it('keeps registration disabled when explicitly disabled', async () => {
 			const request = new Request('http://example.com/auth/generate-registration', {
 				method: 'POST',
 				headers: { 'Content-Type': 'application/json' },
 				body: JSON.stringify({ username: 'new-user' }),
 			});
 			const ctx = createExecutionContext();
-			const response = await worker.fetch(request, env, ctx);
+			const response = await worker.fetch(request, envWithRegistrationDisabled(), ctx);
 			await waitOnExecutionContext(ctx);
 
 			expect(response.status).toBe(403);
 			expect(await response.json()).toEqual({ error: 'Registration is disabled' });
 		});
 
-		it('responds with 400 if username is missing during registration generation', async () => {
+		it('enables registration in the standard test environment', async () => {
 			const request = new Request('http://example.com/auth/generate-registration', {
 				method: 'POST',
 				headers: { 'Content-Type': 'application/json' },
 				body: JSON.stringify({}),
 			});
 			const ctx = createExecutionContext();
-			const response = await worker.fetch(request, envWithRegistrationEnabled(), ctx);
+			const response = await worker.fetch(request, env, ctx);
 			await waitOnExecutionContext(ctx);
 
 			expect(response.status).toBe(400);
