@@ -32,9 +32,11 @@ describe('organization storage', () => {
                         })
                     } as any;
                 }
-                if (query.includes('PRAGMA table_info')) {
+                if (query.includes('pragma_table_info')) {
                     return {
-                        all: async () => ({ results: [{ name: 'list_id' }] })
+                        bind: (...args: any[]) => ({
+                            all: async () => ({ results: [{ name: 'list_id' }] })
+                        })
                     } as any;
                 }
                 return {} as any;
@@ -52,10 +54,10 @@ describe('organization storage', () => {
                         })
                     } as any;
                 }
-                if (query.includes('PRAGMA table_info')) {
+                if (query.includes('pragma_table_info')) {
                     return {
-                        all: async () => ({
-                            results: [
+                        bind: (...args: any[]) => ({
+                            all: async () => ({ results: [
                                 { name: 'list_id' },
                                 { name: 'pinned' },
                                 { name: 'sort_order' },
@@ -66,7 +68,7 @@ describe('organization storage', () => {
                                 { name: 'processing_state' },
                                 { name: 'search_updated_at' },
                                 { name: 'embedding_updated_at' },
-                            ]
+                            ] })
                         })
                     } as any;
                 }
@@ -91,10 +93,10 @@ describe('organization storage', () => {
                         })
                     } as any;
                 }
-                if (query.includes('PRAGMA table_info')) {
+                if (query.includes('pragma_table_info')) {
                     return {
-                        all: async () => ({
-                            results: [
+                        bind: (...args: any[]) => ({
+                            all: async () => ({ results: [
                                 { name: 'list_id' },
                                 { name: 'pinned' },
                                 { name: 'sort_order' },
@@ -105,7 +107,7 @@ describe('organization storage', () => {
                                 { name: 'processing_state' },
                                 { name: 'search_updated_at' },
                                 { name: 'embedding_updated_at' },
-                            ]
+                            ] })
                         })
                     } as any;
                 }
@@ -129,10 +131,10 @@ describe('organization storage', () => {
                         })
                     } as any;
                 }
-                if (query.includes('PRAGMA table_info')) {
+                if (query.includes('pragma_table_info')) {
                     return {
-                        all: async () => ({
-                            results: [
+                        bind: (...args: any[]) => ({
+                            all: async () => ({ results: [
                                 { name: 'list_id' },
                                 { name: 'pinned' },
                                 { name: 'sort_order' },
@@ -143,7 +145,7 @@ describe('organization storage', () => {
                                 { name: 'processing_state' },
                                 { name: 'search_updated_at' },
                                 { name: 'embedding_updated_at' },
-                            ]
+                            ] })
                         })
                     } as any;
                 }
