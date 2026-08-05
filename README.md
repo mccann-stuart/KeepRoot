@@ -51,7 +51,7 @@ Main components:
   - **R2 (`KEEPROOT_CONTENT`):** extracted content blobs in `content/*.json`, optional `html/*.html`, and image objects
 
 Authentication modes:
-- **WebAuthn + sessions** for dashboard sign-up/sign-in
+- **WebAuthn + seven-day sessions** for dashboard sign-up/sign-in
 - **API keys** for extension writes and MCP clients
 
 Security notes:
@@ -62,8 +62,9 @@ Security notes:
 - Browser extension API keys are stored in extension-local storage and can be revoked from the dashboard.
 - Registration is disabled unless `ALLOW_REGISTRATION` is exactly `"1"`; the checked-in Worker configuration keeps it off.
 - Authentication requests are rate-limited per connecting IP, while bookmark saves and immediate source/MCP sync work are rate-limited per account.
-- Stored `/images/*` and `/thumbs/*` objects require bearer authentication and ownership of a bookmark that references the object.
+- Stored `/images/*` and `/thumbs/*` objects require authentication and ownership of a bookmark that references the object.
 - Dashboard logout revokes the current server-side session, and settings can revoke every session for the account.
+- Dashboard sessions are retained for seven days in an `HttpOnly`, same-site cookie; JavaScript-readable bearer tokens are not persisted beyond the current browser session.
 - API keys expire one year after creation and expired keys are highlighted in the dashboard.
 
 ---

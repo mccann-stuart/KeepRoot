@@ -885,7 +885,7 @@ describe('KeepRoot Worker', () => {
 				verified: true,
 			});
 
-			const request = new Request('http://example.com/auth/verify-authentication', {
+			const request = new Request('https://example.com/auth/verify-authentication', {
 				method: 'POST',
 				headers: { 'Content-Type': 'application/json' },
 				body: JSON.stringify({ username: 'existing-user', response: { rawId: 'cred-id' } }),
@@ -895,9 +895,47 @@ describe('KeepRoot Worker', () => {
 			await waitOnExecutionContext(ctx);
 
 			expect(response.status).toBe(200);
-			const data = await response.json();
+			const data = await response.json() as { token: string; verified: boolean };
 			expect(data).toHaveProperty('token');
 			expect(data).toHaveProperty('verified', true);
+
+			const setCookie = response.headers.get('Set-Cookie');
+			expect(setCookie).toContain(`keeproot_session=${data.token}`);
+			expect(setCookie).toContain('Max-Age=604800');
+			expect(setCookie).toContain('HttpOnly');
+			expect(setCookie).toContain('SameSite=Strict');
+			expect(setCookie).toContain('Secure');
+
+			const cookie = setCookie!.split(';', 1)[0];
+			const accountContext = createExecutionContext();
+			const accountResponse = await worker.fetch(new Request('https://example.com/account', {
+				headers: { Cookie: cookie },
+			}), env, accountContext);
+			await waitOnExecutionContext(accountContext);
+			expect(accountResponse.status).toBe(200);
+
+			const crossOriginLogoutContext = createExecutionContext();
+			const crossOriginLogoutResponse = await worker.fetch(new Request('https://example.com/auth/logout', {
+				headers: {
+					Cookie: cookie,
+					Origin: 'https://attacker.example',
+				},
+				method: 'POST',
+			}), env, crossOriginLogoutContext);
+			await waitOnExecutionContext(crossOriginLogoutContext);
+			expect(crossOriginLogoutResponse.status).toBe(401);
+
+			const logoutContext = createExecutionContext();
+			const logoutResponse = await worker.fetch(new Request('https://example.com/auth/logout', {
+				headers: {
+					Cookie: cookie,
+					Origin: 'https://example.com',
+				},
+				method: 'POST',
+			}), env, logoutContext);
+			await waitOnExecutionContext(logoutContext);
+			expect(logoutResponse.status).toBe(200);
+			expect(logoutResponse.headers.get('Set-Cookie')).toContain('Max-Age=0');
 		});
 	});
 
