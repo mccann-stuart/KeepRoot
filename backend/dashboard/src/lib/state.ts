@@ -1,6 +1,6 @@
 import type { SourceKind } from '../../../src/storage/shared';
 
-export type ViewName = 'content' | 'empty' | 'inbox' | 'mcp' | 'settings' | 'setup';
+export type ViewName = 'content' | 'empty' | 'inbox' | 'mcp' | 'settings' | 'setup' | 'sources';
 export type FilterType = 'all' | 'inbox' | 'list' | 'smartlist' | 'tag';
 
 export interface Preferences {

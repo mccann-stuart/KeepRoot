@@ -365,6 +365,27 @@ describe('dashboard MCP setup view', () => {
 		vi.restoreAllMocks();
 	});
 
+	it('opens source management from the first Connections navigation item', async () => {
+		await bootDashboard();
+
+		const connections = document.querySelector<HTMLElement>('.sidebar-group--connections');
+		const connectionLabels = [...(connections?.querySelectorAll<HTMLButtonElement>('.nav-link') ?? [])]
+			.map((button) => button.textContent?.trim());
+		const navSources = document.getElementById('nav-sources') as HTMLButtonElement;
+		navSources.click();
+		await flush();
+		await flush();
+
+		expect(connectionLabels).toEqual(['Sources', 'API keys', 'MCP setup']);
+		expect((document.getElementById('current-view-title') as HTMLElement).textContent).toBe('Sources');
+		expect(navSources.classList.contains('nav-link--active')).toBe(true);
+		expect((document.getElementById('sources-view') as HTMLElement).classList.contains('is-hidden')).toBe(false);
+		expect(document.querySelector('#sources-view #mcp-source-form')).not.toBeNull();
+		expect(document.querySelector('#sources-view #mcp-sources-list')).not.toBeNull();
+		expect(document.querySelector('#mcp-view #mcp-source-form')).toBeNull();
+		expect(document.querySelector('#mcp-view #mcp-sources-list')).toBeNull();
+	});
+
 	it('renders the MCP setup view with origin-derived preset values', async () => {
 		await bootDashboard();
 
@@ -423,7 +444,7 @@ describe('dashboard MCP setup view', () => {
 			}],
 		});
 
-		(document.getElementById('nav-mcp') as HTMLButtonElement).click();
+		(document.getElementById('nav-sources') as HTMLButtonElement).click();
 		await flush();
 		await flush();
 
