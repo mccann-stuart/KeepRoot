@@ -2,6 +2,7 @@ import {
 	AuthenticatedUser,
 	base64URLToUint8Array,
 	bufferToBase64URL,
+	encoder,
 	hashToken,
 	parseStringArray,
 	SESSION_TTL_SECONDS,
@@ -201,8 +202,12 @@ export async function updateCredentialCounter(
 export async function createSession(
 	env: StorageEnv,
 	user: Pick<AuthenticatedUser, 'userId' | 'username'>,
+	options?: { scopeOrigin?: string },
 ): Promise<string> {
-	const rawToken = crypto.randomUUID();
+	const scopeOrigin = options?.scopeOrigin ? new URL(options.scopeOrigin).origin : null;
+	const rawToken = scopeOrigin
+		? `preview.v1.${bufferToBase64URL(encoder.encode(scopeOrigin))}.${crypto.randomUUID()}`
+		: crypto.randomUUID();
 	const now = new Date();
 	const expiresAt = new Date(now.getTime() + SESSION_TTL_SECONDS * 1000).toISOString();
 	await env.KEEPROOT_DB.prepare(
@@ -242,7 +247,29 @@ export async function deleteUserSessions(env: StorageEnv, userId: string): Promi
 	return result.meta.changes ?? 0;
 }
 
-export async function authenticateBearerToken(env: StorageEnv, token: string): Promise<AuthenticatedUser | null> {
+function isSessionTokenAllowedAtOrigin(token: string, requestOrigin?: string): boolean {
+	if (!token.startsWith('preview.')) {
+		return true;
+	}
+
+	const parts = token.split('.');
+	if (parts.length !== 4 || parts[0] !== 'preview' || parts[1] !== 'v1' || !parts[2] || !parts[3] || !requestOrigin) {
+		return false;
+	}
+
+	try {
+		const scopeOrigin = new TextDecoder().decode(base64URLToUint8Array(parts[2]));
+		return new URL(scopeOrigin).origin === new URL(requestOrigin).origin;
+	} catch {
+		return false;
+	}
+}
+
+export async function authenticateBearerToken(env: StorageEnv, token: string, requestOrigin?: string): Promise<AuthenticatedUser | null> {
+	if (!isSessionTokenAllowedAtOrigin(token, requestOrigin)) {
+		return null;
+	}
+
 	const tokenHash = await hashToken(token);
 	const nowMs = Date.now();
 	const now = new Date(nowMs).toISOString();

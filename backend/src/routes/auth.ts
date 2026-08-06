@@ -37,6 +37,53 @@ function isRegistrationAllowed(context: RouteContext): boolean {
 	return context.env.ALLOW_REGISTRATION === '1';
 }
 
+function getAuthenticationOrigin(context: RouteContext): string {
+	const configuredOrigin = context.env.AUTH_ORIGIN?.trim();
+	if (!configuredOrigin) {
+		return context.origin;
+	}
+
+	try {
+		return new URL(configuredOrigin).origin;
+	} catch {
+		return context.origin;
+	}
+}
+
+function getAllowedPreviewOrigin(context: ProtectedRouteContext): string | null {
+	const authenticationOrigin = getAuthenticationOrigin(context);
+	if (context.origin !== authenticationOrigin) {
+		return null;
+	}
+
+	const returnTo = context.url.searchParams.get('return_to');
+	if (!returnTo) {
+		return null;
+	}
+
+	try {
+		const authenticationUrl = new URL(authenticationOrigin);
+		const previewUrl = new URL(returnTo);
+		const authenticationLabels = authenticationUrl.hostname.split('.');
+		const previewLabels = previewUrl.hostname.split('.');
+		const matchesWorkerPreviewHostname = previewLabels.length === authenticationLabels.length
+			&& previewLabels[0].endsWith(`-${authenticationLabels[0]}`)
+			&& previewLabels.slice(1).every((label, index) => label === authenticationLabels[index + 1]);
+		const isOriginOnly = returnTo === previewUrl.origin || returnTo === `${previewUrl.origin}/`;
+
+		if (!matchesWorkerPreviewHostname
+			|| !isOriginOnly
+			|| previewUrl.protocol !== authenticationUrl.protocol
+			|| previewUrl.port !== authenticationUrl.port) {
+			return null;
+		}
+
+		return previewUrl.origin;
+	} catch {
+		return null;
+	}
+}
+
 async function loadWebAuthn() {
 	return import('@simplewebauthn/server');
 }
@@ -274,6 +321,14 @@ async function handleVerifyAuthentication(context: RouteContext): Promise<Respon
 }
 
 export async function handleAuthRoute(context: RouteContext): Promise<Response | undefined> {
+	if (context.request.method === 'GET' && context.pathname === '/auth/context') {
+		const authenticationOrigin = getAuthenticationOrigin(context);
+		return jsonResponse(context.request, {
+			authenticationOrigin,
+			requiresHandoff: authenticationOrigin !== context.origin,
+		});
+	}
+
 	if (context.request.method === 'POST') {
 		switch (context.pathname) {
 			case '/auth/generate-registration':
@@ -291,6 +346,25 @@ export async function handleAuthRoute(context: RouteContext): Promise<Response |
 }
 
 export async function handleProtectedAuthRoute(context: ProtectedRouteContext): Promise<Response | undefined> {
+	if (context.request.method === 'GET' && context.pathname === '/auth/preview-session') {
+		if (context.authUser.tokenType !== 'session') {
+			return errorResponse(context.request, 'Session authentication required', 403);
+		}
+
+		const previewOrigin = getAllowedPreviewOrigin(context);
+		if (!previewOrigin) {
+			return errorResponse(context.request, 'Invalid preview return origin', 400);
+		}
+
+		const token = await createSession(context.env, context.authUser, { scopeOrigin: previewOrigin });
+		const location = new URL(previewOrigin);
+		location.hash = new URLSearchParams({ preview_session: token }).toString();
+		return new Response(null, {
+			headers: { Location: location.toString() },
+			status: 302,
+		});
+	}
+
 	if (context.request.method !== 'POST' || (context.pathname !== '/auth/logout' && context.pathname !== '/auth/logout-all')) {
 		return undefined;
 	}

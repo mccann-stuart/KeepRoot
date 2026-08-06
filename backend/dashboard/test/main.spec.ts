@@ -56,6 +56,7 @@ async function bootDashboard(options?: {
 	beforeImport?: () => void;
 	cookieSession?: boolean;
 	handleFetch?: (url: string, method: string, init?: RequestInit) => Response | Promise<Response> | undefined;
+	initialUrl?: string;
 	rememberedUsername?: string;
 	sessionToken?: string | null;
 	sources?: Array<Record<string, unknown>>;
@@ -78,7 +79,7 @@ async function bootDashboard(options?: {
 	if (options?.rememberedUsername) {
 		window.localStorage.setItem('keeproot_remembered_username', options.rememberedUsername);
 	}
-	window.history.replaceState({}, '', '/dashboard');
+	window.history.replaceState({}, '', options?.initialUrl ?? '/dashboard');
 
 	Object.defineProperty(window, 'matchMedia', {
 		configurable: true,
@@ -119,6 +120,13 @@ async function bootDashboard(options?: {
 		const customResponse = await options?.handleFetch?.(url, method, init);
 		if (customResponse) {
 			return customResponse;
+		}
+
+		if (url.endsWith('/auth/context') && method === 'GET') {
+			return jsonResponse({
+				authenticationOrigin: window.location.origin,
+				requiresHandoff: false,
+			});
 		}
 
 		if (url.endsWith('/bookmarks') && method === 'GET') {
@@ -247,6 +255,76 @@ describe('dashboard login', () => {
 		expect(accountCall).toBeDefined();
 		expect((accountCall?.[1]?.headers as Headers).get('Authorization')).toBeNull();
 		expect(accountCall?.[1]?.credentials).toBe('same-origin');
+	});
+
+	it('restores a preview session from the URL fragment before loading the account', async () => {
+		const { fetchSpy } = await bootDashboard({
+			initialUrl: '/#preview_session=preview-session-token',
+			sessionToken: null,
+		});
+
+		expect(window.sessionStorage.getItem('keeproot_secret')).toBe('preview-session-token');
+		expect(window.location.hash).toBe('');
+		const bookmarkCall = fetchSpy.mock.calls.find(([input]) => String(input).endsWith('/bookmarks'));
+		expect((bookmarkCall?.[1]?.headers as Headers).get('Authorization')).toBe('Bearer preview-session-token');
+	});
+
+	it('sends preview login to the stable authentication origin before starting WebAuthn', async () => {
+		const authenticationOrigin = 'https://keeproot.example.workers.dev';
+		const { fetchSpy } = await bootDashboard({
+			handleFetch: (url, method) => {
+				if (url.endsWith('/auth/context') && method === 'GET') {
+					return jsonResponse({
+						authenticationOrigin,
+						requiresHandoff: true,
+					});
+				}
+				return undefined;
+			},
+			sessionToken: null,
+		});
+		let navigatedTo = '';
+		const captureNavigation = (event: Event) => {
+			const anchor = (event.target as Element).closest<HTMLAnchorElement>('a');
+			if (!anchor || !anchor.href.startsWith(authenticationOrigin)) {
+				return;
+			}
+			event.preventDefault();
+			navigatedTo = anchor.href;
+		};
+		document.addEventListener('click', captureNavigation, true);
+		expect(fetchSpy.mock.calls.some(([input]) => String(input).endsWith('/auth/context'))).toBe(true);
+
+		(document.getElementById('username-input') as HTMLInputElement).value = 'alice';
+		(document.getElementById('btn-login') as HTMLButtonElement).click();
+		await flush();
+		document.removeEventListener('click', captureNavigation, true);
+
+		expect(document.getElementById('auth-status')?.textContent).toBe('');
+		expect(navigatedTo).toBe(`${authenticationOrigin}/?preview_return=${encodeURIComponent(window.location.origin)}`);
+		expect(fetchSpy.mock.calls.some(([input]) => String(input).endsWith('/auth/generate-authentication'))).toBe(false);
+	});
+
+	it('exchanges an existing canonical session for the requested preview session', async () => {
+		const previewOrigin = 'https://feature-keeproot.example.workers.dev';
+		let navigatedTo = '';
+		const captureNavigation = (event: Event) => {
+			const anchor = (event.target as Element).closest<HTMLAnchorElement>('a');
+			if (!anchor || !anchor.href.includes('/auth/preview-session')) {
+				return;
+			}
+			event.preventDefault();
+			navigatedTo = anchor.href;
+		};
+		await bootDashboard({
+			beforeImport: () => document.addEventListener('click', captureNavigation, true),
+			cookieSession: true,
+			initialUrl: `/?preview_return=${encodeURIComponent(previewOrigin)}`,
+			sessionToken: null,
+		});
+		document.removeEventListener('click', captureNavigation, true);
+
+		expect(navigatedTo).toBe(`${window.location.origin}/auth/preview-session?return_to=${encodeURIComponent(previewOrigin)}`);
 	});
 
 	it('remembers the trimmed username after a successful login', async () => {

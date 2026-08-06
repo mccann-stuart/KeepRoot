@@ -39,6 +39,33 @@ describe('auth storage', () => {
     });
 
     describe('authenticateBearerToken', () => {
+		it('rejects a preview session outside its scoped origin', async () => {
+			const token = 'preview.v1.aHR0cHM6Ly9mZWF0dXJlLWtlZXByb290LmV4YW1wbGUud29ya2Vycy5kZXY.36fd3fe1-6382-4db3-bda3-f8804ca39456';
+			await env.KEEPROOT_DB.prepare(
+				`INSERT INTO sessions (id, token_hash, user_id, username, created_at, expires_at)
+				 VALUES (?, ?, ?, ?, ?, ?)`,
+			).bind(
+				crypto.randomUUID(),
+				await hashToken(token),
+				'user-preview',
+				'preview_user',
+				new Date().toISOString(),
+				new Date(Date.now() + 60 * 60 * 1000).toISOString(),
+			).run();
+
+			const authenticate = authenticateBearerToken as unknown as (
+				env: typeof import('cloudflare:test').env,
+				token: string,
+				requestOrigin: string,
+			) => Promise<unknown>;
+			expect(await authenticate(env, token, 'https://feature-keeproot.example.workers.dev')).toEqual({
+				tokenType: 'session',
+				userId: 'user-preview',
+				username: 'preview_user',
+			});
+			expect(await authenticate(env, token, 'https://keeproot.example.workers.dev')).toBeNull();
+		});
+
         it('returns valid session user and ignores expired sessions', async () => {
             const token = crypto.randomUUID();
             const tokenHash = await hashToken(token);

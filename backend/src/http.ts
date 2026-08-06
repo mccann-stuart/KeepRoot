@@ -255,6 +255,7 @@ export async function parseJson<T>(request: Request): Promise<T> {
 export function isProtectedApiPath(pathname: string): boolean {
 	return pathname === '/auth/logout'
 		|| pathname === '/auth/logout-all'
+		|| pathname === '/auth/preview-session'
 		|| pathname.startsWith('/images/')
 		|| pathname.startsWith('/thumbs/')
 		|| pathname === '/account'

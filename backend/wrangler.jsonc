@@ -58,7 +58,9 @@
 	 */
 	"vars": {
 		// Registration is deliberately opt-in. Set to "1" only while adding an account.
-		"ALLOW_REGISTRATION": "1"
+		"ALLOW_REGISTRATION": "1",
+		// Passkeys stay on this stable origin; preview URLs receive origin-scoped sessions after authentication.
+		"AUTH_ORIGIN": "https://keeproot.booms-17-brooms.workers.dev"
 	},
 	"ratelimits": [
 		{

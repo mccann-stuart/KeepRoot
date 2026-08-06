@@ -20,6 +20,7 @@ export interface StorageEnv {
 	ASSETS?: Fetcher;
 	AI?: Ai;
 	ALLOWED_EXTENSION_IDS?: string;
+	AUTH_ORIGIN?: string;
 	AUTH_RATE_LIMITER: RateLimit;
 	BROWSER?: Fetcher;
 	EMAIL_SOURCE_DOMAIN?: string;

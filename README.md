@@ -143,7 +143,9 @@ Edit `backend/wrangler.jsonc` to customize resource names if needed.
 
 ### Security environment variables
 
-`backend/wrangler.jsonc` sets `ALLOW_REGISTRATION` to `"0"`. Registration routes only work when the value is exactly `"1"`. Keep it disabled during normal operation; temporarily enable it, deploy, register the intended account, then restore `"0"` and deploy again.
+Registration routes only work when `ALLOW_REGISTRATION` is exactly `"1"`. Keep it disabled during normal operation; temporarily enable it, deploy, register the intended account, then restore `"0"` and deploy again.
+
+Set `AUTH_ORIGIN` to the stable `workers.dev` origin for the Worker, without a path. Cloudflare commit and branch preview URLs use different WebAuthn relying-party IDs, so the dashboard completes passkey login or registration on `AUTH_ORIGIN` and returns with a separate session restricted to the exact preview origin. For example, previews of `https://keeproot.example.workers.dev` can be handed back only to hosts shaped like `https://<version-or-alias>-keeproot.example.workers.dev`; the preview token is rejected on production and on other previews.
 
 The same configuration declares Workers Rate Limit bindings for authentication and outbound-cost writes. These counters are per Cloudflare location and intentionally permissive under bursts, so public multi-tenant deployments should also add Cloudflare WAF rate-limiting rules for `/auth/*`, `/bookmarks`, `/sources`, and `/mcp` at the zone level.
 

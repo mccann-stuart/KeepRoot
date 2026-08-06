@@ -142,7 +142,7 @@ export default {
 			response = authRateLimitResponse;
 		} else if (context.pathname === '/mcp') {
 			const requestAuth = getRequestAuthToken(request, false);
-			const authUser = requestAuth ? await authenticateBearerToken(env, requestAuth.token) : null;
+			const authUser = requestAuth ? await authenticateBearerToken(env, requestAuth.token, context.origin) : null;
 
 			if (!authUser) {
 				response = errorResponse('Unauthorized', 401);
@@ -187,7 +187,7 @@ export default {
 					response = errorResponse('Not found', 404);
 				} else {
 					const requestAuth = getRequestAuthToken(request);
-					const authUser = requestAuth ? await authenticateBearerToken(env, requestAuth.token) : null;
+					const authUser = requestAuth ? await authenticateBearerToken(env, requestAuth.token, context.origin) : null;
 
 					if (!authUser) {
 						response = errorResponse('Unauthorized', 401);

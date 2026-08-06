@@ -21,6 +21,8 @@ let currentHighlightSelection = '';
 let lastSnapshot = '';
 let toastTimeout = 0;
 let silentRefreshInFlight = false;
+let authenticationOrigin = window.location.origin;
+let requiresAuthenticationHandoff = false;
 
 async function runWithButtonBusy(button: HTMLButtonElement, busyText: string, task: () => Promise<void>): Promise<void> {
 	if (button.disabled || button.dataset.busy === 'true') {
@@ -68,6 +70,43 @@ function showToast(message: string, tone: 'error' | 'success' = 'success') {
 function showAuthError(message = '') {
 	dom.authStatus.textContent = message;
 	dom.authStatus.classList.toggle('is-hidden', !message);
+}
+
+function navigate(url: string): void {
+	const anchor = document.createElement('a');
+	anchor.href = url;
+	anchor.rel = 'noreferrer';
+	anchor.hidden = true;
+	document.body.append(anchor);
+	anchor.click();
+	anchor.remove();
+}
+
+function redirectToAuthenticationOrigin(): boolean {
+	if (!requiresAuthenticationHandoff || authenticationOrigin === window.location.origin) {
+		return false;
+	}
+
+	const target = new URL('/', authenticationOrigin);
+	target.searchParams.set('preview_return', window.location.origin);
+	navigate(target.toString());
+	return true;
+}
+
+function redirectToRequestedPreviewSession(): boolean {
+	if (requiresAuthenticationHandoff || authenticationOrigin !== window.location.origin) {
+		return false;
+	}
+
+	const returnOrigin = new URLSearchParams(window.location.search).get('preview_return')?.trim();
+	if (!returnOrigin) {
+		return false;
+	}
+
+	const target = new URL('/auth/preview-session', window.location.origin);
+	target.searchParams.set('return_to', returnOrigin);
+	navigate(target.toString());
+	return true;
 }
 
 function getResolvedTheme(theme: 'auto' | 'dark' | 'light'): 'dark' | 'light' {
@@ -957,6 +996,9 @@ function loginSuccess(token: string, username: string) {
 	}
 	state.secret = token;
 	saveSessionToken(token);
+	if (redirectToRequestedPreviewSession()) {
+		return;
+	}
 	showApp();
 	switchView('inbox', 'inbox', null);
 	void refreshData();
@@ -1064,6 +1106,9 @@ function bindEvents() {
 		if (dom.btnLogin.disabled || dom.btnRegister.disabled) {
 			return;
 		}
+		if (redirectToAuthenticationOrigin()) {
+			return;
+		}
 		const username = dom.usernameInput.value.trim();
 		if (!username) {
 			showAuthError('Enter a username first');
@@ -1087,6 +1132,9 @@ function bindEvents() {
 
 	dom.btnRegister.addEventListener('click', async () => {
 		if (dom.btnLogin.disabled || dom.btnRegister.disabled) {
+			return;
+		}
+		if (redirectToAuthenticationOrigin()) {
 			return;
 		}
 		const username = dom.usernameInput.value.trim();
@@ -1660,10 +1708,29 @@ function hydrateInitialUI() {
 	dom.rememberUsernameInput.checked = Boolean(rememberedUsername);
 }
 
+function consumePreviewSessionFragment(): string | null {
+	const params = new URLSearchParams(window.location.hash.slice(1));
+	const token = params.get('preview_session')?.trim();
+	if (!token) {
+		return null;
+	}
+
+	saveSessionToken(token);
+	window.history.replaceState(window.history.state, '', `${window.location.pathname}${window.location.search}`);
+	return token;
+}
+
 async function init() {
 	bindEvents();
 	hydrateInitialUI();
-	state.secret = loadSessionToken();
+	try {
+		const authContext = await api.getAuthContext();
+		authenticationOrigin = new URL(authContext.authenticationOrigin).origin;
+		requiresAuthenticationHandoff = authContext.requiresHandoff;
+	} catch {
+		// Older/local Workers without preview handoff continue using same-origin WebAuthn.
+	}
+	state.secret = consumePreviewSessionFragment() ?? loadSessionToken();
 
 	if (!state.secret) {
 		try {
@@ -1680,6 +1747,10 @@ async function init() {
 	}
 
 	if (state.secret || state.account) {
+		if (redirectToRequestedPreviewSession()) {
+			await registerServiceWorker();
+			return;
+		}
 		showApp();
 		switchView('inbox', 'inbox', null);
 		await refreshData();
