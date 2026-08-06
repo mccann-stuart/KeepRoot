@@ -83,12 +83,32 @@ describe('source-sync', () => {
 		expect(result).toEqual(expect.objectContaining({
 			discoveredCount: 0,
 			notModified: true,
+			recommendedIntervalMinutes: null,
 			savedCount: 0,
 		}));
 		expect(items.saveItemContent).not.toHaveBeenCalled();
 		const [, init] = fetchMock.mock.calls[0];
 		expect(new Headers(init?.headers).get('If-None-Match')).toBe('"feed-v2"');
 		expect(new Headers(init?.headers).get('If-Modified-Since')).toBe('Wed, 05 Aug 2026 22:00:00 GMT');
+	});
+
+	it('recommends one third of the observed publication gap', async () => {
+		vi.stubGlobal('fetch', vi.fn().mockResolvedValue(new Response(`
+			<rss><channel>
+				<item><guid>one</guid><link>https://example.com/one</link><pubDate>2026-08-06T12:00:00Z</pubDate></item>
+				<item><guid>two</guid><link>https://example.com/two</link><pubDate>2026-08-06T06:00:00Z</pubDate></item>
+				<item><guid>three</guid><link>https://example.com/three</link><pubDate>2026-08-06T00:00:00Z</pubDate></item>
+			</channel></rss>
+		`, { status: 200 })));
+
+		const result = await syncSource(env as any, {
+			id: 'source-pattern',
+			kind: 'rss',
+			pollUrl: 'https://example.com/feed.xml',
+			userId: 'user-1',
+		});
+
+		expect(result.recommendedIntervalMinutes).toBe(120);
 	});
 
 	it('skips unchanged feed entries before the item write path', async () => {

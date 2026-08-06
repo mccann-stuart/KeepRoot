@@ -352,6 +352,19 @@ describe('KeepRoot Worker', () => {
 			(id, user_id, kind, name, normalized_identifier, poll_url, status, config_json, created_at, updated_at)
 			VALUES (?, ?, 'rss', 'Test feed', ?, ?, 'active', '{}', ?, ?)`,
 		).bind('source-cron', TEST_USER_ID, 'https://example.com/feed.xml', 'https://example.com/feed.xml', now, now).run();
+		await env.KEEPROOT_DB.prepare(
+			`INSERT INTO sources
+			(id, user_id, kind, name, normalized_identifier, poll_url, status, config_json, next_poll_at, created_at, updated_at)
+			VALUES (?, ?, 'rss', 'Future feed', ?, ?, 'active', '{}', ?, ?, ?)`,
+		).bind(
+			'source-future',
+			TEST_USER_ID,
+			'https://example.com/future.xml',
+			'https://example.com/future.xml',
+			'2026-08-06T13:00:00.000Z',
+			now,
+			now,
+		).run();
 		const sendBatch = vi.fn().mockResolvedValue({ metadata: { metrics: { backlogBytes: 1, backlogCount: 1 } } });
 		const sourceQueue = { sendBatch } as unknown as Queue<unknown>;
 		const scheduledTime = Date.parse('2026-08-06T12:00:00.000Z');

@@ -1,6 +1,7 @@
 import { XMLParser } from 'fast-xml-parser';
 import { DOMParser } from 'linkedom';
 import TurndownService from 'turndown';
+import { calculateAdaptivePollIntervalMinutes } from './feed-schedule';
 import { saveItemContent } from '../storage/items';
 import { listActivePollableSources, markSourcePollingResult } from '../storage/sources';
 import { fetchWithRedirects, sha256Hex, validateSafeUrl, type SourceKind, type StorageEnv } from '../storage/shared';
@@ -320,6 +321,7 @@ export interface SourceSyncResult {
 	needsContinuation: boolean;
 	notModified: boolean;
 	processedCount: number;
+	recommendedIntervalMinutes: number | null;
 	refreshedCount: number;
 	saturated: boolean;
 	savedCount: number;
@@ -401,6 +403,7 @@ export async function syncSource(
 			httpLastModified: source.httpLastModified ?? null,
 			notModified: true,
 			processedCount: 0,
+			recommendedIntervalMinutes: null,
 			refreshedCount: 0,
 			needsContinuation: false,
 			saturated: false,
@@ -505,6 +508,7 @@ export async function syncSource(
 		needsContinuation: changedEntries.length > entriesToProcess.length,
 		notModified: false,
 		processedCount: unchangedCount + entriesToProcess.length,
+		recommendedIntervalMinutes: calculateAdaptivePollIntervalMinutes(entries.map((entry) => entry.publishedAt)),
 		refreshedCount,
 		saturated: entries.length > MAX_VISIBLE_ENTRIES,
 		savedCount,
