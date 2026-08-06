@@ -455,14 +455,15 @@ The higher-level tools should compose the same canonical and retrieval layers in
 9. Create or refresh an inbox entry.
 
 ### Source sync
-1. The two-hour Cron Trigger creates one idempotent D1 run per active source and publishes minimal jobs with `sendBatch`.
+1. A ten-minute Cron heartbeat queries the indexed `next_poll_at` field, creates one idempotent D1 run per due source, and publishes minimal jobs with `sendBatch`.
 2. The Queue consumer reloads current source configuration, acknowledges inactive or completed runs, and acquires an expiring per-source lease.
 3. RSS and Atom fetches validate the initial URL and every redirect. `ETag` and `Last-Modified` are sent only to the URL that issued them; `304` completes without parsing.
 4. A streaming 8 MiB guard runs before XML parsing. At most 2,000 visible entries are fingerprinted and looked up through indexed, batched D1 reads.
-5. Stable RSS GUID or Atom ID remains the source identity, with canonical URL as fallback. Missing post-migration fingerprints are baselined without rewriting stored content.
+5. Stable RSS GUID or Atom ID remains the source identity, with canonical URL as fallback. Missing post-migration fingerprints and publisher timestamps are baselined without rewriting stored content.
 6. At most 200 new or changed entries are handled per delivery, with four expensive writes in flight. A continuation requeues the same run until caught up.
 7. Successful writes remain idempotent, source tags remain append-only, and refreshed records do not re-enter the inbox.
-8. D1 records queued, running, retrying, success, partial and error lifecycle data. Queue bindings provide realtime backlog and DLQ metrics, with D1 state as the `/stats` fallback.
+8. Successful `200` responses calculate a per-feed interval from recent publication gaps, bounded to 10-360 minutes with a 60-minute default. `304` responses retain the learned cadence, while failures advance the due time to prevent hot loops.
+9. D1 records queued, running, retrying, success, partial and error lifecycle data. Queue bindings provide realtime backlog and DLQ metrics, with D1 state as the `/stats` fallback.
 
 ### Email ingestion
 1. Email Routing forwards inbound mail to the Worker `email()` handler.

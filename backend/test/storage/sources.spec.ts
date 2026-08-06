@@ -1,6 +1,6 @@
 import { env } from 'cloudflare:test';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
-import { addSource, listActivePollableSources } from '../../src/storage/sources';
+import { addSource, listActivePollableSources, listDuePollableSources } from '../../src/storage/sources';
 
 describe('sources storage', () => {
     describe('addSource', () => {
@@ -81,8 +81,10 @@ describe('sources storage', () => {
                                 config_json: '{"foo":"bar"}',
                                 id: '1',
                                 kind: 'rss',
-                                last_polled_at: '2023-01-01',
-                                name: 'my source',
+								last_polled_at: '2023-01-01',
+								name: 'my source',
+								next_poll_at: '2023-01-01T01:00:00.000Z',
+								poll_interval_minutes: 60,
                                 poll_url: 'http://foo',
                                 user_id: 'u1'
                             }
@@ -100,12 +102,17 @@ describe('sources storage', () => {
             expect(sources.length).toBe(1);
             expect(sources[0]).toEqual({
                 config: { foo: 'bar' },
+				httpEtag: null,
+				httpLastModified: null,
                 id: '1',
                 kind: 'rss',
                 lastPolledAt: '2023-01-01',
-                name: 'my source',
+				name: 'my source',
+				nextPollAt: '2023-01-01T01:00:00.000Z',
+				pollIntervalMinutes: 60,
                 pollUrl: 'http://foo',
-                userId: 'u1'
+				userId: 'u1',
+				validatorUrl: null,
             });
         });
 
@@ -124,4 +131,52 @@ describe('sources storage', () => {
             expect(sources.length).toBe(0);
         });
     });
+
+	describe('listDuePollableSources', () => {
+		beforeEach(() => {
+			vi.restoreAllMocks();
+		});
+
+		it('returns only active pollable sources due by the supplied time', async () => {
+			const dueAt = '2026-08-06T12:00:00.000Z';
+			const prepareSpy = vi.spyOn(env.KEEPROOT_DB, 'prepare').mockImplementation(() => ({
+				bind: (...bindings: unknown[]) => ({
+					all: async () => ({ results: [{
+						config_json: '{}',
+						http_etag: '"feed-v2"',
+						http_last_modified: 'Thu, 06 Aug 2026 10:00:00 GMT',
+						id: 'source-due',
+						kind: 'rss',
+						last_polled_at: '2026-08-06T10:00:00.000Z',
+						name: 'Due feed',
+						next_poll_at: dueAt,
+						poll_interval_minutes: 120,
+						poll_url: 'https://example.com/feed.xml',
+						user_id: 'user-1',
+						validator_url: 'https://example.com/feed.xml',
+					}] }),
+					bindings,
+				}),
+			})) as any;
+
+			const sources = await listDuePollableSources(env as any, dueAt);
+
+			expect(prepareSpy.mock.calls[0][0]).toContain("status = 'active' AND poll_url IS NOT NULL");
+			expect(prepareSpy.mock.calls[0][0]).toContain('next_poll_at IS NULL OR next_poll_at <= ?');
+			expect(sources).toEqual([{
+				config: {},
+				httpEtag: '"feed-v2"',
+				httpLastModified: 'Thu, 06 Aug 2026 10:00:00 GMT',
+				id: 'source-due',
+				kind: 'rss',
+				lastPolledAt: '2026-08-06T10:00:00.000Z',
+				name: 'Due feed',
+				nextPollAt: dueAt,
+				pollIntervalMinutes: 120,
+				pollUrl: 'https://example.com/feed.xml',
+				userId: 'user-1',
+				validatorUrl: 'https://example.com/feed.xml',
+			}]);
+		});
+	});
 });

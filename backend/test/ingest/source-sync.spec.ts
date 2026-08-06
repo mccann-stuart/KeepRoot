@@ -83,12 +83,32 @@ describe('source-sync', () => {
 		expect(result).toEqual(expect.objectContaining({
 			discoveredCount: 0,
 			notModified: true,
+			recommendedIntervalMinutes: null,
 			savedCount: 0,
 		}));
 		expect(items.saveItemContent).not.toHaveBeenCalled();
 		const [, init] = fetchMock.mock.calls[0];
 		expect(new Headers(init?.headers).get('If-None-Match')).toBe('"feed-v2"');
 		expect(new Headers(init?.headers).get('If-Modified-Since')).toBe('Wed, 05 Aug 2026 22:00:00 GMT');
+	});
+
+	it('recommends one third of the observed publication gap', async () => {
+		vi.stubGlobal('fetch', vi.fn().mockResolvedValue(new Response(`
+			<rss><channel>
+				<item><guid>one</guid><link>https://example.com/one</link><pubDate>2026-08-06T12:00:00Z</pubDate></item>
+				<item><guid>two</guid><link>https://example.com/two</link><pubDate>2026-08-06T06:00:00Z</pubDate></item>
+				<item><guid>three</guid><link>https://example.com/three</link><pubDate>2026-08-06T00:00:00Z</pubDate></item>
+			</channel></rss>
+		`, { status: 200 })));
+
+		const result = await syncSource(env as any, {
+			id: 'source-pattern',
+			kind: 'rss',
+			pollUrl: 'https://example.com/feed.xml',
+			userId: 'user-1',
+		});
+
+		expect(result.recommendedIntervalMinutes).toBe(120);
 	});
 
 	it('skips unchanged feed entries before the item write path', async () => {
@@ -137,18 +157,18 @@ describe('source-sync', () => {
 	});
 
 	it('baselines migrated entries without rewriting their stored content', async () => {
-		vi.spyOn(env.KEEPROOT_DB, 'prepare').mockImplementation((sql: string) => {
+		const prepareSpy = vi.spyOn(env.KEEPROOT_DB, 'prepare').mockImplementation((sql: string) => {
 			if (sql.includes('source_entry_fingerprint')) {
 				return {
 					bind: vi.fn().mockReturnThis(),
-					all: vi.fn().mockResolvedValue({ results: [{ id: 'bookmark-1', source_entry_fingerprint: null, source_entry_id: 'legacy-entry' }] }),
+					all: vi.fn().mockResolvedValue({ results: [{ id: 'bookmark-1', published_at: null, source_entry_fingerprint: null, source_entry_id: 'legacy-entry' }] }),
 				} as any;
 			}
 			return { bind: vi.fn().mockReturnThis(), first: vi.fn().mockResolvedValue({ username: 'testuser' }), run: vi.fn() } as any;
 		});
 		const batch = vi.spyOn(env.KEEPROOT_DB, 'batch').mockResolvedValue([] as any);
 		vi.stubGlobal('fetch', vi.fn().mockResolvedValue(new Response(
-			'<rss><channel><item><guid>legacy-entry</guid><title>Legacy</title><link>https://example.com/legacy</link></item></channel></rss>',
+			'<rss><channel><item><guid>legacy-entry</guid><title>Legacy</title><link>https://example.com/legacy</link><pubDate>Thu, 06 Aug 2026 09:30:00 GMT</pubDate></item></channel></rss>',
 			{ status: 200 },
 		)));
 
@@ -157,6 +177,11 @@ describe('source-sync', () => {
 		expect(result.unchangedCount).toBe(1);
 		expect(items.saveItemContent).not.toHaveBeenCalled();
 		expect(batch).toHaveBeenCalledWith(expect.arrayContaining([expect.anything()]));
+		expect(prepareSpy.mock.calls.some(([sql]) =>
+			String(sql).includes('SET source_entry_fingerprint = ?')
+			&& String(sql).includes('published_at = ?')
+			&& String(sql).includes('source_id = ?')
+		)).toBe(true);
 	});
 
 	it('rejects a feed body that exceeds the eight MiB processing limit', async () => {
@@ -188,6 +213,7 @@ describe('source-sync', () => {
 						<title>Full Feed Article</title>
 						<link>https://example.com/full-article</link>
 						<guid isPermaLink="false">stratechery-post-1</guid>
+						<pubDate>Thu, 06 Aug 2026 09:30:00 GMT</pubDate>
 						<description>Two-line teaser only.</description>
 						<content:encoded><![CDATA[
 							<h2>Full article heading</h2>
@@ -209,6 +235,7 @@ describe('source-sync', () => {
 		expect(payload).toEqual(
 			expect.objectContaining({
 				markdownData: expect.stringContaining('Second complete paragraph from the paid feed.'),
+				publishedAt: '2026-08-06T09:30:00.000Z',
 				sourceEntryId: 'stratechery-post-1',
 				sourceEntryFingerprint: expect.stringMatching(/^[a-f0-9]{64}$/),
 				sourceId: 'source-full-content',

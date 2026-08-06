@@ -312,6 +312,20 @@ function renderSidebar() {
 	}
 }
 
+function getBookmarkDisplayDate(metadata: Record<string, any> | undefined): { date: Date; label: 'Published' | 'Saved' } | null {
+	for (const [value, label] of [
+		[metadata?.publishedAt, 'Published'],
+		[metadata?.createdAt, 'Saved'],
+	] as const) {
+		if (!value) continue;
+		const date = new Date(value);
+		if (Number.isFinite(date.getTime())) {
+			return { date, label };
+		}
+	}
+	return null;
+}
+
 function createBookmarkCard(bookmark: BookmarkSummary) {
 	const fragment = dom.bookmarkTemplate.content.cloneNode(true) as DocumentFragment;
 	const card = fragment.querySelector<HTMLElement>('.bookmark-card');
@@ -327,7 +341,7 @@ function createBookmarkCard(bookmark: BookmarkSummary) {
 
 	const bookmarkId = getBookmarkId(bookmark);
 	const bookmarkTags = Array.isArray(bookmark.metadata?.tags) ? bookmark.metadata.tags : [];
-	const createdAt = bookmark.metadata?.createdAt ? new Date(bookmark.metadata.createdAt) : null;
+	const displayDate = getBookmarkDisplayDate(bookmark.metadata);
 	const wordCount = Number(bookmark.metadata?.wordCount ?? 0);
 	const readingTime = Math.max(1, Math.ceil(wordCount / 200));
 	let domain = 'Unknown source';
@@ -345,7 +359,7 @@ function createBookmarkCard(bookmark: BookmarkSummary) {
 	title.textContent = String(bookmark.metadata?.title ?? 'Untitled');
 	card.tabIndex = 0;
 	card.setAttribute('aria-label', `Open ${title.textContent}`);
-	meta.textContent = `${domain} · ${readingTime} min · ${createdAt ? createdAt.toLocaleDateString() : 'Unknown date'}`;
+	meta.textContent = `${domain} · ${readingTime} min · ${displayDate ? displayDate.date.toLocaleDateString() : 'Unknown date'}`;
 	const thumbnailLabel = String(bookmark.metadata?.siteName ?? domain).replace(/^www\./, '').trim();
 	thumbnail.textContent = thumbnailLabel.slice(0, 2).toUpperCase() || 'KR';
 	const hue = [...domain].reduce((value, character) => value + character.charCodeAt(0), 0) % 360;
@@ -631,6 +645,7 @@ function renderSourceHealth(entries: SourceHealthRecord[], ingestion?: UsageStat
 			<div>
 				<h3>${escapeHtml(entry.name)}</h3>
 				<p class="muted-copy">${escapeHtml(entry.kind)} · Last success ${escapeHtml(formatTimestamp(entry.lastSuccessAt))}</p>
+				${entry.pollIntervalMinutes || entry.nextPollAt ? `<p class="muted-copy">Every ${escapeHtml(String(entry.pollIntervalMinutes ?? '—'))} min · Next ${escapeHtml(formatTimestamp(entry.nextPollAt))}</p>` : ''}
 				<p class="muted-copy">Discovered ${escapeHtml(String(entry.discoveredCount ?? 0))} · New ${escapeHtml(String(entry.createdCount ?? 0))} · Refreshed ${escapeHtml(String(entry.refreshedCount ?? 0))} · Errors ${escapeHtml(String(entry.errorCount ?? 0))}</p>
 				${entry.lastError ? `<p class="muted-copy">${escapeHtml(entry.lastError)}</p>` : ''}
 			</div>
@@ -661,6 +676,7 @@ function renderSources(sources: SourceRecord[]) {
 				<div class="mcp-source-meta">
 					<span class="pill">${escapeHtml(source.status)}</span>
 					<span class="muted-copy">Last success ${escapeHtml(formatTimestamp(source.lastSuccessAt))}</span>
+					${source.pollIntervalMinutes || source.nextPollAt ? `<span class="muted-copy">Every ${escapeHtml(String(source.pollIntervalMinutes ?? '—'))} min · Next ${escapeHtml(formatTimestamp(source.nextPollAt))}</span>` : ''}
 					${source.lastError ? `<p class="muted-copy">${escapeHtml(source.lastError)}</p>` : ''}
 				</div>
 			</div>
@@ -765,12 +781,10 @@ async function loadBookmark(bookmarkId: string) {
 			dom.viewUrl.style.display = 'none';
 		}
 
-		if (bookmark.metadata?.createdAt) {
-			const updatedText = bookmark.metadata?.updatedAt && bookmark.metadata.updatedAt !== bookmark.metadata.createdAt
-				? ` · Updated ${new Date(bookmark.metadata.updatedAt).toLocaleString()}`
-				: '';
-			dom.viewDate.textContent = `${new Date(bookmark.metadata.createdAt).toLocaleString()}${updatedText}`;
-		}
+		const displayDate = getBookmarkDisplayDate(bookmark.metadata);
+		dom.viewDate.textContent = displayDate
+			? `${displayDate.label} ${displayDate.date.toLocaleString()}`
+			: '';
 
 		const tags = Array.isArray(bookmark.metadata?.tags) ? bookmark.metadata.tags : [];
 		if (!tags.length) {

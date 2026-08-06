@@ -9,6 +9,7 @@ const REQUIRED_BOOKMARK_COLUMNS = [
 	'source_id',
 	'source_entry_id',
 	'source_entry_fingerprint',
+	'published_at',
 	'processing_state',
 	'search_updated_at',
 	'embedding_updated_at',
@@ -20,6 +21,8 @@ const REQUIRED_SOURCE_COLUMNS = [
 	'http_last_modified',
 	'active_run_id',
 	'lease_expires_at',
+	'next_poll_at',
+	'poll_interval_minutes',
 ] as const;
 
 const REQUIRED_SOURCE_RUN_COLUMNS = [
@@ -119,6 +122,9 @@ export async function ensureMcpSchema(env: StorageEnv): Promise<void> {
 	if (!bookmarkColumns.has('source_entry_fingerprint')) {
 		await runSchemaStatement(env, 'ALTER TABLE bookmarks ADD COLUMN source_entry_fingerprint TEXT');
 	}
+	if (!bookmarkColumns.has('published_at')) {
+		await runSchemaStatement(env, 'ALTER TABLE bookmarks ADD COLUMN published_at TEXT');
+	}
 	if (!bookmarkColumns.has('processing_state')) {
 		await runSchemaStatement(env, "ALTER TABLE bookmarks ADD COLUMN processing_state TEXT NOT NULL DEFAULT 'ready'");
 	}
@@ -158,6 +164,8 @@ export async function ensureMcpSchema(env: StorageEnv): Promise<void> {
 			last_polled_at TEXT,
 			last_success_at TEXT,
 			last_error TEXT,
+			next_poll_at TEXT,
+			poll_interval_minutes INTEGER NOT NULL DEFAULT 60,
 			created_at TEXT NOT NULL,
 			updated_at TEXT NOT NULL,
 			FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE,
@@ -171,6 +179,8 @@ export async function ensureMcpSchema(env: StorageEnv): Promise<void> {
 		http_etag: 'TEXT',
 		http_last_modified: 'TEXT',
 		lease_expires_at: 'TEXT',
+		next_poll_at: 'TEXT',
+		poll_interval_minutes: 'INTEGER NOT NULL DEFAULT 60',
 		validator_url: 'TEXT',
 	};
 	for (const [column, definition] of Object.entries(sourceColumnDefinitions)) {
@@ -282,6 +292,7 @@ export async function ensureMcpSchema(env: StorageEnv): Promise<void> {
 	await runSchemaStatement(env, 'CREATE INDEX IF NOT EXISTS idx_bookmarks_processing_state ON bookmarks(processing_state)');
 	await runSchemaStatement(env, 'CREATE INDEX IF NOT EXISTS idx_account_settings_user_id ON account_settings(user_id)');
 	await runSchemaStatement(env, 'CREATE INDEX IF NOT EXISTS idx_sources_user_kind_status ON sources(user_id, kind, status)');
+	await runSchemaStatement(env, "CREATE INDEX IF NOT EXISTS idx_sources_due_poll ON sources(status, next_poll_at) WHERE status = 'active' AND poll_url IS NOT NULL");
 	await runSchemaStatement(env, 'CREATE INDEX IF NOT EXISTS idx_source_runs_source_id_started_at ON source_runs(source_id, started_at DESC)');
 	await runSchemaStatement(env, 'CREATE UNIQUE INDEX IF NOT EXISTS idx_source_runs_dispatch_key ON source_runs(dispatch_key) WHERE dispatch_key IS NOT NULL');
 	await runSchemaStatement(env, 'CREATE INDEX IF NOT EXISTS idx_source_runs_status_queued_at ON source_runs(status, queued_at)');

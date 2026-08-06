@@ -1,7 +1,7 @@
 import { env, createExecutionContext, waitOnExecutionContext } from 'cloudflare:test';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import worker from '../src/index';
-import { addSource, createApiKey, createList, createSession, createSmartList, createUserWithCredential, ensureAccountSettings, hashToken, recordToolEvent, saveBookmark, storeAuthChallenge } from '../src/storage';
+import { addSource, createApiKey, createList, createSession, createSmartList, createUserWithCredential, ensureAccountSettings, getBookmark, hashToken, recordToolEvent, saveBookmark, storeAuthChallenge } from '../src/storage';
 import initialSchemaSql from '../migrations/0001_initial.sql?raw';
 import organizationSchemaSql from '../migrations/0002_organization.sql?raw';
 import mcpServerSchemaSql from '../migrations/0003_mcp_server.sql?raw';
@@ -9,6 +9,7 @@ import bookmarkHotPathSchemaSql from '../migrations/0004_bookmark_hot_path.sql?r
 import securityHardeningSchemaSql from '../migrations/0005_security_hardening.sql?raw';
 import sourceEntryIdentitySchemaSql from '../migrations/0006_source_entry_identity.sql?raw';
 import queueFirstFeedCrawlingSchemaSql from '../migrations/0007_queue_first_feed_crawling.sql?raw';
+import adaptiveFeedSchedulingSchemaSql from '../migrations/0008_adaptive_feed_scheduling.sql?raw';
 
 const API_KEY = 'test-api-key-12345';
 const TEST_USER_ID = 'test-user-id';
@@ -120,6 +121,7 @@ async function resetDatabase(): Promise<void> {
 	await execStatements(securityHardeningSchemaSql, true);
 	await execStatements(sourceEntryIdentitySchemaSql, true);
 	await execStatements(queueFirstFeedCrawlingSchemaSql, true);
+	await execStatements(adaptiveFeedSchedulingSchemaSql, true);
 	await execStatements(`
 		DELETE FROM bookmark_tags;
 		DELETE FROM bookmark_images;
@@ -343,6 +345,35 @@ describe('KeepRoot Worker', () => {
 		expect(await response.json()).toEqual({ error: 'Unauthorized' });
 	});
 
+	it('persists and returns a feed article publication timestamp', async () => {
+		const publishedAt = '2026-08-06T09:30:00.000Z';
+		const source = await addSource(env, {
+			identifier: 'https://example.com/publication-feed.xml',
+			kind: 'rss',
+			name: 'Publication feed',
+			userId: TEST_USER_ID,
+		});
+		const saved = await saveBookmark(env, {
+			userId: TEST_USER_ID,
+			username: TEST_USERNAME,
+		}, {
+			markdownData: '# Published article',
+			publishedAt,
+			sourceEntryId: 'published-entry',
+			sourceId: String(source.id),
+			title: 'Published article',
+			url: 'https://example.com/published-article',
+		});
+
+		expect(saved.metadata).toEqual(expect.objectContaining({ publishedAt }));
+		const loaded = await getBookmark(env, TEST_USER_ID, saved.id);
+		expect(loaded?.metadata).toEqual(expect.objectContaining({ publishedAt }));
+		const row = await env.KEEPROOT_DB.prepare(
+			'SELECT published_at FROM bookmarks WHERE id = ? AND user_id = ?',
+		).bind(saved.id, TEST_USER_ID).first<{ published_at: string | null }>();
+		expect(row?.published_at).toBe(publishedAt);
+	});
+
 	it('dispatches one minimal queue job per source and deduplicates cron retries', async () => {
 		const now = new Date().toISOString();
 		await env.KEEPROOT_DB.prepare(
@@ -350,6 +381,19 @@ describe('KeepRoot Worker', () => {
 			(id, user_id, kind, name, normalized_identifier, poll_url, status, config_json, created_at, updated_at)
 			VALUES (?, ?, 'rss', 'Test feed', ?, ?, 'active', '{}', ?, ?)`,
 		).bind('source-cron', TEST_USER_ID, 'https://example.com/feed.xml', 'https://example.com/feed.xml', now, now).run();
+		await env.KEEPROOT_DB.prepare(
+			`INSERT INTO sources
+			(id, user_id, kind, name, normalized_identifier, poll_url, status, config_json, next_poll_at, created_at, updated_at)
+			VALUES (?, ?, 'rss', 'Future feed', ?, ?, 'active', '{}', ?, ?, ?)`,
+		).bind(
+			'source-future',
+			TEST_USER_ID,
+			'https://example.com/future.xml',
+			'https://example.com/future.xml',
+			'2026-08-06T13:00:00.000Z',
+			now,
+			now,
+		).run();
 		const sendBatch = vi.fn().mockResolvedValue({ metadata: { metrics: { backlogBytes: 1, backlogCount: 1 } } });
 		const sourceQueue = { sendBatch } as unknown as Queue<unknown>;
 		const scheduledTime = Date.parse('2026-08-06T12:00:00.000Z');

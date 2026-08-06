@@ -67,6 +67,7 @@ export interface BookmarkPayload {
 	notes?: string;
 	pinned?: boolean;
 	processingState?: string;
+	publishedAt?: string;
 	siteName?: string;
 	sortOrder?: number;
 	sourceEntryId?: string;
