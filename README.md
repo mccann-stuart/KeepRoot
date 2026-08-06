@@ -26,7 +26,7 @@ Current MCP implementation:
 Current limitations:
 - MCP auth is bearer-token based today; OAuth-style MCP auth is planned, not shipped
 - search is currently keyword-backed over the indexed content store
-- email routing requires additional deployment configuration; RSS, YouTube and bridge-feed sources are dispatched every two hours through a dedicated Cloudflare Queue
+- email routing requires additional deployment configuration; a ten-minute scheduler dispatches due RSS, YouTube and bridge-feed sources through a dedicated Cloudflare Queue
 
 See [PRD.md](PRD.md) and [TECHNICAL_ARCHITECTURE.md](TECHNICAL_ARCHITECTURE.md) for the broader product and platform design.
 
@@ -179,7 +179,7 @@ This command:
 - applies remote D1 migrations in `backend/migrations/`
 - regenerates Worker types
 
-Source crawling keeps the existing two-hour Cron Trigger. Cron only creates idempotent source runs and publishes `{ sourceId, runId }`; the Queue consumer reloads current source configuration from D1. Feed downloads are capped at 8 MiB and 2,000 visible entries. HTTP validators make unchanged polls return at `304`, while changed work is fingerprinted and processed in groups of 200 with four concurrent item writes until caught up.
+Source crawling uses a ten-minute Cron heartbeat that creates idempotent runs only for feeds whose persisted `next_poll_at` is due, then publishes `{ sourceId, runId }`; the Queue consumer reloads current source configuration from D1. Each feed learns a 10-360 minute cadence from its recent publication gaps, with a 60-minute default when history is insufficient. Feed downloads are capped at 8 MiB and 2,000 visible entries. HTTP validators make unchanged polls return at `304`, while changed work is fingerprinted and processed in groups of 200 with four concurrent item writes until caught up. RSS and Atom publication timestamps are preserved so the dashboard shows when an article was published rather than when it was imported.
 
 ### Deploy
 
