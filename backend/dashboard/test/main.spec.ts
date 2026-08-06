@@ -382,8 +382,13 @@ describe('dashboard MCP setup view', () => {
 		expect((document.getElementById('sources-view') as HTMLElement).classList.contains('is-hidden')).toBe(false);
 		expect(document.querySelector('#sources-view #mcp-source-form')).not.toBeNull();
 		expect(document.querySelector('#sources-view #mcp-sources-list')).not.toBeNull();
+		const sourceHealthList = document.querySelector<HTMLElement>('#sources-view #mcp-source-health-list');
+		expect(sourceHealthList).not.toBeNull();
+		expect(sourceHealthList?.textContent ?? '').toContain('Feeds are current and processing normally.');
+		expect(sourceHealthList?.textContent ?? '').toContain('Queue 3 · Oldest 42s · DLQ 0');
 		expect(document.querySelector('#mcp-view #mcp-source-form')).toBeNull();
 		expect(document.querySelector('#mcp-view #mcp-sources-list')).toBeNull();
+		expect(document.querySelector('#mcp-view #mcp-source-health-list')).toBeNull();
 	});
 
 	it('renders the MCP setup view with origin-derived preset values', async () => {
@@ -408,9 +413,6 @@ describe('dashboard MCP setup view', () => {
 		expect(openAiValue).toContain('"require_approval": "always"');
 		expect(openAiValue).toContain('<API_KEY>');
 		expect(openAiValue).not.toContain('session-secret');
-		expect((document.getElementById('mcp-source-health-list') as HTMLElement).textContent).toContain('Feeds are current and processing normally.');
-		expect((document.getElementById('mcp-source-health-list') as HTMLElement).textContent).toContain('Queue 3 · Oldest 42s · DLQ 0');
-
 		(document.getElementById('open-api-keys-from-mcp-btn') as HTMLButtonElement).click();
 		await flush();
 		expect((document.getElementById('current-view-title') as HTMLElement).textContent).toBe('API Keys');
