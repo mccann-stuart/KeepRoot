@@ -58,6 +58,10 @@ export class KeepRootApi {
 		return this.request<T>(endpoint, options, false);
 	}
 
+	getAuthContext(): Promise<{ authenticationOrigin: string; requiresHandoff: boolean }> {
+		return this.publicRequest('/auth/context');
+	}
+
 	listBookmarks(): Promise<{ keys: BookmarkSummary[] }> {
 		return this.request('/bookmarks');
 	}

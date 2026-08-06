@@ -533,7 +533,88 @@ describe('KeepRoot Worker', () => {
 		expect(await response.json()).toEqual({ error: 'Unauthorized' });
 	});
 
+	it('accepts a preview-scoped session only on its preview Worker origin', async () => {
+		const previewOrigin = 'https://feature-keeproot.example.workers.dev';
+		const token = await createSession(env, {
+			userId: TEST_USER_ID,
+			username: TEST_USERNAME,
+		}, { scopeOrigin: previewOrigin });
+		const ctx = createExecutionContext();
+		const response = await worker.fetch(new Request('https://keeproot.example.workers.dev/account', {
+			headers: { Authorization: `Bearer ${token}` },
+		}), env, ctx);
+		await waitOnExecutionContext(ctx);
+
+		expect(response.status).toBe(401);
+		expect(await response.json()).toEqual({ error: 'Unauthorized' });
+
+		const previewContext = createExecutionContext();
+		const previewResponse = await worker.fetch(new Request(`${previewOrigin}/account`, {
+			headers: { Authorization: `Bearer ${token}` },
+		}), env, previewContext);
+		await waitOnExecutionContext(previewContext);
+
+		expect(previewResponse.status).toBe(200);
+	});
+
 	describe('handleAuthRoute', () => {
+		it('directs preview hosts to the configured stable authentication origin', async () => {
+			const request = new Request('https://feature-keeproot.example.workers.dev/auth/context');
+			const ctx = createExecutionContext();
+			const response = await worker.fetch(request, {
+				...env,
+				AUTH_ORIGIN: 'https://keeproot.example.workers.dev',
+			}, ctx);
+			await waitOnExecutionContext(ctx);
+
+			expect(response.status).toBe(200);
+			expect(await response.json()).toEqual({
+				authenticationOrigin: 'https://keeproot.example.workers.dev',
+				requiresHandoff: true,
+			});
+		});
+
+		it('hands an authenticated canonical session to an allowed preview origin', async () => {
+			const authenticationOrigin = 'https://keeproot.example.workers.dev';
+			const previewOrigin = 'https://feature-keeproot.example.workers.dev';
+			const canonicalToken = await createSession(env, {
+				userId: TEST_USER_ID,
+				username: TEST_USERNAME,
+			});
+			const request = new Request(`${authenticationOrigin}/auth/preview-session?return_to=${encodeURIComponent(previewOrigin)}`, {
+				headers: { Cookie: `keeproot_session=${canonicalToken}` },
+			});
+			const ctx = createExecutionContext();
+			const response = await worker.fetch(request, {
+				...env,
+				AUTH_ORIGIN: authenticationOrigin,
+			}, ctx);
+			await waitOnExecutionContext(ctx);
+
+			expect(response.status).toBe(302);
+			const location = new URL(response.headers.get('Location')!);
+			expect(location.origin).toBe(previewOrigin);
+			expect(location.pathname).toBe('/');
+			expect(location.hash).toMatch(/^#preview_session=preview\.v1\./);
+		});
+
+		it('does not let an API key mint a preview dashboard session', async () => {
+			const authenticationOrigin = 'https://keeproot.example.workers.dev';
+			const previewOrigin = 'https://feature-keeproot.example.workers.dev';
+			const request = new Request(`${authenticationOrigin}/auth/preview-session?return_to=${encodeURIComponent(previewOrigin)}`, {
+				headers: { Authorization: `Bearer ${API_KEY}` },
+			});
+			const ctx = createExecutionContext();
+			const response = await worker.fetch(request, {
+				...env,
+				AUTH_ORIGIN: authenticationOrigin,
+			}, ctx);
+			await waitOnExecutionContext(ctx);
+
+			expect(response.status).toBe(403);
+			expect(await response.json()).toEqual({ error: 'Session authentication required' });
+		});
+
 		it('keeps registration disabled when explicitly disabled', async () => {
 			const request = new Request('http://example.com/auth/generate-registration', {
 				method: 'POST',
