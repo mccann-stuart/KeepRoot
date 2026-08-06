@@ -79,15 +79,19 @@ describe('stats storage', () => {
                 ] },
                 { results: [ // sourceHealthResult
                     { id: 'src-1', kind: 'rss', name: 'Blog', status: 'active', last_polled_at: '2023-01-01', last_success_at: '2023-01-01', last_error: null }
-                ] }
+                ] },
+				{ results: [{ count: 4 }] },
+				{ results: [{ source_id: 'src-1', rank: 1, status: 'success', discovered_count: 10, processed_count: 10, created_count: 6, refreshed_count: 4, unchanged_count: 0, error_count: 0, saturated: 0 }] },
+				{ results: [{ count: 0, oldest_queued_at: null }] },
             ] as any);
 
             const result = await getUsageStats(env as any, 'user-1');
 
             expect(batchSpy).toHaveBeenCalledTimes(1);
-            expect(batchSpy.mock.calls[0][0]).toHaveLength(7);
+            expect(batchSpy.mock.calls[0][0]).toHaveLength(10);
 
-            expect(result).toEqual({
+			expect(result).toEqual(expect.objectContaining({
+				ingestion: expect.objectContaining({ dailyRefreshes: 4, health: 'red' }),
                 inbox: {
                     pending: 2
                 },
@@ -102,18 +106,26 @@ describe('stats storage', () => {
                 sourceHealth: [
                     {
                         id: 'src-1',
+						createdCount: 6,
+						discoveredCount: 10,
+						errorCount: 0,
+						health: 'red',
                         kind: 'rss',
                         lastPolledAt: '2023-01-01',
                         lastSuccessAt: '2023-01-01',
                         name: 'Blog',
-                        status: 'active'
+						processedCount: 10,
+						refreshedCount: 4,
+						saturated: false,
+						status: 'success',
+						unchangedCount: 0,
                     }
                 ],
                 sources: {
                     byKind: { rss: 3, newsletter: 2 },
                     total: 5
                 }
-            });
+			}));
         });
 
         it('should handle empty states gracefully', async () => {
@@ -124,14 +136,18 @@ describe('stats storage', () => {
                 { results: [] }, // itemsByStatusResult
                 { results: [] }, // sourcesByKindResult
                 { results: [] }, // toolUsageResult
-                { results: [] }  // sourceHealthResult
+				{ results: [] }, // sourceHealthResult
+				{ results: [{ count: 0 }] },
+				{ results: [] },
+				{ results: [{ count: 0, oldest_queued_at: null }] },
             ] as any);
 
             const result = await getUsageStats(env as any, 'user-1');
 
             expect(batchSpy).toHaveBeenCalledTimes(1);
 
-            expect(result).toEqual({
+			expect(result).toEqual(expect.objectContaining({
+				ingestion: expect.objectContaining({ dailyRefreshes: 0, health: 'green' }),
                 inbox: {
                     pending: 0
                 },
@@ -145,7 +161,7 @@ describe('stats storage', () => {
                     byKind: {},
                     total: 0
                 }
-            });
+			}));
         });
     });
 });

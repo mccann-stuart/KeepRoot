@@ -8,6 +8,7 @@ import mcpServerSchemaSql from '../migrations/0003_mcp_server.sql?raw';
 import bookmarkHotPathSchemaSql from '../migrations/0004_bookmark_hot_path.sql?raw';
 import securityHardeningSchemaSql from '../migrations/0005_security_hardening.sql?raw';
 import sourceEntryIdentitySchemaSql from '../migrations/0006_source_entry_identity.sql?raw';
+import queueFirstFeedCrawlingSchemaSql from '../migrations/0007_queue_first_feed_crawling.sql?raw';
 
 const API_KEY = 'test-api-key-12345';
 const TEST_USER_ID = 'test-user-id';
@@ -118,6 +119,7 @@ async function resetDatabase(): Promise<void> {
 	await execStatements(bookmarkHotPathSchemaSql, true);
 	await execStatements(securityHardeningSchemaSql, true);
 	await execStatements(sourceEntryIdentitySchemaSql, true);
+	await execStatements(queueFirstFeedCrawlingSchemaSql, true);
 	await execStatements(`
 		DELETE FROM bookmark_tags;
 		DELETE FROM bookmark_images;
@@ -323,6 +325,8 @@ describe('KeepRoot Worker', () => {
 		verifyRegistrationResponseMock.mockReset();
 		verifyAuthenticationResponseMock.mockReset();
 		delete (env as { INGEST_QUEUE?: unknown }).INGEST_QUEUE;
+		delete (env as { SOURCE_DLQ?: unknown }).SOURCE_DLQ;
+		delete (env as { SOURCE_QUEUE?: unknown }).SOURCE_QUEUE;
 		delete (env as { MCP_EMAIL_DOMAIN?: string }).MCP_EMAIL_DOMAIN;
 		await resetDatabase();
 		await clearBucket();
@@ -337,6 +341,51 @@ describe('KeepRoot Worker', () => {
 
 		expect(response.status).toBe(401);
 		expect(await response.json()).toEqual({ error: 'Unauthorized' });
+	});
+
+	it('dispatches one minimal queue job per source and deduplicates cron retries', async () => {
+		const now = new Date().toISOString();
+		await env.KEEPROOT_DB.prepare(
+			`INSERT INTO sources
+			(id, user_id, kind, name, normalized_identifier, poll_url, status, config_json, created_at, updated_at)
+			VALUES (?, ?, 'rss', 'Test feed', ?, ?, 'active', '{}', ?, ?)`,
+		).bind('source-cron', TEST_USER_ID, 'https://example.com/feed.xml', 'https://example.com/feed.xml', now, now).run();
+		const sendBatch = vi.fn().mockResolvedValue({ metadata: { metrics: { backlogBytes: 1, backlogCount: 1 } } });
+		const sourceQueue = { sendBatch } as unknown as Queue<unknown>;
+		const scheduledTime = Date.parse('2026-08-06T12:00:00.000Z');
+		const queueEnv = { ...env, SOURCE_QUEUE: sourceQueue };
+
+		await worker.scheduled({ scheduledTime } as ScheduledController, queueEnv, createExecutionContext());
+		await worker.scheduled({ scheduledTime } as ScheduledController, queueEnv, createExecutionContext());
+
+		expect(sendBatch).toHaveBeenCalledTimes(2);
+		const sent = sendBatch.mock.calls[0][0];
+		expect(sent).toHaveLength(1);
+		expect(sent[0].body).toEqual({ runId: expect.any(String), sourceId: 'source-cron' });
+		expect(JSON.stringify(sent[0].body)).not.toContain('example.com');
+		expect(sendBatch.mock.calls[1][0][0].body).toEqual(sent[0].body);
+	});
+
+	it('acknowledges an inactive or missing source run message independently', async () => {
+		const ack = vi.fn();
+		const retry = vi.fn();
+		await worker.queue({
+			ackAll: vi.fn(),
+			messages: [{
+				ack,
+				attempts: 1,
+				body: { runId: 'missing-run', sourceId: 'missing-source' },
+				id: 'message-1',
+				retry,
+				timestamp: new Date(),
+			}],
+			metadata: { metrics: { backlogBytes: 0, backlogCount: 0 } },
+			queue: 'keeproot-source-ingest',
+			retryAll: vi.fn(),
+		} as MessageBatch<any>, env, createExecutionContext());
+
+		expect(ack).toHaveBeenCalledOnce();
+		expect(retry).not.toHaveBeenCalled();
 	});
 
 	it('requires bearer authentication for MCP requests', async () => {
@@ -1327,6 +1376,11 @@ describe('KeepRoot Worker', () => {
 		const stats = await statsResponse.json() as any;
 		expect(stats.items.total).toBe(0);
 		expect(stats.sources.total).toBe(0);
+		expect(stats.ingestion).toEqual(expect.objectContaining({
+			dailyRefreshes: 0,
+			health: 'green',
+			queue: expect.objectContaining({ backlog: 0 }),
+		}));
 	});
 
 	it('manages MCP sources through authenticated REST routes', async () => {
@@ -2476,6 +2530,7 @@ describe('KeepRoot Worker', () => {
 		expect(stats.payload.items.total).toBe(1);
 		expect(stats.payload.items.byStatus.archived).toBe(1);
 		expect(stats.payload.inbox.pending).toBe(0);
+		expect(stats.payload.ingestion).toEqual(expect.objectContaining({ health: expect.stringMatching(/green|amber|red/) }));
 		expect(stats.payload.recentToolUsage.length).toBeGreaterThan(0);
 	});
 

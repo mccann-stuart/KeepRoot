@@ -157,6 +157,16 @@ async function bootDashboard(options?: {
 
 		if (url.endsWith('/stats') && method === 'GET') {
 			return jsonResponse(options?.stats ?? {
+				ingestion: {
+					dailyRefreshes: 12,
+					dlq: { backlog: 0, oldestJobAgeSeconds: 0 },
+					failedSources: 0,
+					health: 'green',
+					interpretation: 'Feeds are current and processing normally.',
+					processingErrors: 0,
+					queue: { backlog: 3, oldestJobAgeSeconds: 42 },
+					saturatedSources: 0,
+				},
 				inbox: { pending: 2 },
 				items: { byStatus: { unread: 2 }, total: 2 },
 				recentToolUsage: [{ count: 3, status: 'success', toolName: 'list_items' }],
@@ -377,6 +387,8 @@ describe('dashboard MCP setup view', () => {
 		expect(openAiValue).toContain('"require_approval": "always"');
 		expect(openAiValue).toContain('<API_KEY>');
 		expect(openAiValue).not.toContain('session-secret');
+		expect((document.getElementById('mcp-source-health-list') as HTMLElement).textContent).toContain('Feeds are current and processing normally.');
+		expect((document.getElementById('mcp-source-health-list') as HTMLElement).textContent).toContain('Queue 3 · Oldest 42s · DLQ 0');
 
 		(document.getElementById('open-api-keys-from-mcp-btn') as HTMLButtonElement).click();
 		await flush();

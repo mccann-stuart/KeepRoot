@@ -7,7 +7,7 @@ import { escapeHtml, renderMarkdown } from './lib/markdown';
 import { loadProtectedMedia } from './lib/media';
 import { buildMcpPresets, getDefaultSourceKind, getMcpEndpoint, getSourceKindOptions, getSourceSummaryLine } from './lib/mcp';
 import { registerServiceWorker } from './lib/service-worker';
-import { buildDataSnapshot, createAppState, getBookmarkId, type AccountFeatures, type ApiKeyRecord, type BookmarkDetail, type BookmarkSummary, type HighlightRecord, type SmartListSummary, type SourceHealthRecord, type SourceRecord, type ToolUsageRecord, type ViewName } from './lib/state';
+import { buildDataSnapshot, createAppState, getBookmarkId, type AccountFeatures, type ApiKeyRecord, type BookmarkDetail, type BookmarkSummary, type HighlightRecord, type SmartListSummary, type SourceHealthRecord, type SourceRecord, type ToolUsageRecord, type UsageStats, type ViewName } from './lib/state';
 import { clearDashboardDataPreservingSession, clearRememberedUsername, clearSessionToken, loadHighlights, loadPreferences, loadRememberedUsername, loadSessionToken, saveHighlights, savePreference, saveRememberedUsername, saveSessionToken } from './lib/storage';
 
 const dom = getDom();
@@ -521,7 +521,7 @@ function renderMcpStatus() {
 		{ label: 'Items', value: String(stats?.items.total ?? 0) },
 		{ label: 'Sources', value: String(stats?.sources.total ?? 0) },
 		{ label: 'Inbox Pending', value: String(stats?.inbox.pending ?? 0) },
-		{ label: 'Source Kinds', value: String(Object.keys(stats?.sources.byKind ?? {}).length) },
+		{ label: 'Feed Backlog', value: String(stats?.ingestion?.queue.backlog ?? 0) },
 	];
 	for (const stat of statCards) {
 		const card = document.createElement('article');
@@ -531,7 +531,7 @@ function renderMcpStatus() {
 	}
 
 	renderToolUsage(stats?.recentToolUsage ?? []);
-	renderSourceHealth(stats?.sourceHealth ?? []);
+	renderSourceHealth(stats?.sourceHealth ?? [], stats?.ingestion);
 }
 
 function renderToolUsage(entries: ToolUsageRecord[]) {
@@ -556,11 +556,27 @@ function renderToolUsage(entries: ToolUsageRecord[]) {
 	}
 }
 
-function renderSourceHealth(entries: SourceHealthRecord[]) {
+function renderSourceHealth(entries: SourceHealthRecord[], ingestion?: UsageStats['ingestion']) {
 	dom.mcpSourceHealthList.innerHTML = '';
+	if (ingestion) {
+		const overview = document.createElement('article');
+		overview.className = 'stack-item stack-item--split ingestion-overview';
+		overview.innerHTML = `
+			<div>
+				<h3>Feed ingestion</h3>
+				<p class="muted-copy">${escapeHtml(ingestion.interpretation)}</p>
+				<p class="muted-copy">Queue ${escapeHtml(String(ingestion.queue.backlog))} · Oldest ${escapeHtml(String(ingestion.queue.oldestJobAgeSeconds))}s · DLQ ${escapeHtml(String(ingestion.dlq.backlog))}</p>
+			</div>
+			<span class="pill health-pill health-pill--${escapeHtml(ingestion.health)}">${escapeHtml(ingestion.health)}</span>
+		`;
+		dom.mcpSourceHealthList.appendChild(overview);
+	}
 
 	if (!entries.length) {
-		dom.mcpSourceHealthList.innerHTML = '<p class="muted-copy">No source runs recorded yet.</p>';
+		const empty = document.createElement('p');
+		empty.className = 'muted-copy';
+		empty.textContent = 'No source runs recorded yet.';
+		dom.mcpSourceHealthList.appendChild(empty);
 		return;
 	}
 
@@ -571,9 +587,10 @@ function renderSourceHealth(entries: SourceHealthRecord[]) {
 			<div>
 				<h3>${escapeHtml(entry.name)}</h3>
 				<p class="muted-copy">${escapeHtml(entry.kind)} · Last success ${escapeHtml(formatTimestamp(entry.lastSuccessAt))}</p>
+				<p class="muted-copy">Discovered ${escapeHtml(String(entry.discoveredCount ?? 0))} · New ${escapeHtml(String(entry.createdCount ?? 0))} · Refreshed ${escapeHtml(String(entry.refreshedCount ?? 0))} · Errors ${escapeHtml(String(entry.errorCount ?? 0))}</p>
 				${entry.lastError ? `<p class="muted-copy">${escapeHtml(entry.lastError)}</p>` : ''}
 			</div>
-			<span class="pill">${escapeHtml(entry.status)}</span>
+			<span class="pill health-pill health-pill--${escapeHtml(entry.health ?? 'amber')}">${escapeHtml(entry.health ?? entry.status)}</span>
 		`;
 		dom.mcpSourceHealthList.appendChild(item);
 	}
