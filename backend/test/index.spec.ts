@@ -1468,6 +1468,25 @@ describe('KeepRoot Worker', () => {
 		expect(limit).toHaveBeenCalledWith({ key: `${TEST_USER_ID}:source-sync` });
 	});
 
+	it('rate limits manual source refreshes by user', async () => {
+		const limit = vi.fn().mockResolvedValue({ success: false });
+		const limitedEnv = {
+			...env,
+			WRITE_RATE_LIMITER: { limit },
+		} as any;
+		const ctx = createExecutionContext();
+		const response = await worker.fetch(new Request('http://example.com/sources/source-1/refresh', {
+			method: 'POST',
+			headers: {
+				Authorization: `Bearer ${API_KEY}`,
+			},
+		}), limitedEnv, ctx);
+		await waitOnExecutionContext(ctx);
+
+		expect(response.status).toBe(429);
+		expect(limit).toHaveBeenCalledWith({ key: `${TEST_USER_ID}:source-sync` });
+	});
+
 	it('protects and serves MCP dashboard account and stats routes', async () => {
 		const unauthorizedCtx = createExecutionContext();
 		const unauthorizedResponse = await worker.fetch(new Request('http://example.com/account'), env, unauthorizedCtx);

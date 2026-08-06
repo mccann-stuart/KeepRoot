@@ -78,6 +78,10 @@ async function getProtectedWriteAction(context: ReturnType<typeof createRouteCon
 		}
 	}
 
+	if (/^\/sources\/[^/]+\/refresh$/.test(context.pathname)) {
+		return 'source-sync';
+	}
+
 	return null;
 }
 

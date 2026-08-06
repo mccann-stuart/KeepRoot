@@ -641,6 +641,8 @@ function renderSourceHealth(entries: SourceHealthRecord[], ingestion?: UsageStat
 	for (const entry of entries) {
 		const item = document.createElement('article');
 		item.className = 'stack-item stack-item--split';
+		const source = state.sources.find((candidate) => candidate.id === entry.id);
+		const canRefresh = source?.status === 'active' && Boolean(source.pollUrl);
 		item.innerHTML = `
 			<div>
 				<h3>${escapeHtml(entry.name)}</h3>
@@ -649,7 +651,10 @@ function renderSourceHealth(entries: SourceHealthRecord[], ingestion?: UsageStat
 				<p class="muted-copy">Discovered ${escapeHtml(String(entry.discoveredCount ?? 0))} · New ${escapeHtml(String(entry.createdCount ?? 0))} · Refreshed ${escapeHtml(String(entry.refreshedCount ?? 0))} · Errors ${escapeHtml(String(entry.errorCount ?? 0))}</p>
 				${entry.lastError ? `<p class="muted-copy">${escapeHtml(entry.lastError)}</p>` : ''}
 			</div>
-			<span class="pill health-pill health-pill--${escapeHtml(entry.health ?? 'amber')}">${escapeHtml(entry.health ?? entry.status)}</span>
+			<div class="button-row">
+				<span class="pill health-pill health-pill--${escapeHtml(entry.health ?? 'amber')}">${escapeHtml(entry.health ?? entry.status)}</span>
+				${canRefresh ? `<button type="button" data-action="refresh-source" data-source-id="${escapeHtml(entry.id)}" class="btn btn-secondary btn-compact">Refresh</button>` : ''}
+			</div>
 		`;
 		dom.mcpSourceHealthList.appendChild(item);
 	}
@@ -1453,6 +1458,22 @@ function bindEvents() {
 			dom.mcpSourceSubmit.disabled = false;
 			dom.mcpSourceSubmit.textContent = 'Add Source';
 		}
+	});
+
+	dom.mcpSourceHealthList.addEventListener('click', async (event) => {
+		const button = (event.target as Element).closest<HTMLButtonElement>('[data-action="refresh-source"]');
+		if (!button?.dataset.sourceId) {
+			return;
+		}
+
+		await runWithButtonBusy(button, 'Queueing…', async () => {
+			try {
+				await api.refreshSource(button.dataset.sourceId!);
+				showToast('Refresh queued', 'success');
+			} catch (error) {
+				showToast(error instanceof Error ? error.message : 'Failed to queue refresh', 'error');
+			}
+		});
 	});
 
 	dom.mcpSourcesList.addEventListener('click', async (event) => {

@@ -469,6 +469,52 @@ describe('dashboard MCP setup view', () => {
 		expect(document.querySelector('#mcp-view #mcp-source-health-list')).toBeNull();
 	});
 
+	it('queues a manual refresh from a pollable Source Health row', async () => {
+		let resolveRefresh!: (response: Response) => void;
+		const refreshResponse = new Promise<Response>((resolve) => {
+			resolveRefresh = resolve;
+		});
+		const { fetchSpy } = await bootDashboard({
+			sources: [{
+				id: 'source-1',
+				kind: 'rss',
+				name: 'Root Feed',
+				normalizedIdentifier: 'https://example.com/feed.xml',
+				pollUrl: 'https://example.com/feed.xml',
+				status: 'active',
+			}],
+			handleFetch: (url, method) => {
+				if (url.endsWith('/sources/source-1/refresh') && method === 'POST') {
+					return refreshResponse;
+				}
+				return undefined;
+			},
+		});
+
+		(document.getElementById('nav-sources') as HTMLButtonElement).click();
+		await flush();
+		await flush();
+
+		const refreshButton = document.querySelector<HTMLButtonElement>('[data-action="refresh-source"][data-source-id="source-1"]');
+		expect(refreshButton).not.toBeNull();
+		refreshButton!.click();
+		await Promise.resolve();
+
+		expect(refreshButton?.disabled).toBe(true);
+		expect(refreshButton?.textContent).toBe('Queueing…');
+
+		resolveRefresh(jsonResponse({ queued: true, runId: 'run-1' }, 202));
+		await flush();
+		await flush();
+
+		expect(fetchSpy).toHaveBeenCalledWith('/sources/source-1/refresh', expect.objectContaining({
+			method: 'POST',
+		}));
+		expect(refreshButton?.disabled).toBe(false);
+		expect(refreshButton?.textContent).toBe('Refresh');
+		expect((document.getElementById('toast') as HTMLElement).textContent).toContain('Refresh queued');
+	});
+
 	it('shows the publisher date on feed article cards and in the reader', async () => {
 		const createdAt = '2026-03-16T10:00:00.000Z';
 		const publishedAt = '2026-08-06T09:30:00.000Z';

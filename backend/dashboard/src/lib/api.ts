@@ -154,6 +154,12 @@ export class KeepRootApi {
 		});
 	}
 
+	refreshSource(id: string): Promise<{ queued: boolean; runId: string }> {
+		return this.request(`/sources/${id}/refresh`, {
+			method: 'POST',
+		});
+	}
+
 	createApiKey(name: string): Promise<{ metadata: ApiKeyRecord; secret: string }> {
 		return this.request('/api-keys', {
 			bodyJson: { name },

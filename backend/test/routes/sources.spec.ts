@@ -2,16 +2,22 @@ import { describe, expect, it, vi, beforeEach } from 'vitest';
 import { handleSourceRoute } from '../../src/routes/sources';
 import * as storage from '../../src/storage';
 import * as sourceSync from '../../src/mcp/source-sync';
+import * as sourceQueue from '../../src/ingest/source-queue';
 import { type ProtectedRouteContext } from '../../src/http';
 
 vi.mock('../../src/storage', () => ({
 	addSource: vi.fn(),
+	getSourceById: vi.fn(),
 	listSources: vi.fn(),
 	removeSource: vi.fn(),
 }));
 
 vi.mock('../../src/mcp/source-sync', () => ({
 	maybeQueueSourceSync: vi.fn(),
+}));
+
+vi.mock('../../src/ingest/source-queue', () => ({
+	enqueueSourceRun: vi.fn(),
 }));
 
 describe('handleSourceRoute', () => {
@@ -183,6 +189,48 @@ describe('handleSourceRoute', () => {
 			expect(response?.status).toBe(500);
 			const data = await response?.json();
 			expect(data).toEqual({ error: 'Failed to create source' });
+		});
+	});
+
+	describe('POST /sources/:id/refresh', () => {
+		it('queues one manual run for an owned pollable source', async () => {
+			vi.mocked(storage.getSourceById).mockResolvedValue({
+				id: 'source-1',
+				pollUrl: 'https://example.com/feed.xml',
+				status: 'active',
+			} as any);
+			vi.mocked(sourceQueue.enqueueSourceRun).mockResolvedValue('run-1');
+
+			const response = await handleSourceRoute(createMockContext('POST', '/sources/source-1/refresh'));
+
+			expect(response?.status).toBe(202);
+			expect(await response?.json()).toEqual({ queued: true, runId: 'run-1' });
+			expect(storage.getSourceById).toHaveBeenCalledWith(mockEnv, 'user-123', 'source-1');
+			expect(sourceQueue.enqueueSourceRun).toHaveBeenCalledWith(mockEnv, 'source-1', 'manual');
+		});
+
+		it('does not reveal a source that is not owned by the caller', async () => {
+			vi.mocked(storage.getSourceById).mockResolvedValue(null);
+
+			const response = await handleSourceRoute(createMockContext('POST', '/sources/other-user-source/refresh'));
+
+			expect(response?.status).toBe(404);
+			expect(await response?.json()).toEqual({ error: 'Not found' });
+			expect(sourceQueue.enqueueSourceRun).not.toHaveBeenCalled();
+		});
+
+		it('rejects sources that cannot be polled', async () => {
+			vi.mocked(storage.getSourceById).mockResolvedValue({
+				id: 'source-1',
+				pollUrl: null,
+				status: 'active',
+			} as any);
+
+			const response = await handleSourceRoute(createMockContext('POST', '/sources/source-1/refresh'));
+
+			expect(response?.status).toBe(400);
+			expect(await response?.json()).toEqual({ error: 'Source cannot be refreshed' });
+			expect(sourceQueue.enqueueSourceRun).not.toHaveBeenCalled();
 		});
 	});
 

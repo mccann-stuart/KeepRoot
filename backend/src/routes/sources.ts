@@ -1,6 +1,7 @@
 import { errorResponse, jsonResponse, parseJson, type ProtectedRouteContext } from '../http';
+import { enqueueSourceRun } from '../ingest/source-queue';
 import { maybeQueueSourceSync } from '../mcp/source-sync';
-import { addSource, listSources, removeSource, type SourceKind } from '../storage';
+import { addSource, getSourceById, listSources, removeSource, type SourceKind } from '../storage';
 
 function parseLimit(value: string | null): number | undefined {
 	if (!value) {
@@ -68,6 +69,22 @@ export async function handleSourceRoute(context: ProtectedRouteContext): Promise
 			console.error(error);
 			return errorResponse('Failed to create source', 500);
 		}
+	}
+
+	const refreshMatch = context.pathname.match(/^\/sources\/([^/]+)\/refresh$/);
+	if (context.request.method === 'POST' && refreshMatch) {
+		const sourceId = refreshMatch[1];
+		const source = await getSourceById(context.env, context.authUser.userId, sourceId);
+		if (!source) {
+			return errorResponse('Not found', 404);
+		}
+
+		if (source.status !== 'active' || typeof source.pollUrl !== 'string' || !source.pollUrl.trim()) {
+			return errorResponse('Source cannot be refreshed', 400);
+		}
+
+		const runId = await enqueueSourceRun(context.env, sourceId, 'manual');
+		return jsonResponse({ queued: true, runId }, 202);
 	}
 
 	if (context.request.method === 'DELETE' && context.pathname.startsWith('/sources/')) {
