@@ -57,13 +57,8 @@ export function isLikelyPdfUrl(rawUrl) {
     return false;
   }
 
-  try {
-    const parsedUrl = new URL(resolvedUrl);
-    const pathname = decodeURIComponent(parsedUrl.pathname).toLowerCase();
-    return pathname.endsWith('.pdf');
-  } catch {
-    return false;
-  }
+  const pathname = getDecodedUrlPathname(resolvedUrl).toLowerCase();
+  return pathname.endsWith('.pdf');
 }
 
 export function buildPdfMarkdown(pages) {
@@ -221,13 +216,8 @@ function filenameTitleFromUrl(url) {
     return null;
   }
 
-  try {
-    const parsedUrl = new URL(url);
-    const filename = decodeURIComponent(parsedUrl.pathname.split('/').pop() ?? '').trim();
-    return filename || null;
-  } catch {
-    return null;
-  }
+  const filename = getDecodedUrlPathname(url).split('/').pop()?.trim();
+  return filename || null;
 }
 
 function normalizeContentType(contentType) {
@@ -281,4 +271,13 @@ function shouldInsertSpace(previousPart, nextPart) {
   }
 
   return true;
+}
+
+function getDecodedUrlPathname(url) {
+  try {
+    const parsedUrl = new URL(url);
+    return decodeURIComponent(parsedUrl.pathname);
+  } catch {
+    return '';
+  }
 }
