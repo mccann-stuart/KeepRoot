@@ -9,6 +9,7 @@ import bookmarkHotPathSchemaSql from '../migrations/0004_bookmark_hot_path.sql?r
 import securityHardeningSchemaSql from '../migrations/0005_security_hardening.sql?raw';
 import sourceEntryIdentitySchemaSql from '../migrations/0006_source_entry_identity.sql?raw';
 import queueFirstFeedCrawlingSchemaSql from '../migrations/0007_queue_first_feed_crawling.sql?raw';
+import adaptiveFeedSchedulingSchemaSql from '../migrations/0008_adaptive_feed_scheduling.sql?raw';
 
 const API_KEY = 'test-api-key-12345';
 const TEST_USER_ID = 'test-user-id';
@@ -120,6 +121,7 @@ async function resetDatabase(): Promise<void> {
 	await execStatements(securityHardeningSchemaSql, true);
 	await execStatements(sourceEntryIdentitySchemaSql, true);
 	await execStatements(queueFirstFeedCrawlingSchemaSql, true);
+	await execStatements(adaptiveFeedSchedulingSchemaSql, true);
 	await execStatements(`
 		DELETE FROM bookmark_tags;
 		DELETE FROM bookmark_images;

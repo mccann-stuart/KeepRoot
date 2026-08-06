@@ -1,4 +1,5 @@
 import { compactObject, fetchWithRedirects, validateSafeUrl, type SourceKind, type SourceListOptions, type StorageEnv } from './shared';
+import { clampPollIntervalMinutes } from '../ingest/feed-schedule';
 
 interface SourceRow {
 	config_json: string;
@@ -10,7 +11,9 @@ interface SourceRow {
 	last_polled_at: string | null;
 	last_success_at: string | null;
 	name: string;
+	next_poll_at: string | null;
 	normalized_identifier: string;
+	poll_interval_minutes: number;
 	poll_url: string | null;
 	status: string;
 	http_etag?: string | null;
@@ -237,7 +240,7 @@ export async function listSources(env: StorageEnv, userId: string, options: Sour
 	const offset = decodeCursor(options.cursor);
 	const result = await env.KEEPROOT_DB.prepare(
 		`SELECT id, kind, name, normalized_identifier, poll_url, email_alias, status, config_json,
-			last_polled_at, last_success_at, last_error, created_at, updated_at
+			last_polled_at, last_success_at, last_error, next_poll_at, poll_interval_minutes, created_at, updated_at
 		FROM sources
 		WHERE user_id = ?
 			AND ((? IS NULL AND status != 'removed') OR status = ?)
@@ -271,7 +274,9 @@ export async function listSources(env: StorageEnv, userId: string, options: Sour
 			lastPolledAt: row.last_polled_at,
 			lastSuccessAt: row.last_success_at,
 			name: row.name,
+			nextPollAt: row.next_poll_at,
 			normalizedIdentifier: row.normalized_identifier,
+			pollIntervalMinutes: clampPollIntervalMinutes(row.poll_interval_minutes),
 			pollUrl: row.poll_url,
 			status: row.status,
 			updatedAt: row.updated_at,
@@ -362,7 +367,7 @@ export async function getSourceById(env: StorageEnv, userId: string, sourceId: s
 	const [sourceResult, recentRunsResult] = await env.KEEPROOT_DB.batch<SourceRow | SourceRunRow>([
 		env.KEEPROOT_DB.prepare(
 			`SELECT id, kind, name, normalized_identifier, poll_url, email_alias, status, config_json,
-				last_polled_at, last_success_at, last_error, created_at, updated_at
+				last_polled_at, last_success_at, last_error, next_poll_at, poll_interval_minutes, created_at, updated_at
 			FROM sources
 			WHERE id = ? AND user_id = ?
 			LIMIT 1`,
@@ -394,7 +399,9 @@ export async function getSourceById(env: StorageEnv, userId: string, sourceId: s
 		lastPolledAt: source.last_polled_at,
 		lastSuccessAt: source.last_success_at,
 		name: source.name,
+		nextPollAt: source.next_poll_at,
 		normalizedIdentifier: source.normalized_identifier,
+		pollIntervalMinutes: clampPollIntervalMinutes(source.poll_interval_minutes),
 		pollUrl: source.poll_url,
 		recentRuns: recentRuns.results.map((run) => compactObject({
 			attempts: run.attempt_count,
@@ -441,27 +448,78 @@ export async function getSourceByEmailAlias(env: StorageEnv, emailAlias: string)
 	};
 }
 
-export async function listActivePollableSources(env: StorageEnv): Promise<Array<{ config: Record<string, unknown>; httpEtag: string | null; httpLastModified: string | null; id: string; kind: SourceKind; lastPolledAt: string | null; name: string; pollUrl: string; userId: string; validatorUrl: string | null }>> {
-	const result = await env.KEEPROOT_DB.prepare(
-		`SELECT id, user_id, kind, name, poll_url, config_json, last_polled_at,
-			validator_url, http_etag, http_last_modified
-		FROM sources
-		WHERE status = 'active' AND poll_url IS NOT NULL`,
-	)
-		.all<{ config_json: string; http_etag: string | null; http_last_modified: string | null; id: string; kind: SourceKind; last_polled_at: string | null; name: string; poll_url: string; user_id: string; validator_url: string | null }>();
+export interface PollableSource {
+	config: Record<string, unknown>;
+	httpEtag: string | null;
+	httpLastModified: string | null;
+	id: string;
+	kind: SourceKind;
+	lastPolledAt: string | null;
+	name: string;
+	nextPollAt: string | null;
+	pollIntervalMinutes: number;
+	pollUrl: string;
+	userId: string;
+	validatorUrl: string | null;
+}
 
-	return result.results.map((row) => ({
+interface PollableSourceRow {
+	config_json: string;
+	http_etag: string | null;
+	http_last_modified: string | null;
+	id: string;
+	kind: SourceKind;
+	last_polled_at: string | null;
+	name: string;
+	next_poll_at: string | null;
+	poll_interval_minutes: number;
+	poll_url: string;
+	user_id: string;
+	validator_url: string | null;
+}
+
+function mapPollableSource(row: PollableSourceRow): PollableSource {
+	return {
 		config: parseConfig(row.config_json),
-		httpEtag: row.http_etag,
-		httpLastModified: row.http_last_modified,
+		httpEtag: row.http_etag ?? null,
+		httpLastModified: row.http_last_modified ?? null,
 		id: row.id,
 		kind: row.kind,
 		lastPolledAt: row.last_polled_at,
 		name: row.name,
+		nextPollAt: row.next_poll_at ?? null,
+		pollIntervalMinutes: clampPollIntervalMinutes(row.poll_interval_minutes),
 		pollUrl: row.poll_url,
 		userId: row.user_id,
-		validatorUrl: row.validator_url,
-	}));
+		validatorUrl: row.validator_url ?? null,
+	};
+}
+
+export async function listActivePollableSources(env: StorageEnv): Promise<PollableSource[]> {
+	const result = await env.KEEPROOT_DB.prepare(
+		`SELECT id, user_id, kind, name, poll_url, config_json, last_polled_at,
+			validator_url, http_etag, http_last_modified, next_poll_at, poll_interval_minutes
+		FROM sources
+		WHERE status = 'active' AND poll_url IS NOT NULL`,
+	)
+		.all<PollableSourceRow>();
+
+	return result.results.map(mapPollableSource);
+}
+
+export async function listDuePollableSources(env: StorageEnv, dueAt: string): Promise<PollableSource[]> {
+	const result = await env.KEEPROOT_DB.prepare(
+		`SELECT id, user_id, kind, name, poll_url, config_json, last_polled_at,
+			validator_url, http_etag, http_last_modified, next_poll_at, poll_interval_minutes
+		FROM sources
+		WHERE status = 'active' AND poll_url IS NOT NULL
+			AND (next_poll_at IS NULL OR next_poll_at <= ?)
+		ORDER BY next_poll_at ASC, created_at ASC`,
+	)
+		.bind(dueAt)
+		.all<PollableSourceRow>();
+
+	return result.results.map(mapPollableSource);
 }
 
 export async function markSourcePollingResult(
