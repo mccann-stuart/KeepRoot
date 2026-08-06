@@ -1186,7 +1186,11 @@ function bindEvents() {
 	});
 
 	document.addEventListener('keydown', (event) => {
-		if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === 'k') {
+		const target = event.target instanceof Element ? event.target : null;
+		const isTyping = Boolean(target?.closest('input, textarea, select, [contenteditable]'));
+		const isSlashShortcut = event.key === '/' && !event.metaKey && !event.ctrlKey && !event.altKey && !isTyping;
+		const isModifiedKShortcut = (event.metaKey || event.ctrlKey) && event.key.toLowerCase() === 'k';
+		if (isSlashShortcut || isModifiedKShortcut) {
 			event.preventDefault();
 			if (state.currentView !== 'inbox' && state.currentView !== 'content') {
 				switchView('inbox', 'all', null);

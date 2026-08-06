@@ -438,6 +438,43 @@ describe('dashboard login', () => {
 	});
 });
 
+describe('dashboard keyboard shortcuts', () => {
+	beforeEach(() => {
+		vi.restoreAllMocks();
+	});
+
+	it('focuses library search when slash is pressed', async () => {
+		await bootDashboard();
+
+		const searchInput = document.getElementById('search-input') as HTMLInputElement;
+		const shortcut = new KeyboardEvent('keydown', {
+			bubbles: true,
+			cancelable: true,
+			key: '/',
+		});
+		document.body.dispatchEvent(shortcut);
+
+		expect(shortcut.defaultPrevented).toBe(true);
+		expect(document.activeElement).toBe(searchInput);
+	});
+
+	it('leaves slash available while editing text', async () => {
+		await bootDashboard();
+
+		const noteInput = document.getElementById('note-input') as HTMLTextAreaElement;
+		noteInput.focus();
+		const slash = new KeyboardEvent('keydown', {
+			bubbles: true,
+			cancelable: true,
+			key: '/',
+		});
+		noteInput.dispatchEvent(slash);
+
+		expect(slash.defaultPrevented).toBe(false);
+		expect(document.activeElement).toBe(noteInput);
+	});
+});
+
 describe('dashboard MCP setup view', () => {
 	beforeEach(() => {
 		vi.restoreAllMocks();
