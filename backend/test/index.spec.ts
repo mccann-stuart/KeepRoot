@@ -1,7 +1,7 @@
 import { env, createExecutionContext, waitOnExecutionContext } from 'cloudflare:test';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import worker from '../src/index';
-import { addSource, createApiKey, createList, createSession, createSmartList, createUserWithCredential, ensureAccountSettings, hashToken, recordToolEvent, saveBookmark, storeAuthChallenge } from '../src/storage';
+import { addSource, createApiKey, createList, createSession, createSmartList, createUserWithCredential, ensureAccountSettings, getBookmark, hashToken, recordToolEvent, saveBookmark, storeAuthChallenge } from '../src/storage';
 import initialSchemaSql from '../migrations/0001_initial.sql?raw';
 import organizationSchemaSql from '../migrations/0002_organization.sql?raw';
 import mcpServerSchemaSql from '../migrations/0003_mcp_server.sql?raw';
@@ -343,6 +343,35 @@ describe('KeepRoot Worker', () => {
 
 		expect(response.status).toBe(401);
 		expect(await response.json()).toEqual({ error: 'Unauthorized' });
+	});
+
+	it('persists and returns a feed article publication timestamp', async () => {
+		const publishedAt = '2026-08-06T09:30:00.000Z';
+		const source = await addSource(env, {
+			identifier: 'https://example.com/publication-feed.xml',
+			kind: 'rss',
+			name: 'Publication feed',
+			userId: TEST_USER_ID,
+		});
+		const saved = await saveBookmark(env, {
+			userId: TEST_USER_ID,
+			username: TEST_USERNAME,
+		}, {
+			markdownData: '# Published article',
+			publishedAt,
+			sourceEntryId: 'published-entry',
+			sourceId: String(source.id),
+			title: 'Published article',
+			url: 'https://example.com/published-article',
+		});
+
+		expect(saved.metadata).toEqual(expect.objectContaining({ publishedAt }));
+		const loaded = await getBookmark(env, TEST_USER_ID, saved.id);
+		expect(loaded?.metadata).toEqual(expect.objectContaining({ publishedAt }));
+		const row = await env.KEEPROOT_DB.prepare(
+			'SELECT published_at FROM bookmarks WHERE id = ? AND user_id = ?',
+		).bind(saved.id, TEST_USER_ID).first<{ published_at: string | null }>();
+		expect(row?.published_at).toBe(publishedAt);
 	});
 
 	it('dispatches one minimal queue job per source and deduplicates cron retries', async () => {

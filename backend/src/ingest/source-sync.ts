@@ -1,7 +1,7 @@
 import { XMLParser } from 'fast-xml-parser';
 import { DOMParser } from 'linkedom';
 import TurndownService from 'turndown';
-import { calculateAdaptivePollIntervalMinutes } from './feed-schedule';
+import { calculateAdaptivePollIntervalMinutes, normalizePublishedAt } from './feed-schedule';
 import { saveItemContent } from '../storage/items';
 import { listActivePollableSources, markSourcePollingResult } from '../storage/sources';
 import { fetchWithRedirects, sha256Hex, validateSafeUrl, type SourceKind, type StorageEnv } from '../storage/shared';
@@ -20,6 +20,7 @@ interface FingerprintedFeedEntry extends FeedEntry {
 
 interface ExistingSourceEntryRow {
 	id: string;
+	published_at: string | null;
 	source_entry_fingerprint: string | null;
 	source_entry_id: string;
 }
@@ -264,7 +265,7 @@ async function getExistingSourceEntries(
 	const statements: D1PreparedStatement[] = [];
 	for (let offset = 0; offset < entries.length; offset += 200) {
 		statements.push(env.KEEPROOT_DB.prepare(
-			`SELECT id, source_entry_id, source_entry_fingerprint
+			`SELECT id, source_entry_id, source_entry_fingerprint, published_at
 			FROM bookmarks
 			WHERE source_id = ?
 				AND source_entry_id IN (SELECT value FROM json_each(?))`,
@@ -278,22 +279,43 @@ async function getExistingSourceEntries(
 	return new Map(rows.map((row) => [row.source_entry_id, row]));
 }
 
-async function baselineMissingFingerprints(
+async function baselineMissingSourceMetadata(
 	env: StorageEnv,
 	entries: FingerprintedFeedEntry[],
 	existingEntries: Map<string, ExistingSourceEntryRow>,
+	sourceId: string,
 ): Promise<number> {
 	const statements = entries.flatMap((entry) => {
 		const existing = existingEntries.get(entry.id);
-		if (!existing || existing.source_entry_fingerprint !== null) {
+		if (!existing) {
 			return [];
 		}
-		existing.source_entry_fingerprint = entry.fingerprint;
+		const publishedAt = normalizePublishedAt(entry.publishedAt);
+		const needsFingerprint = existing.source_entry_fingerprint === null;
+		const needsPublishedAt = existing.published_at === null && publishedAt !== undefined;
+		if (!needsFingerprint && !needsPublishedAt) {
+			return [];
+		}
+
+		if (needsFingerprint) existing.source_entry_fingerprint = entry.fingerprint;
+		if (needsPublishedAt) existing.published_at = publishedAt;
+		if (needsFingerprint && needsPublishedAt) {
+			return [env.KEEPROOT_DB.prepare(
+				`UPDATE bookmarks
+				SET source_entry_fingerprint = ?, published_at = ?
+				WHERE id = ? AND source_id = ? AND source_entry_fingerprint IS NULL AND published_at IS NULL`,
+			).bind(entry.fingerprint, publishedAt, existing.id, sourceId)];
+		}
+		if (needsFingerprint) {
+			return [env.KEEPROOT_DB.prepare(
+				`UPDATE bookmarks SET source_entry_fingerprint = ?
+				WHERE id = ? AND source_id = ? AND source_entry_fingerprint IS NULL`,
+			).bind(entry.fingerprint, existing.id, sourceId)];
+		}
 		return [env.KEEPROOT_DB.prepare(
-			`UPDATE bookmarks
-			SET source_entry_fingerprint = ?
-			WHERE id = ? AND source_entry_fingerprint IS NULL`,
-		).bind(entry.fingerprint, existing.id)];
+			`UPDATE bookmarks SET published_at = ?
+			WHERE id = ? AND source_id = ? AND published_at IS NULL`,
+		).bind(publishedAt, existing.id, sourceId)];
 	});
 
 	for (let offset = 0; offset < statements.length; offset += 100) {
@@ -432,7 +454,7 @@ export async function syncSource(
 	const visibleEntries = entries.slice(0, MAX_VISIBLE_ENTRIES);
 	const fingerprintedEntries = await fingerprintFeedEntries(visibleEntries);
 	const existingEntries = await getExistingSourceEntries(env, source.id, fingerprintedEntries);
-	await baselineMissingFingerprints(env, fingerprintedEntries, existingEntries);
+	await baselineMissingSourceMetadata(env, fingerprintedEntries, existingEntries, source.id);
 	const changedEntries = fingerprintedEntries.filter((entry) => {
 		const existing = existingEntries.get(entry.id);
 		return !existing || existing.source_entry_fingerprint !== entry.fingerprint;
@@ -449,6 +471,7 @@ export async function syncSource(
 		MAX_ENTRY_WRITE_CONCURRENCY,
 		async (entry) => {
 			const content = extractEntryContent(entry);
+			const publishedAt = normalizePublishedAt(entry.publishedAt);
 			await saveItemContent(
 				env,
 				{
@@ -458,6 +481,7 @@ export async function syncSource(
 				{
 					notes: source.name ? `Saved from source: ${source.name}` : undefined,
 					markdownData: content.markdownData,
+					publishedAt,
 					sourceEntryId: entry.id,
 					sourceEntryFingerprint: entry.fingerprint,
 					sourceId: source.id,

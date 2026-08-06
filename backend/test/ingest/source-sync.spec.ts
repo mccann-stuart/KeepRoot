@@ -157,18 +157,18 @@ describe('source-sync', () => {
 	});
 
 	it('baselines migrated entries without rewriting their stored content', async () => {
-		vi.spyOn(env.KEEPROOT_DB, 'prepare').mockImplementation((sql: string) => {
+		const prepareSpy = vi.spyOn(env.KEEPROOT_DB, 'prepare').mockImplementation((sql: string) => {
 			if (sql.includes('source_entry_fingerprint')) {
 				return {
 					bind: vi.fn().mockReturnThis(),
-					all: vi.fn().mockResolvedValue({ results: [{ id: 'bookmark-1', source_entry_fingerprint: null, source_entry_id: 'legacy-entry' }] }),
+					all: vi.fn().mockResolvedValue({ results: [{ id: 'bookmark-1', published_at: null, source_entry_fingerprint: null, source_entry_id: 'legacy-entry' }] }),
 				} as any;
 			}
 			return { bind: vi.fn().mockReturnThis(), first: vi.fn().mockResolvedValue({ username: 'testuser' }), run: vi.fn() } as any;
 		});
 		const batch = vi.spyOn(env.KEEPROOT_DB, 'batch').mockResolvedValue([] as any);
 		vi.stubGlobal('fetch', vi.fn().mockResolvedValue(new Response(
-			'<rss><channel><item><guid>legacy-entry</guid><title>Legacy</title><link>https://example.com/legacy</link></item></channel></rss>',
+			'<rss><channel><item><guid>legacy-entry</guid><title>Legacy</title><link>https://example.com/legacy</link><pubDate>Thu, 06 Aug 2026 09:30:00 GMT</pubDate></item></channel></rss>',
 			{ status: 200 },
 		)));
 
@@ -177,6 +177,11 @@ describe('source-sync', () => {
 		expect(result.unchangedCount).toBe(1);
 		expect(items.saveItemContent).not.toHaveBeenCalled();
 		expect(batch).toHaveBeenCalledWith(expect.arrayContaining([expect.anything()]));
+		expect(prepareSpy.mock.calls.some(([sql]) =>
+			String(sql).includes('SET source_entry_fingerprint = ?')
+			&& String(sql).includes('published_at = ?')
+			&& String(sql).includes('source_id = ?')
+		)).toBe(true);
 	});
 
 	it('rejects a feed body that exceeds the eight MiB processing limit', async () => {
@@ -208,6 +213,7 @@ describe('source-sync', () => {
 						<title>Full Feed Article</title>
 						<link>https://example.com/full-article</link>
 						<guid isPermaLink="false">stratechery-post-1</guid>
+						<pubDate>Thu, 06 Aug 2026 09:30:00 GMT</pubDate>
 						<description>Two-line teaser only.</description>
 						<content:encoded><![CDATA[
 							<h2>Full article heading</h2>
@@ -229,6 +235,7 @@ describe('source-sync', () => {
 		expect(payload).toEqual(
 			expect.objectContaining({
 				markdownData: expect.stringContaining('Second complete paragraph from the paid feed.'),
+				publishedAt: '2026-08-06T09:30:00.000Z',
 				sourceEntryId: 'stratechery-post-1',
 				sourceEntryFingerprint: expect.stringMatching(/^[a-f0-9]{64}$/),
 				sourceId: 'source-full-content',
