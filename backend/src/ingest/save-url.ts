@@ -2,7 +2,7 @@ import { Readability } from '@mozilla/readability';
 import { DOMParser } from 'linkedom';
 import TurndownService from 'turndown';
 import { saveItemContent } from '../storage/items';
-import { validateSafeUrl, type AuthenticatedUser, type BookmarkPayload, type StorageEnv } from '../storage/shared';
+import { fetchWithRedirects, validateSafeUrl, type AuthenticatedUser, type BookmarkPayload, type StorageEnv } from '../storage/shared';
 
 interface ExtractedContent {
 	htmlData?: string;
@@ -190,39 +190,18 @@ export async function saveItemFromUrl(
 		throw new Error('Unsafe initial URL');
 	}
 
-	let currentUrl = input.url;
-	let response: Response | null = null;
-	let redirectCount = 0;
-
-	while (redirectCount < 5) {
-		response = await fetch(currentUrl, {
+	let { response, currentUrl, errorText } = await fetchWithRedirects(
+		input.url,
+		{
 			headers: {
 				Accept: 'text/html,application/pdf,text/plain;q=0.9,*/*;q=0.8',
 				'User-Agent': 'KeepRoot/1.0 (+https://keeproot.local)',
 			},
-			redirect: 'manual',
-		});
-
-		if ([301, 302, 303, 307, 308].includes(response.status)) {
-			await response.body?.cancel().catch(() => {});
-			const location = response.headers.get('location');
-			if (!location) {
-				throw new Error('Redirect missing location header');
-			}
-			let nextUrl: string;
-			try {
-				nextUrl = new URL(location, currentUrl).toString();
-			} catch {
-				throw new Error('Invalid redirect location URL');
-			}
-			if (!await validateSafeUrl(nextUrl)) {
-				throw new Error('Unsafe redirect URL');
-			}
-			currentUrl = nextUrl;
-			redirectCount += 1;
-			continue;
 		}
-		break;
+	);
+
+	if (errorText) {
+		throw new Error(errorText);
 	}
 
 	if (!response || !response.ok) {
