@@ -851,7 +851,7 @@ export async function saveBookmark(
 	if (existingBookmark) {
 		await env.KEEPROOT_DB.prepare(
 			`UPDATE bookmarks
-			SET url = ?, canonical_url = ?, url_hash = ?, title = ?, site_name = ?, domain = ?, status = ?, notes = ?, source_id = ?, source_entry_id = ?, processing_state = ?,
+			SET url = ?, canonical_url = ?, url_hash = ?, title = ?, site_name = ?, domain = ?, status = ?, notes = ?, source_id = ?, source_entry_id = ?, source_entry_fingerprint = ?, processing_state = ?,
 				updated_at = ?, last_fetched_at = ?, content_hash = ?, content_ref = ?, content_type = ?,
 				content_length = ?, excerpt = ?, word_count = ?, lang = ?, list_id = ?, pinned = ?, sort_order = ?, is_read = ?
 			WHERE id = ? AND user_id = ?`,
@@ -867,6 +867,7 @@ export async function saveBookmark(
 				notes,
 				sourceId,
 				sourceEntryId,
+				payload.sourceEntryFingerprint ?? null,
 				processingState,
 				now,
 				now,
@@ -888,8 +889,8 @@ export async function saveBookmark(
 	} else {
 		await env.KEEPROOT_DB.prepare(
 			`INSERT INTO bookmarks
-			(id, user_id, url, canonical_url, url_hash, title, site_name, domain, status, notes, source_id, source_entry_id, processing_state, created_at, updated_at, last_fetched_at, content_hash, content_ref, content_type, content_length, excerpt, word_count, lang, list_id, pinned, sort_order, is_read)
-			VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+			(id, user_id, url, canonical_url, url_hash, title, site_name, domain, status, notes, source_id, source_entry_id, source_entry_fingerprint, processing_state, created_at, updated_at, last_fetched_at, content_hash, content_ref, content_type, content_length, excerpt, word_count, lang, list_id, pinned, sort_order, is_read)
+			VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
 		)
 			.bind(
 				bookmarkId,
@@ -904,6 +905,7 @@ export async function saveBookmark(
 				notes,
 				sourceId,
 				sourceEntryId,
+				payload.sourceEntryFingerprint ?? null,
 				processingState,
 				createdAt,
 				now,

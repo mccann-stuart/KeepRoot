@@ -25,6 +25,8 @@ export interface StorageEnv {
 	EMAIL_SOURCE_DOMAIN?: string;
 	ENABLE_X_SOURCES?: string;
 	INGEST_QUEUE?: Queue<unknown>;
+	SOURCE_DLQ?: Queue<unknown>;
+	SOURCE_QUEUE?: Queue<unknown>;
 	KEEPROOT_DB: D1Database;
 	KEEPROOT_CONTENT: R2Bucket;
 	KEEPROOT_VECTOR_INDEX?: Vectorize;
@@ -67,6 +69,7 @@ export interface BookmarkPayload {
 	siteName?: string;
 	sortOrder?: number;
 	sourceEntryId?: string;
+	sourceEntryFingerprint?: string;
 	sourceId?: string | null;
 	status?: string;
 	tags?: string[];

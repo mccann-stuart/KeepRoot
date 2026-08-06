@@ -1397,6 +1397,24 @@ a {
 	white-space: nowrap;
 }
 
+.health-pill--green {
+	border-color: color-mix(in srgb, #238636 35%, transparent);
+	background: color-mix(in srgb, #238636 12%, var(--surface-strong));
+	color: #238636;
+}
+
+.health-pill--amber {
+	border-color: color-mix(in srgb, #b58105 38%, transparent);
+	background: color-mix(in srgb, #b58105 12%, var(--surface-strong));
+	color: #8a6500;
+}
+
+.health-pill--red {
+	border-color: color-mix(in srgb, var(--danger) 38%, transparent);
+	background: var(--danger-soft);
+	color: var(--danger);
+}
+
 #setup-view,
 #mcp-view,
 #settings-view {

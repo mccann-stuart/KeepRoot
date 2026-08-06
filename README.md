@@ -26,7 +26,7 @@ Current MCP implementation:
 Current limitations:
 - MCP auth is bearer-token based today; OAuth-style MCP auth is planned, not shipped
 - search is currently keyword-backed over the indexed content store
-- source records are supported now; automated polling and email routing require additional Worker handlers and deployment configuration
+- email routing requires additional deployment configuration; RSS, YouTube and bridge-feed sources are dispatched every two hours through a dedicated Cloudflare Queue
 
 See [PRD.md](PRD.md) and [TECHNICAL_ARCHITECTURE.md](TECHNICAL_ARCHITECTURE.md) for the broader product and platform design.
 
@@ -49,6 +49,7 @@ Main components:
   - **Workers runtime:** dashboard, REST API, and `/mcp`
   - **D1 (`KEEPROOT_DB`):** auth data, bookmark metadata, tags, inbox, sources, search documents, and MCP usage events
   - **R2 (`KEEPROOT_CONTENT`):** extracted content blobs in `content/*.json`, optional `html/*.html`, and image objects
+  - **Queues (`SOURCE_QUEUE`, `SOURCE_DLQ`):** durable per-source crawl fan-out, retries, continuations, and dead-letter visibility
 
 Authentication modes:
 - **WebAuthn + seven-day sessions** for dashboard sign-up/sign-in
@@ -137,6 +138,8 @@ Edit `backend/wrangler.jsonc` to customize resource names if needed.
 |---|---|
 | D1 database | `keeproot` |
 | R2 bucket | `keeproot-content` |
+| Source queue | `keeproot-source-ingest` |
+| Source dead-letter queue | `keeproot-source-ingest-dlq` |
 
 ### Security environment variables
 
@@ -170,9 +173,11 @@ npm run provision
 ```
 
 This command:
-- creates missing D1 and R2 resources from `wrangler.jsonc`
+- creates missing D1, R2 and Queue resources from `wrangler.jsonc`
 - applies remote D1 migrations in `backend/migrations/`
 - regenerates Worker types
+
+Source crawling keeps the existing two-hour Cron Trigger. Cron only creates idempotent source runs and publishes `{ sourceId, runId }`; the Queue consumer reloads current source configuration from D1. Feed downloads are capped at 8 MiB and 2,000 visible entries. HTTP validators make unchanged polls return at `304`, while changed work is fingerprinted and processed in groups of 200 with four concurrent item writes until caught up.
 
 ### Deploy
 
