@@ -76,7 +76,9 @@ export interface SourceRecord {
 	lastPolledAt?: string;
 	lastSuccessAt?: string;
 	name: string;
+	nextPollAt?: string;
 	normalizedIdentifier: string;
+	pollIntervalMinutes?: number;
 	pollUrl?: string;
 	status: string;
 	updatedAt?: string;
@@ -99,6 +101,8 @@ export interface SourceHealthRecord {
 	lastPolledAt?: string;
 	lastSuccessAt?: string;
 	name: string;
+	nextPollAt?: string;
+	pollIntervalMinutes?: number;
 	processedCount?: number;
 	refreshedCount?: number;
 	saturated?: boolean;

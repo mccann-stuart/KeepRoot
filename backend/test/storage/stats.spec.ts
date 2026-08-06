@@ -78,7 +78,7 @@ describe('stats storage', () => {
                     { tool_name: 'summarizer', status: 'error', count: 1 }
                 ] },
                 { results: [ // sourceHealthResult
-                    { id: 'src-1', kind: 'rss', name: 'Blog', status: 'active', last_polled_at: '2023-01-01', last_success_at: '2023-01-01', last_error: null }
+                    { id: 'src-1', kind: 'rss', name: 'Blog', status: 'active', last_polled_at: '2023-01-01', last_success_at: '2023-01-01', last_error: null, next_poll_at: '2026-08-06T14:00:00.000Z', poll_interval_minutes: 120 }
                 ] },
 				{ results: [{ count: 4 }] },
 				{ results: [{ source_id: 'src-1', rank: 1, status: 'success', discovered_count: 10, processed_count: 10, created_count: 6, refreshed_count: 4, unchanged_count: 0, error_count: 0, saturated: 0 }] },
@@ -114,6 +114,8 @@ describe('stats storage', () => {
                         lastPolledAt: '2023-01-01',
                         lastSuccessAt: '2023-01-01',
                         name: 'Blog',
+						nextPollAt: '2026-08-06T14:00:00.000Z',
+						pollIntervalMinutes: 120,
 						processedCount: 10,
 						refreshedCount: 4,
 						saturated: false,

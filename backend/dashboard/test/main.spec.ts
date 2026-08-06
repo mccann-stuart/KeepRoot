@@ -469,6 +469,72 @@ describe('dashboard MCP setup view', () => {
 		expect(document.querySelector('#mcp-view #mcp-source-health-list')).toBeNull();
 	});
 
+	it('shows the publisher date on feed article cards and in the reader', async () => {
+		const createdAt = '2026-03-16T10:00:00.000Z';
+		const publishedAt = '2026-08-06T09:30:00.000Z';
+		await bootDashboard({
+			handleFetch: (url, method) => {
+				if (url.endsWith('/bookmarks') && method === 'GET') {
+					return jsonResponse({ keys: [{
+						id: 'bookmark-published',
+						metadata: {
+							createdAt,
+							publishedAt,
+							title: 'Publisher dated article',
+							url: 'https://example.com/published',
+							wordCount: 400,
+						},
+					}] });
+				}
+				if (url.endsWith('/bookmarks/bookmark-published') && method === 'GET') {
+					return jsonResponse({
+						id: 'bookmark-published',
+						markdownData: '# Publisher dated article',
+						metadata: { createdAt, publishedAt, title: 'Publisher dated article', url: 'https://example.com/published', wordCount: 400 },
+					});
+				}
+				return undefined;
+			},
+		});
+
+		const cardMeta = document.querySelector<HTMLElement>('[data-bookmark-id="bookmark-published"] [data-role="bookmark-meta"]');
+		expect(cardMeta?.textContent).toContain(new Date(publishedAt).toLocaleDateString());
+		expect(cardMeta?.textContent).not.toContain(new Date(createdAt).toLocaleDateString());
+		document.querySelector<HTMLElement>('[data-bookmark-id="bookmark-published"]')?.click();
+		await flush();
+		await flush();
+
+		expect((document.getElementById('view-date') as HTMLElement).textContent).toBe(`Published ${new Date(publishedAt).toLocaleString()}`);
+	});
+
+	it('labels the import date as saved when publisher metadata is absent', async () => {
+		const createdAt = '2026-03-16T10:00:00.000Z';
+		await bootDashboard({
+			handleFetch: (url, method) => {
+				if (url.endsWith('/bookmarks') && method === 'GET') {
+					return jsonResponse({ keys: [{
+						id: 'bookmark-saved',
+						metadata: { createdAt, title: 'Saved page', url: 'https://example.com/saved', wordCount: 200 },
+					}] });
+				}
+				if (url.endsWith('/bookmarks/bookmark-saved') && method === 'GET') {
+					return jsonResponse({
+						id: 'bookmark-saved',
+						markdownData: '# Saved page',
+						metadata: { createdAt, title: 'Saved page', url: 'https://example.com/saved', wordCount: 200 },
+					});
+				}
+				return undefined;
+			},
+		});
+
+		document.querySelector<HTMLElement>('[data-bookmark-id="bookmark-saved"]')?.click();
+		await flush();
+		await flush();
+
+		expect((document.getElementById('view-date') as HTMLElement).textContent).toBe(`Saved ${new Date(createdAt).toLocaleString()}`);
+	});
+
 	it('renders the MCP setup view with origin-derived preset values', async () => {
 		await bootDashboard();
 

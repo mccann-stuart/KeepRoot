@@ -22,6 +22,8 @@ interface SourceHealthRow {
 	last_polled_at: string | null;
 	last_success_at: string | null;
 	name: string;
+	next_poll_at: string | null;
+	poll_interval_minutes: number;
 	status: string;
 }
 
@@ -149,7 +151,8 @@ export async function getUsageStats(env: StorageEnv, userId: string): Promise<Re
 			LIMIT 25`,
 		).bind(userId),
 		env.KEEPROOT_DB.prepare(
-			`SELECT id, kind, name, status, last_polled_at, last_success_at, last_error
+			`SELECT id, kind, name, status, last_polled_at, last_success_at, last_error,
+				next_poll_at, poll_interval_minutes
 			FROM sources
 			WHERE user_id = ? AND status != 'removed'
 			ORDER BY updated_at DESC`,
@@ -243,6 +246,8 @@ export async function getUsageStats(env: StorageEnv, userId: string): Promise<Re
 			lastPolledAt: row.last_polled_at,
 			lastSuccessAt: row.last_success_at,
 			name: row.name,
+			nextPollAt: row.next_poll_at,
+			pollIntervalMinutes: row.poll_interval_minutes,
 			processedCount: latest?.processed_count ?? 0,
 			refreshedCount: latest?.refreshed_count ?? 0,
 			saturated: Boolean(latest?.saturated),
