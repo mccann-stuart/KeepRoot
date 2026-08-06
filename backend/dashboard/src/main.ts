@@ -120,6 +120,7 @@ function updateNavigationState() {
 	const isLibraryView = state.currentView === 'inbox' || state.currentView === 'content';
 	dom.navInbox.classList.toggle('nav-link--active', isLibraryView && state.filterType === 'inbox');
 	dom.navAll.classList.toggle('nav-link--active', isLibraryView && state.filterType === 'all');
+	dom.navSources.classList.toggle('nav-link--active', state.currentView === 'sources');
 	dom.setupBtn.classList.toggle('nav-link--active', state.currentView === 'setup');
 	dom.navMcp.classList.toggle('nav-link--active', state.currentView === 'mcp');
 	dom.openSettingsBtn.classList.toggle('nav-link--active', state.currentView === 'settings');
@@ -149,6 +150,7 @@ function switchView(viewName: ViewName, filterType = state.filterType, filterId 
 	dom.contentView.classList.toggle('is-hidden', !isLibraryView || !hasSelectedBookmark);
 	dom.setupView.classList.toggle('is-hidden', viewName !== 'setup');
 	dom.mcpView.classList.toggle('is-hidden', viewName !== 'mcp');
+	dom.sourcesView.classList.toggle('is-hidden', viewName !== 'sources');
 	dom.settingsView.classList.toggle('is-hidden', viewName !== 'settings');
 
 	if (viewName === 'inbox') {
@@ -171,12 +173,15 @@ function switchView(viewName: ViewName, filterType = state.filterType, filterId 
 	} else if (viewName === 'setup') {
 		dom.currentViewTitle.textContent = 'API Keys';
 		void fetchApiKeys();
+	} else if (viewName === 'sources') {
+		dom.currentViewTitle.textContent = 'Sources';
+		renderSourceKindOptions(state.account?.features ?? null);
+		renderSources(state.sources);
+		void fetchMcpData();
 	} else if (viewName === 'mcp') {
 		dom.currentViewTitle.textContent = 'MCP Setup';
 		renderMcpConnection();
-		renderSourceKindOptions(state.account?.features ?? null);
 		renderMcpStatus();
-		renderSources(state.sources);
 		void fetchMcpData();
 	} else if (viewName === 'settings') {
 		dom.currentViewTitle.textContent = 'Settings';
@@ -1033,6 +1038,7 @@ function bindEvents() {
 	dom.brandTitle.addEventListener('click', () => switchView('inbox', 'all', null));
 	dom.navInbox.addEventListener('click', () => switchView('inbox', 'inbox', null));
 	dom.navAll.addEventListener('click', () => switchView('inbox', 'all', null));
+	dom.navSources.addEventListener('click', () => switchView('sources'));
 	dom.setupBtn.addEventListener('click', () => switchView('setup'));
 	dom.navMcp.addEventListener('click', () => switchView('mcp'));
 	dom.openSettingsBtn.addEventListener('click', () => switchView('settings'));
