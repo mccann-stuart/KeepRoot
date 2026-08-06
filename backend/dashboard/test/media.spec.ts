@@ -33,6 +33,7 @@ describe('protected dashboard media', () => {
 		await loadProtectedMedia(fragment, new KeepRootApi(() => 'session-secret'));
 
 		expect(fetchSpy).toHaveBeenCalledWith(imagePath, {
+			credentials: 'same-origin',
 			headers: { Authorization: 'Bearer session-secret' },
 		});
 		expect(createObjectUrl).toHaveBeenCalledTimes(1);

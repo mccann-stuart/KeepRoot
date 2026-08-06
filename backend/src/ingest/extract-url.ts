@@ -1,7 +1,7 @@
 import { Readability } from '@mozilla/readability';
 import { parseHTML } from 'linkedom';
 import TurndownService from 'turndown';
-import { validateSafeUrl } from '../storage/shared';
+import { fetchWithRedirects, validateSafeUrl } from '../storage/shared';
 
 interface ExtractedBookmarkPayload {
 	htmlData?: string;
@@ -159,7 +159,6 @@ async function extractPdfBookmark(url: string, pdfBytes: Uint8Array, fallbackTit
 	const loadingTask = getDocument({
 		data: pdfBytes,
 		disableFontFace: true,
-		isEvalSupported: false,
 		isImageDecoderSupported: false,
 		isOffscreenCanvasSupported: false,
 		useWorkerFetch: false,
@@ -272,38 +271,18 @@ export async function extractBookmarkPayloadFromUrl(input: ExtractBookmarkPayloa
 		throw new Error('Unsafe initial URL');
 	}
 
-	let currentUrl = input.url;
-	let response: Response | null = null;
-	let redirectCount = 0;
-
-	while (redirectCount < 5) {
-		response = await (input.fetchImpl ?? fetch)(currentUrl, {
+	let { response, currentUrl, errorText } = await fetchWithRedirects(
+		input.url,
+		{
 			headers: {
 				Accept: 'text/html,application/pdf,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
 			},
-			redirect: 'manual',
-		});
+		},
+		input.fetchImpl ?? fetch
+	);
 
-		if ([301, 302, 303, 307, 308].includes(response.status)) {
-			await response.body?.cancel().catch(() => {});
-			const location = response.headers.get('location');
-			if (!location) {
-				throw new Error('Redirect missing location header');
-			}
-			let nextUrl: string;
-			try {
-				nextUrl = new URL(location, currentUrl).toString();
-			} catch {
-				throw new Error('Invalid redirect location URL');
-			}
-			if (!await validateSafeUrl(nextUrl)) {
-				throw new Error('Unsafe redirect URL');
-			}
-			currentUrl = nextUrl;
-			redirectCount += 1;
-			continue;
-		}
-		break;
+	if (errorText) {
+		throw new Error(errorText);
 	}
 
 	if (!response || !response.ok) {

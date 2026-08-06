@@ -1,6 +1,6 @@
 import type { SourceKind } from '../../../src/storage/shared';
 
-export type ViewName = 'content' | 'empty' | 'inbox' | 'mcp' | 'settings' | 'setup';
+export type ViewName = 'content' | 'empty' | 'inbox' | 'mcp' | 'settings' | 'setup' | 'sources';
 export type FilterType = 'all' | 'inbox' | 'list' | 'smartlist' | 'tag';
 
 export interface Preferences {
@@ -89,16 +89,39 @@ export interface ToolUsageRecord {
 }
 
 export interface SourceHealthRecord {
+	createdCount?: number;
+	discoveredCount?: number;
+	errorCount?: number;
+	health?: 'green' | 'amber' | 'red';
 	id: string;
 	kind: string;
 	lastError?: string;
 	lastPolledAt?: string;
 	lastSuccessAt?: string;
 	name: string;
+	processedCount?: number;
+	refreshedCount?: number;
+	saturated?: boolean;
 	status: string;
+	unchangedCount?: number;
+}
+
+export interface IngestionHealth {
+	dailyRefreshes: number;
+	dlq: { backlog: number; oldestJobAgeSeconds: number };
+	dlqBacklog?: number;
+	failedSources: number;
+	health: 'green' | 'amber' | 'red';
+	interpretation: string;
+	oldestJobAgeSeconds?: number;
+	processingErrors: number;
+	queue: { backlog: number; oldestJobAgeSeconds: number };
+	queueBacklog?: number;
+	saturatedSources: number;
 }
 
 export interface UsageStats {
+	ingestion?: IngestionHealth;
 	inbox: {
 		pending: number;
 	};

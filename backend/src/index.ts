@@ -1,10 +1,10 @@
 import { createMcpHandler } from 'agents/mcp/server';
 import { ingestEmailMessage } from './ingest/email';
 import { processIngestJob, type IngestJob } from './ingest/jobs';
-import { syncAllActiveSources } from './ingest/source-sync';
+import { dispatchScheduledSourceRuns, processSourceQueueJob, sourceRetryDelaySeconds, type SourceQueueJob } from './ingest/source-queue';
 import { buildKeepRootMcpServer } from './mcp/server';
-import { assertOrganizationSchemaReady, authenticateBearerToken, listActivePollableSources, SchemaCompatibilityError, type StorageEnv } from './storage';
-import { appendVaryHeader, corsHeaders, createRouteContext, enforceRateLimit, errorResponse, isProtectedApiPath, resolveCorsOrigin, type ProtectedRouteContext } from './http';
+import { assertOrganizationSchemaReady, authenticateBearerToken, SchemaCompatibilityError, type StorageEnv } from './storage';
+import { appendVaryHeader, corsHeaders, createRouteContext, enforceRateLimit, errorResponse, getRequestAuthToken, isProtectedApiPath, resolveCorsOrigin, type ProtectedRouteContext } from './http';
 import { handleAuthRoute, handleProtectedAuthRoute } from './routes/auth';
 import { handleAccountRoute } from './routes/account';
 import { handleApiKeyRoute } from './routes/api-keys';
@@ -141,9 +141,8 @@ export default {
 		if (authRateLimitResponse) {
 			response = authRateLimitResponse;
 		} else if (context.pathname === '/mcp') {
-			const authHeader = request.headers.get('Authorization');
-			const token = authHeader?.startsWith('Bearer ') ? authHeader.slice(7) : null;
-			const authUser = token ? await authenticateBearerToken(env, token) : null;
+			const requestAuth = getRequestAuthToken(request, false);
+			const authUser = requestAuth ? await authenticateBearerToken(env, requestAuth.token, context.origin) : null;
 
 			if (!authUser) {
 				response = errorResponse('Unauthorized', 401);
@@ -187,9 +186,8 @@ export default {
 				} else if (!isProtectedApiPath(context.pathname)) {
 					response = errorResponse('Not found', 404);
 				} else {
-					const authHeader = request.headers.get('Authorization');
-					const token = authHeader?.startsWith('Bearer ') ? authHeader.slice(7) : null;
-					const authUser = token ? await authenticateBearerToken(env, token) : null;
+					const requestAuth = getRequestAuthToken(request);
+					const authUser = requestAuth ? await authenticateBearerToken(env, requestAuth.token, context.origin) : null;
 
 					if (!authUser) {
 						response = errorResponse('Unauthorized', 401);
@@ -228,39 +226,25 @@ export default {
 		return applyCorsHeaders(response, request, env);
 	},
 
-	async scheduled(_controller: ScheduledController, env: Env): Promise<void> {
+	async scheduled(controller: ScheduledController, env: Env): Promise<void> {
 		await assertOrganizationSchemaReady(env);
-		if (env.INGEST_QUEUE) {
-			const sources = await listActivePollableSources(env);
-			await Promise.all(
-				sources.map((source) => env.INGEST_QUEUE!.send({
-					kind: 'sync_source',
-					payload: {
-						id: source.id,
-						kind: source.kind,
-						name: source.name,
-						pollUrl: source.pollUrl,
-						userId: source.userId,
-					},
-				})),
-			);
-			return;
-		}
-		await syncAllActiveSources(env);
+		await dispatchScheduledSourceRuns(env, controller.scheduledTime);
 	},
 
-	async queue(batch: MessageBatch<IngestJob>, env: Env): Promise<void> {
+	async queue(batch: MessageBatch<IngestJob | SourceQueueJob>, env: Env): Promise<void> {
 		await assertOrganizationSchemaReady(env);
-		// ⚡ Bolt: Execute queue messages concurrently to maximize throughput and reduce total batch latency.
-		// Using Promise.allSettled ensures all messages are processed even if one fails. We throw the first rejection
-		// to allow the queue consumer to retry the failed messages while preventing the entire batch from hanging.
-		const results = await Promise.allSettled(
-			batch.messages.map((message) => processIngestJob(env, message.body)),
-		);
-
-		const failed = results.find((result): result is PromiseRejectedResult => result.status === 'rejected');
-		if (failed) {
-			throw failed.reason;
+		for (const message of batch.messages) {
+			try {
+				const job = message.body;
+				if ('runId' in job && 'sourceId' in job) {
+					await processSourceQueueJob(env, job as SourceQueueJob, message.attempts);
+				} else {
+					await processIngestJob(env, job as IngestJob);
+				}
+				message.ack();
+			} catch {
+				message.retry({ delaySeconds: sourceRetryDelaySeconds(message.attempts) });
+			}
 		}
 	},
 

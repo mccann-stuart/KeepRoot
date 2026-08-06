@@ -32,9 +32,11 @@ describe('organization storage', () => {
                         })
                     } as any;
                 }
-                if (query.includes('PRAGMA table_info')) {
+                if (query.includes('pragma_table_info')) {
                     return {
-                        all: async () => ({ results: [{ name: 'list_id' }] })
+                        bind: (...args: any[]) => ({
+                            all: async () => ({ results: [{ name: 'list_id' }] })
+                        })
                     } as any;
                 }
                 return {} as any;
@@ -52,20 +54,27 @@ describe('organization storage', () => {
                         })
                     } as any;
                 }
-                if (query.includes('PRAGMA table_info')) {
+                if (query.includes('pragma_table_info')) {
                     return {
-                        all: async () => ({
-                            results: [
+                        bind: (...args: any[]) => ({
+                            all: async () => ({ results: [
                                 { name: 'list_id' },
                                 { name: 'pinned' },
                                 { name: 'sort_order' },
                                 { name: 'is_read' },
                                 { name: 'notes' },
                                 { name: 'source_id' },
+                                { name: 'source_entry_id' },
+								{ name: 'source_entry_fingerprint' },
                                 { name: 'processing_state' },
                                 { name: 'search_updated_at' },
                                 { name: 'embedding_updated_at' },
-                            ]
+								{ name: 'validator_url' }, { name: 'http_etag' }, { name: 'http_last_modified' },
+								{ name: 'active_run_id' }, { name: 'lease_expires_at' }, { name: 'dispatch_key' },
+								{ name: 'attempt_count' }, { name: 'processed_count' }, { name: 'created_count' },
+								{ name: 'refreshed_count' }, { name: 'unchanged_count' }, { name: 'not_modified' },
+								{ name: 'saturated' }, { name: 'duration_ms' }, { name: 'queued_at' },
+                            ] })
                         })
                     } as any;
                 }
@@ -90,20 +99,27 @@ describe('organization storage', () => {
                         })
                     } as any;
                 }
-                if (query.includes('PRAGMA table_info')) {
+                if (query.includes('pragma_table_info')) {
                     return {
-                        all: async () => ({
-                            results: [
+                        bind: (...args: any[]) => ({
+                            all: async () => ({ results: [
                                 { name: 'list_id' },
                                 { name: 'pinned' },
                                 { name: 'sort_order' },
                                 { name: 'is_read' },
                                 { name: 'notes' },
                                 { name: 'source_id' },
+                                { name: 'source_entry_id' },
+								{ name: 'source_entry_fingerprint' },
                                 { name: 'processing_state' },
                                 { name: 'search_updated_at' },
                                 { name: 'embedding_updated_at' },
-                            ]
+								{ name: 'validator_url' }, { name: 'http_etag' }, { name: 'http_last_modified' },
+								{ name: 'active_run_id' }, { name: 'lease_expires_at' }, { name: 'dispatch_key' },
+								{ name: 'attempt_count' }, { name: 'processed_count' }, { name: 'created_count' },
+								{ name: 'refreshed_count' }, { name: 'unchanged_count' }, { name: 'not_modified' },
+								{ name: 'saturated' }, { name: 'duration_ms' }, { name: 'queued_at' },
+                            ] })
                         })
                     } as any;
                 }
@@ -114,7 +130,7 @@ describe('organization storage', () => {
             await assertOrganizationSchemaReady(mockEnv as any);
             await assertOrganizationSchemaReady(mockEnv as any);
 
-            expect(prepareSpy).toHaveBeenCalledTimes(2);
+            expect(prepareSpy).toHaveBeenCalledTimes(4);
         });
 
         it('clears a failed validation from the cache', async () => {
@@ -127,20 +143,27 @@ describe('organization storage', () => {
                         })
                     } as any;
                 }
-                if (query.includes('PRAGMA table_info')) {
+                if (query.includes('pragma_table_info')) {
                     return {
-                        all: async () => ({
-                            results: [
+                        bind: (...args: any[]) => ({
+                            all: async () => ({ results: [
                                 { name: 'list_id' },
                                 { name: 'pinned' },
                                 { name: 'sort_order' },
                                 { name: 'is_read' },
                                 { name: 'notes' },
                                 { name: 'source_id' },
+                                { name: 'source_entry_id' },
+								{ name: 'source_entry_fingerprint' },
                                 { name: 'processing_state' },
                                 { name: 'search_updated_at' },
                                 { name: 'embedding_updated_at' },
-                            ]
+								{ name: 'validator_url' }, { name: 'http_etag' }, { name: 'http_last_modified' },
+								{ name: 'active_run_id' }, { name: 'lease_expires_at' }, { name: 'dispatch_key' },
+								{ name: 'attempt_count' }, { name: 'processed_count' }, { name: 'created_count' },
+								{ name: 'refreshed_count' }, { name: 'unchanged_count' }, { name: 'not_modified' },
+								{ name: 'saturated' }, { name: 'duration_ms' }, { name: 'queued_at' },
+                            ] })
                         })
                     } as any;
                 }
@@ -151,7 +174,7 @@ describe('organization storage', () => {
             await expect(assertOrganizationSchemaReady(mockEnv as any)).rejects.toThrow(SchemaCompatibilityError);
             await expect(assertOrganizationSchemaReady(mockEnv as any)).resolves.toBeUndefined();
 
-            expect(prepareSpy).toHaveBeenCalledTimes(3);
+            expect(prepareSpy).toHaveBeenCalledTimes(5);
         });
     });
 });

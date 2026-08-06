@@ -54,7 +54,9 @@ async function bootDashboard(options?: {
 	account?: Record<string, unknown>;
 	apiKeys?: Array<Record<string, unknown>>;
 	beforeImport?: () => void;
+	cookieSession?: boolean;
 	handleFetch?: (url: string, method: string, init?: RequestInit) => Response | Promise<Response> | undefined;
+	initialUrl?: string;
 	rememberedUsername?: string;
 	sessionToken?: string | null;
 	sources?: Array<Record<string, unknown>>;
@@ -77,7 +79,7 @@ async function bootDashboard(options?: {
 	if (options?.rememberedUsername) {
 		window.localStorage.setItem('keeproot_remembered_username', options.rememberedUsername);
 	}
-	window.history.replaceState({}, '', '/dashboard');
+	window.history.replaceState({}, '', options?.initialUrl ?? '/dashboard');
 
 	Object.defineProperty(window, 'matchMedia', {
 		configurable: true,
@@ -120,6 +122,13 @@ async function bootDashboard(options?: {
 			return customResponse;
 		}
 
+		if (url.endsWith('/auth/context') && method === 'GET') {
+			return jsonResponse({
+				authenticationOrigin: window.location.origin,
+				requiresHandoff: false,
+			});
+		}
+
 		if (url.endsWith('/bookmarks') && method === 'GET') {
 			return jsonResponse({ keys: [] });
 		}
@@ -133,6 +142,9 @@ async function bootDashboard(options?: {
 		}
 
 		if (url.endsWith('/account') && method === 'GET') {
+			if (!window.sessionStorage.getItem('keeproot_secret') && !options?.cookieSession) {
+				return jsonResponse({ error: 'Unauthorized' }, 401);
+			}
 			return jsonResponse(options?.account ?? {
 				account: {
 					displayName: 'Test User',
@@ -153,6 +165,16 @@ async function bootDashboard(options?: {
 
 		if (url.endsWith('/stats') && method === 'GET') {
 			return jsonResponse(options?.stats ?? {
+				ingestion: {
+					dailyRefreshes: 12,
+					dlq: { backlog: 0, oldestJobAgeSeconds: 0 },
+					failedSources: 0,
+					health: 'green',
+					interpretation: 'Feeds are current and processing normally.',
+					processingErrors: 0,
+					queue: { backlog: 3, oldestJobAgeSeconds: 42 },
+					saturatedSources: 0,
+				},
 				inbox: { pending: 2 },
 				items: { byStatus: { unread: 2 }, total: 2 },
 				recentToolUsage: [{ count: 3, status: 'success', toolName: 'list_items' }],
@@ -220,6 +242,89 @@ describe('dashboard login', () => {
 
 		expect((document.getElementById('username-input') as HTMLInputElement).value).toBe('alice');
 		expect((document.getElementById('remember-username-input') as HTMLInputElement).checked).toBe(true);
+	});
+
+	it('restores a seven-day cookie session after browser session storage is lost', async () => {
+		const { fetchSpy } = await bootDashboard({
+			cookieSession: true,
+			sessionToken: null,
+		});
+
+		expect(document.getElementById('app')?.classList.contains('is-hidden')).toBe(false);
+		const accountCall = fetchSpy.mock.calls.find(([input]) => String(input).endsWith('/account'));
+		expect(accountCall).toBeDefined();
+		expect((accountCall?.[1]?.headers as Headers).get('Authorization')).toBeNull();
+		expect(accountCall?.[1]?.credentials).toBe('same-origin');
+	});
+
+	it('restores a preview session from the URL fragment before loading the account', async () => {
+		const { fetchSpy } = await bootDashboard({
+			initialUrl: '/#preview_session=preview-session-token',
+			sessionToken: null,
+		});
+
+		expect(window.sessionStorage.getItem('keeproot_secret')).toBe('preview-session-token');
+		expect(window.location.hash).toBe('');
+		const bookmarkCall = fetchSpy.mock.calls.find(([input]) => String(input).endsWith('/bookmarks'));
+		expect((bookmarkCall?.[1]?.headers as Headers).get('Authorization')).toBe('Bearer preview-session-token');
+	});
+
+	it('sends preview login to the stable authentication origin before starting WebAuthn', async () => {
+		const authenticationOrigin = 'https://keeproot.example.workers.dev';
+		const { fetchSpy } = await bootDashboard({
+			handleFetch: (url, method) => {
+				if (url.endsWith('/auth/context') && method === 'GET') {
+					return jsonResponse({
+						authenticationOrigin,
+						requiresHandoff: true,
+					});
+				}
+				return undefined;
+			},
+			sessionToken: null,
+		});
+		let navigatedTo = '';
+		const captureNavigation = (event: Event) => {
+			const anchor = (event.target as Element).closest<HTMLAnchorElement>('a');
+			if (!anchor || !anchor.href.startsWith(authenticationOrigin)) {
+				return;
+			}
+			event.preventDefault();
+			navigatedTo = anchor.href;
+		};
+		document.addEventListener('click', captureNavigation, true);
+		expect(fetchSpy.mock.calls.some(([input]) => String(input).endsWith('/auth/context'))).toBe(true);
+
+		(document.getElementById('username-input') as HTMLInputElement).value = 'alice';
+		(document.getElementById('btn-login') as HTMLButtonElement).click();
+		await flush();
+		document.removeEventListener('click', captureNavigation, true);
+
+		expect(document.getElementById('auth-status')?.textContent).toBe('');
+		expect(navigatedTo).toBe(`${authenticationOrigin}/?preview_return=${encodeURIComponent(window.location.origin)}`);
+		expect(fetchSpy.mock.calls.some(([input]) => String(input).endsWith('/auth/generate-authentication'))).toBe(false);
+	});
+
+	it('exchanges an existing canonical session for the requested preview session', async () => {
+		const previewOrigin = 'https://feature-keeproot.example.workers.dev';
+		let navigatedTo = '';
+		const captureNavigation = (event: Event) => {
+			const anchor = (event.target as Element).closest<HTMLAnchorElement>('a');
+			if (!anchor || !anchor.href.includes('/auth/preview-session')) {
+				return;
+			}
+			event.preventDefault();
+			navigatedTo = anchor.href;
+		};
+		await bootDashboard({
+			beforeImport: () => document.addEventListener('click', captureNavigation, true),
+			cookieSession: true,
+			initialUrl: `/?preview_return=${encodeURIComponent(previewOrigin)}`,
+			sessionToken: null,
+		});
+		document.removeEventListener('click', captureNavigation, true);
+
+		expect(navigatedTo).toBe(`${window.location.origin}/auth/preview-session?return_to=${encodeURIComponent(previewOrigin)}`);
 	});
 
 	it('remembers the trimmed username after a successful login', async () => {
@@ -338,6 +443,32 @@ describe('dashboard MCP setup view', () => {
 		vi.restoreAllMocks();
 	});
 
+	it('opens source management from the first Connections navigation item', async () => {
+		await bootDashboard();
+
+		const connections = document.querySelector<HTMLElement>('.sidebar-group--connections');
+		const connectionLabels = [...(connections?.querySelectorAll<HTMLButtonElement>('.nav-link') ?? [])]
+			.map((button) => button.textContent?.trim());
+		const navSources = document.getElementById('nav-sources') as HTMLButtonElement;
+		navSources.click();
+		await flush();
+		await flush();
+
+		expect(connectionLabels).toEqual(['Sources', 'API keys', 'MCP setup']);
+		expect((document.getElementById('current-view-title') as HTMLElement).textContent).toBe('Sources');
+		expect(navSources.classList.contains('nav-link--active')).toBe(true);
+		expect((document.getElementById('sources-view') as HTMLElement).classList.contains('is-hidden')).toBe(false);
+		expect(document.querySelector('#sources-view #mcp-source-form')).not.toBeNull();
+		expect(document.querySelector('#sources-view #mcp-sources-list')).not.toBeNull();
+		const sourceHealthList = document.querySelector<HTMLElement>('#sources-view #mcp-source-health-list');
+		expect(sourceHealthList).not.toBeNull();
+		expect(sourceHealthList?.textContent ?? '').toContain('Feeds are current and processing normally.');
+		expect(sourceHealthList?.textContent ?? '').toContain('Queue 3 · Oldest 42s · DLQ 0');
+		expect(document.querySelector('#mcp-view #mcp-source-form')).toBeNull();
+		expect(document.querySelector('#mcp-view #mcp-sources-list')).toBeNull();
+		expect(document.querySelector('#mcp-view #mcp-source-health-list')).toBeNull();
+	});
+
 	it('renders the MCP setup view with origin-derived preset values', async () => {
 		await bootDashboard();
 
@@ -360,7 +491,6 @@ describe('dashboard MCP setup view', () => {
 		expect(openAiValue).toContain('"require_approval": "always"');
 		expect(openAiValue).toContain('<API_KEY>');
 		expect(openAiValue).not.toContain('session-secret');
-
 		(document.getElementById('open-api-keys-from-mcp-btn') as HTMLButtonElement).click();
 		await flush();
 		expect((document.getElementById('current-view-title') as HTMLElement).textContent).toBe('API Keys');
@@ -394,7 +524,7 @@ describe('dashboard MCP setup view', () => {
 			}],
 		});
 
-		(document.getElementById('nav-mcp') as HTMLButtonElement).click();
+		(document.getElementById('nav-sources') as HTMLButtonElement).click();
 		await flush();
 		await flush();
 
@@ -542,43 +672,49 @@ describe('dashboard MCP setup view', () => {
 		expect(window.sessionStorage.getItem('keeproot_secret')).toBe('session-secret');
 	});
 
-	it('marks an unread bookmark as read after opening it in the reader', async () => {
-		let bookmarkIsRead = false;
+	it('keeps the active bookmark unread until another bookmark is selected', async () => {
+		const readState = new Map([
+			['bookmark-1', false],
+			['bookmark-2', false],
+		]);
 
 		const { fetchSpy } = await bootDashboard({
 			handleFetch: (url, method, init) => {
 				if (url.endsWith('/bookmarks') && method === 'GET') {
 					return jsonResponse({
-						keys: [{
-							id: 'bookmark-1',
+						keys: ['bookmark-1', 'bookmark-2'].map((id, index) => ({
+							id,
 							metadata: {
 								createdAt: '2026-03-16T10:00:00.000Z',
-								isRead: bookmarkIsRead,
-								title: 'Unread article',
-								url: 'https://example.com/articles/unread',
+								isRead: readState.get(id),
+								title: `Unread article ${index + 1}`,
+								url: `https://example.com/articles/unread-${index + 1}`,
 								wordCount: 400,
 							},
-						}],
+						})),
 					});
 				}
 
-				if (url.endsWith('/bookmarks/bookmark-1') && method === 'GET') {
+				const bookmarkMatch = url.match(/\/bookmarks\/(bookmark-[12])$/);
+				if (bookmarkMatch && method === 'GET') {
+					const id = bookmarkMatch[1];
+					const articleNumber = id === 'bookmark-1' ? 1 : 2;
 					return jsonResponse({
-						id: 'bookmark-1',
-						markdownData: '# Unread article',
+						id,
+						markdownData: `# Unread article ${articleNumber}`,
 						metadata: {
 							createdAt: '2026-03-16T10:00:00.000Z',
-							isRead: bookmarkIsRead,
-							title: 'Unread article',
-							url: 'https://example.com/articles/unread',
+							isRead: readState.get(id),
+							title: `Unread article ${articleNumber}`,
+							url: `https://example.com/articles/unread-${articleNumber}`,
 							wordCount: 400,
 						},
 					});
 				}
 
-				if (url.endsWith('/bookmarks/bookmark-1') && method === 'PATCH') {
+				if (bookmarkMatch && method === 'PATCH') {
 					expect(init?.body).toBe(JSON.stringify({ isRead: true }));
-					bookmarkIsRead = true;
+					readState.set(bookmarkMatch[1], true);
 					return jsonResponse({ message: 'Updated successfully' });
 				}
 
@@ -586,12 +722,27 @@ describe('dashboard MCP setup view', () => {
 			},
 		});
 
-		const bookmarkCard = document.querySelector('.bookmark-card') as HTMLElement | null;
+		const bookmarkCard = document.querySelector<HTMLElement>('[data-bookmark-id="bookmark-1"]');
 		expect(bookmarkCard).not.toBeNull();
 		expect(bookmarkCard?.tabIndex).toBe(0);
-		expect(bookmarkCard?.getAttribute('aria-label')).toBe('Open Unread article');
+		expect(bookmarkCard?.getAttribute('aria-label')).toBe('Open Unread article 1');
 
 		bookmarkCard?.dispatchEvent(new KeyboardEvent('keydown', { bubbles: true, key: 'Enter' }));
+		await flush();
+		await flush();
+		await flush();
+
+		expect(fetchSpy).not.toHaveBeenCalledWith('/bookmarks/bookmark-1', expect.objectContaining({
+			headers: expect.any(Headers),
+			method: 'PATCH',
+		}));
+		expect(readState.get('bookmark-1')).toBe(false);
+		expect((document.getElementById('current-view-title') as HTMLElement).textContent).toBe('Reader');
+		expect((document.getElementById('library-workspace') as HTMLElement).classList.contains('is-hidden')).toBe(false);
+		expect((document.getElementById('inbox-view') as HTMLElement).classList.contains('is-hidden')).toBe(false);
+		expect((document.getElementById('content-view') as HTMLElement).classList.contains('is-hidden')).toBe(false);
+
+		document.querySelector<HTMLElement>('[data-bookmark-id="bookmark-2"]')?.click();
 		await flush();
 		await flush();
 		await flush();
@@ -600,10 +751,12 @@ describe('dashboard MCP setup view', () => {
 			headers: expect.any(Headers),
 			method: 'PATCH',
 		}));
-		expect((document.getElementById('current-view-title') as HTMLElement).textContent).toBe('Reader');
-		expect((document.getElementById('library-workspace') as HTMLElement).classList.contains('is-hidden')).toBe(false);
-		expect((document.getElementById('inbox-view') as HTMLElement).classList.contains('is-hidden')).toBe(false);
-		expect((document.getElementById('content-view') as HTMLElement).classList.contains('is-hidden')).toBe(false);
+		expect(fetchSpy).not.toHaveBeenCalledWith('/bookmarks/bookmark-2', expect.objectContaining({
+			headers: expect.any(Headers),
+			method: 'PATCH',
+		}));
+		expect(readState.get('bookmark-1')).toBe(true);
+		expect(readState.get('bookmark-2')).toBe(false);
 	});
 
 	it('keeps a bookmark visible after pinning by moving it into the pinned panel', async () => {

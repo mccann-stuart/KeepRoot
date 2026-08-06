@@ -7,9 +7,33 @@ const REQUIRED_BOOKMARK_COLUMNS = [
 	'is_read',
 	'notes',
 	'source_id',
+	'source_entry_id',
+	'source_entry_fingerprint',
 	'processing_state',
 	'search_updated_at',
 	'embedding_updated_at',
+] as const;
+
+const REQUIRED_SOURCE_COLUMNS = [
+	'validator_url',
+	'http_etag',
+	'http_last_modified',
+	'active_run_id',
+	'lease_expires_at',
+] as const;
+
+const REQUIRED_SOURCE_RUN_COLUMNS = [
+	'dispatch_key',
+	'attempt_count',
+	'processed_count',
+	'created_count',
+	'refreshed_count',
+	'unchanged_count',
+	'not_modified',
+	'saturated',
+	'duration_ms',
+	'queued_at',
+	'lease_expires_at',
 ] as const;
 
 const REQUIRED_TABLE_NAMES = [
@@ -57,6 +81,13 @@ export async function validateOrganizationSchema(env: StorageEnv): Promise<void>
 	if (missingColumns.length > 0) {
 		throw new SchemaCompatibilityError(`KeepRoot database schema is out of date. Missing bookmarks columns: ${missingColumns.join(', ')}. Run \`npm run db:migrate:local\` or \`npm run db:migrate:remote\`.`);
 	}
+	const sourceColumns = await getTableColumnNames(env, 'sources');
+	const missingSourceColumns = REQUIRED_SOURCE_COLUMNS.filter((column) => !sourceColumns.has(column));
+	const sourceRunColumns = await getTableColumnNames(env, 'source_runs');
+	const missingSourceRunColumns = REQUIRED_SOURCE_RUN_COLUMNS.filter((column) => !sourceRunColumns.has(column));
+	if (missingSourceColumns.length || missingSourceRunColumns.length) {
+		throw new SchemaCompatibilityError('KeepRoot database schema is out of date for queue-first source crawling. Run `npm run db:migrate:local` or `npm run db:migrate:remote`.');
+	}
 }
 
 export async function assertOrganizationSchemaReady(env: StorageEnv): Promise<void> {
@@ -81,6 +112,12 @@ export async function ensureMcpSchema(env: StorageEnv): Promise<void> {
 	}
 	if (!bookmarkColumns.has('source_id')) {
 		await runSchemaStatement(env, 'ALTER TABLE bookmarks ADD COLUMN source_id TEXT');
+	}
+	if (!bookmarkColumns.has('source_entry_id')) {
+		await runSchemaStatement(env, 'ALTER TABLE bookmarks ADD COLUMN source_entry_id TEXT');
+	}
+	if (!bookmarkColumns.has('source_entry_fingerprint')) {
+		await runSchemaStatement(env, 'ALTER TABLE bookmarks ADD COLUMN source_entry_fingerprint TEXT');
 	}
 	if (!bookmarkColumns.has('processing_state')) {
 		await runSchemaStatement(env, "ALTER TABLE bookmarks ADD COLUMN processing_state TEXT NOT NULL DEFAULT 'ready'");
@@ -128,6 +165,20 @@ export async function ensureMcpSchema(env: StorageEnv): Promise<void> {
 		)`,
 	);
 
+	const sourceColumns = await getTableColumnNames(env, 'sources');
+	const sourceColumnDefinitions: Record<string, string> = {
+		active_run_id: 'TEXT',
+		http_etag: 'TEXT',
+		http_last_modified: 'TEXT',
+		lease_expires_at: 'TEXT',
+		validator_url: 'TEXT',
+	};
+	for (const [column, definition] of Object.entries(sourceColumnDefinitions)) {
+		if (!sourceColumns.has(column)) {
+			await runSchemaStatement(env, `ALTER TABLE sources ADD COLUMN ${column} ${definition}`);
+		}
+	}
+
 	await runSchemaStatement(
 		env,
 		`CREATE TABLE IF NOT EXISTS source_runs (
@@ -144,6 +195,26 @@ export async function ensureMcpSchema(env: StorageEnv): Promise<void> {
 			FOREIGN KEY (source_id) REFERENCES sources(id) ON DELETE CASCADE
 		)`,
 	);
+
+	const sourceRunColumns = await getTableColumnNames(env, 'source_runs');
+	const sourceRunColumnDefinitions: Record<string, string> = {
+		attempt_count: 'INTEGER NOT NULL DEFAULT 0',
+		created_count: 'INTEGER NOT NULL DEFAULT 0',
+		dispatch_key: 'TEXT',
+		duration_ms: 'INTEGER NOT NULL DEFAULT 0',
+		lease_expires_at: 'TEXT',
+		not_modified: 'INTEGER NOT NULL DEFAULT 0',
+		processed_count: 'INTEGER NOT NULL DEFAULT 0',
+		queued_at: 'TEXT',
+		refreshed_count: 'INTEGER NOT NULL DEFAULT 0',
+		saturated: 'INTEGER NOT NULL DEFAULT 0',
+		unchanged_count: 'INTEGER NOT NULL DEFAULT 0',
+	};
+	for (const [column, definition] of Object.entries(sourceRunColumnDefinitions)) {
+		if (!sourceRunColumns.has(column)) {
+			await runSchemaStatement(env, `ALTER TABLE source_runs ADD COLUMN ${column} ${definition}`);
+		}
+	}
 
 	await runSchemaStatement(
 		env,
@@ -206,10 +277,14 @@ export async function ensureMcpSchema(env: StorageEnv): Promise<void> {
 	);
 
 	await runSchemaStatement(env, 'CREATE INDEX IF NOT EXISTS idx_bookmarks_source_id ON bookmarks(source_id)');
+	await runSchemaStatement(env, 'CREATE UNIQUE INDEX IF NOT EXISTS idx_bookmarks_source_entry_identity ON bookmarks(source_id, source_entry_id) WHERE source_id IS NOT NULL AND source_entry_id IS NOT NULL');
+	await runSchemaStatement(env, 'CREATE INDEX IF NOT EXISTS idx_bookmarks_source_fingerprint ON bookmarks(source_id, source_entry_id, source_entry_fingerprint) WHERE source_id IS NOT NULL AND source_entry_id IS NOT NULL');
 	await runSchemaStatement(env, 'CREATE INDEX IF NOT EXISTS idx_bookmarks_processing_state ON bookmarks(processing_state)');
 	await runSchemaStatement(env, 'CREATE INDEX IF NOT EXISTS idx_account_settings_user_id ON account_settings(user_id)');
 	await runSchemaStatement(env, 'CREATE INDEX IF NOT EXISTS idx_sources_user_kind_status ON sources(user_id, kind, status)');
 	await runSchemaStatement(env, 'CREATE INDEX IF NOT EXISTS idx_source_runs_source_id_started_at ON source_runs(source_id, started_at DESC)');
+	await runSchemaStatement(env, 'CREATE UNIQUE INDEX IF NOT EXISTS idx_source_runs_dispatch_key ON source_runs(dispatch_key) WHERE dispatch_key IS NOT NULL');
+	await runSchemaStatement(env, 'CREATE INDEX IF NOT EXISTS idx_source_runs_status_queued_at ON source_runs(status, queued_at)');
 	await runSchemaStatement(env, 'CREATE INDEX IF NOT EXISTS idx_inbox_entries_user_state_created_at ON inbox_entries(user_id, state, created_at DESC)');
 	await runSchemaStatement(env, 'CREATE INDEX IF NOT EXISTS idx_inbox_entries_bookmark_id ON inbox_entries(bookmark_id)');
 	await runSchemaStatement(env, 'CREATE INDEX IF NOT EXISTS idx_item_search_documents_user_id_updated_at ON item_search_documents(user_id, updated_at DESC)');

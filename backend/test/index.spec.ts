@@ -7,6 +7,8 @@ import organizationSchemaSql from '../migrations/0002_organization.sql?raw';
 import mcpServerSchemaSql from '../migrations/0003_mcp_server.sql?raw';
 import bookmarkHotPathSchemaSql from '../migrations/0004_bookmark_hot_path.sql?raw';
 import securityHardeningSchemaSql from '../migrations/0005_security_hardening.sql?raw';
+import sourceEntryIdentitySchemaSql from '../migrations/0006_source_entry_identity.sql?raw';
+import queueFirstFeedCrawlingSchemaSql from '../migrations/0007_queue_first_feed_crawling.sql?raw';
 
 const API_KEY = 'test-api-key-12345';
 const TEST_USER_ID = 'test-user-id';
@@ -76,6 +78,13 @@ function envWithRegistrationEnabled(baseEnv: typeof env = env): Omit<typeof env,
 	};
 }
 
+function envWithRegistrationDisabled(): Omit<typeof env, 'ALLOW_REGISTRATION'> & { ALLOW_REGISTRATION: string } {
+	return {
+		...env,
+		ALLOW_REGISTRATION: '0',
+	};
+}
+
 async function execStatements(sql: string, allowExisting = false): Promise<void> {
 	const statements = sql
 		.split(/;\s*\n/g)
@@ -109,6 +118,8 @@ async function resetDatabase(): Promise<void> {
 	await execStatements(mcpServerSchemaSql, true);
 	await execStatements(bookmarkHotPathSchemaSql, true);
 	await execStatements(securityHardeningSchemaSql, true);
+	await execStatements(sourceEntryIdentitySchemaSql, true);
+	await execStatements(queueFirstFeedCrawlingSchemaSql, true);
 	await execStatements(`
 		DELETE FROM bookmark_tags;
 		DELETE FROM bookmark_images;
@@ -314,6 +325,8 @@ describe('KeepRoot Worker', () => {
 		verifyRegistrationResponseMock.mockReset();
 		verifyAuthenticationResponseMock.mockReset();
 		delete (env as { INGEST_QUEUE?: unknown }).INGEST_QUEUE;
+		delete (env as { SOURCE_DLQ?: unknown }).SOURCE_DLQ;
+		delete (env as { SOURCE_QUEUE?: unknown }).SOURCE_QUEUE;
 		delete (env as { MCP_EMAIL_DOMAIN?: string }).MCP_EMAIL_DOMAIN;
 		await resetDatabase();
 		await clearBucket();
@@ -328,6 +341,51 @@ describe('KeepRoot Worker', () => {
 
 		expect(response.status).toBe(401);
 		expect(await response.json()).toEqual({ error: 'Unauthorized' });
+	});
+
+	it('dispatches one minimal queue job per source and deduplicates cron retries', async () => {
+		const now = new Date().toISOString();
+		await env.KEEPROOT_DB.prepare(
+			`INSERT INTO sources
+			(id, user_id, kind, name, normalized_identifier, poll_url, status, config_json, created_at, updated_at)
+			VALUES (?, ?, 'rss', 'Test feed', ?, ?, 'active', '{}', ?, ?)`,
+		).bind('source-cron', TEST_USER_ID, 'https://example.com/feed.xml', 'https://example.com/feed.xml', now, now).run();
+		const sendBatch = vi.fn().mockResolvedValue({ metadata: { metrics: { backlogBytes: 1, backlogCount: 1 } } });
+		const sourceQueue = { sendBatch } as unknown as Queue<unknown>;
+		const scheduledTime = Date.parse('2026-08-06T12:00:00.000Z');
+		const queueEnv = { ...env, SOURCE_QUEUE: sourceQueue };
+
+		await worker.scheduled({ scheduledTime } as ScheduledController, queueEnv, createExecutionContext());
+		await worker.scheduled({ scheduledTime } as ScheduledController, queueEnv, createExecutionContext());
+
+		expect(sendBatch).toHaveBeenCalledTimes(2);
+		const sent = sendBatch.mock.calls[0][0];
+		expect(sent).toHaveLength(1);
+		expect(sent[0].body).toEqual({ runId: expect.any(String), sourceId: 'source-cron' });
+		expect(JSON.stringify(sent[0].body)).not.toContain('example.com');
+		expect(sendBatch.mock.calls[1][0][0].body).toEqual(sent[0].body);
+	});
+
+	it('acknowledges an inactive or missing source run message independently', async () => {
+		const ack = vi.fn();
+		const retry = vi.fn();
+		await worker.queue({
+			ackAll: vi.fn(),
+			messages: [{
+				ack,
+				attempts: 1,
+				body: { runId: 'missing-run', sourceId: 'missing-source' },
+				id: 'message-1',
+				retry,
+				timestamp: new Date(),
+			}],
+			metadata: { metrics: { backlogBytes: 0, backlogCount: 0 } },
+			queue: 'keeproot-source-ingest',
+			retryAll: vi.fn(),
+		} as MessageBatch<any>, env, createExecutionContext());
+
+		expect(ack).toHaveBeenCalledOnce();
+		expect(retry).not.toHaveBeenCalled();
 	});
 
 	it('requires bearer authentication for MCP requests', async () => {
@@ -475,29 +533,110 @@ describe('KeepRoot Worker', () => {
 		expect(await response.json()).toEqual({ error: 'Unauthorized' });
 	});
 
+	it('accepts a preview-scoped session only on its preview Worker origin', async () => {
+		const previewOrigin = 'https://feature-keeproot.example.workers.dev';
+		const token = await createSession(env, {
+			userId: TEST_USER_ID,
+			username: TEST_USERNAME,
+		}, { scopeOrigin: previewOrigin });
+		const ctx = createExecutionContext();
+		const response = await worker.fetch(new Request('https://keeproot.example.workers.dev/account', {
+			headers: { Authorization: `Bearer ${token}` },
+		}), env, ctx);
+		await waitOnExecutionContext(ctx);
+
+		expect(response.status).toBe(401);
+		expect(await response.json()).toEqual({ error: 'Unauthorized' });
+
+		const previewContext = createExecutionContext();
+		const previewResponse = await worker.fetch(new Request(`${previewOrigin}/account`, {
+			headers: { Authorization: `Bearer ${token}` },
+		}), env, previewContext);
+		await waitOnExecutionContext(previewContext);
+
+		expect(previewResponse.status).toBe(200);
+	});
+
 	describe('handleAuthRoute', () => {
-		it('keeps registration disabled unless explicitly enabled', async () => {
+		it('directs preview hosts to the configured stable authentication origin', async () => {
+			const request = new Request('https://feature-keeproot.example.workers.dev/auth/context');
+			const ctx = createExecutionContext();
+			const response = await worker.fetch(request, {
+				...env,
+				AUTH_ORIGIN: 'https://keeproot.example.workers.dev',
+			}, ctx);
+			await waitOnExecutionContext(ctx);
+
+			expect(response.status).toBe(200);
+			expect(await response.json()).toEqual({
+				authenticationOrigin: 'https://keeproot.example.workers.dev',
+				requiresHandoff: true,
+			});
+		});
+
+		it('hands an authenticated canonical session to an allowed preview origin', async () => {
+			const authenticationOrigin = 'https://keeproot.example.workers.dev';
+			const previewOrigin = 'https://feature-keeproot.example.workers.dev';
+			const canonicalToken = await createSession(env, {
+				userId: TEST_USER_ID,
+				username: TEST_USERNAME,
+			});
+			const request = new Request(`${authenticationOrigin}/auth/preview-session?return_to=${encodeURIComponent(previewOrigin)}`, {
+				headers: { Cookie: `keeproot_session=${canonicalToken}` },
+			});
+			const ctx = createExecutionContext();
+			const response = await worker.fetch(request, {
+				...env,
+				AUTH_ORIGIN: authenticationOrigin,
+			}, ctx);
+			await waitOnExecutionContext(ctx);
+
+			expect(response.status).toBe(302);
+			const location = new URL(response.headers.get('Location')!);
+			expect(location.origin).toBe(previewOrigin);
+			expect(location.pathname).toBe('/');
+			expect(location.hash).toMatch(/^#preview_session=preview\.v1\./);
+		});
+
+		it('does not let an API key mint a preview dashboard session', async () => {
+			const authenticationOrigin = 'https://keeproot.example.workers.dev';
+			const previewOrigin = 'https://feature-keeproot.example.workers.dev';
+			const request = new Request(`${authenticationOrigin}/auth/preview-session?return_to=${encodeURIComponent(previewOrigin)}`, {
+				headers: { Authorization: `Bearer ${API_KEY}` },
+			});
+			const ctx = createExecutionContext();
+			const response = await worker.fetch(request, {
+				...env,
+				AUTH_ORIGIN: authenticationOrigin,
+			}, ctx);
+			await waitOnExecutionContext(ctx);
+
+			expect(response.status).toBe(403);
+			expect(await response.json()).toEqual({ error: 'Session authentication required' });
+		});
+
+		it('keeps registration disabled when explicitly disabled', async () => {
 			const request = new Request('http://example.com/auth/generate-registration', {
 				method: 'POST',
 				headers: { 'Content-Type': 'application/json' },
 				body: JSON.stringify({ username: 'new-user' }),
 			});
 			const ctx = createExecutionContext();
-			const response = await worker.fetch(request, env, ctx);
+			const response = await worker.fetch(request, envWithRegistrationDisabled(), ctx);
 			await waitOnExecutionContext(ctx);
 
 			expect(response.status).toBe(403);
 			expect(await response.json()).toEqual({ error: 'Registration is disabled' });
 		});
 
-		it('responds with 400 if username is missing during registration generation', async () => {
+		it('enables registration in the standard test environment', async () => {
 			const request = new Request('http://example.com/auth/generate-registration', {
 				method: 'POST',
 				headers: { 'Content-Type': 'application/json' },
 				body: JSON.stringify({}),
 			});
 			const ctx = createExecutionContext();
-			const response = await worker.fetch(request, envWithRegistrationEnabled(), ctx);
+			const response = await worker.fetch(request, env, ctx);
 			await waitOnExecutionContext(ctx);
 
 			expect(response.status).toBe(400);
@@ -883,7 +1022,7 @@ describe('KeepRoot Worker', () => {
 				verified: true,
 			});
 
-			const request = new Request('http://example.com/auth/verify-authentication', {
+			const request = new Request('https://example.com/auth/verify-authentication', {
 				method: 'POST',
 				headers: { 'Content-Type': 'application/json' },
 				body: JSON.stringify({ username: 'existing-user', response: { rawId: 'cred-id' } }),
@@ -893,9 +1032,47 @@ describe('KeepRoot Worker', () => {
 			await waitOnExecutionContext(ctx);
 
 			expect(response.status).toBe(200);
-			const data = await response.json();
+			const data = await response.json() as { token: string; verified: boolean };
 			expect(data).toHaveProperty('token');
 			expect(data).toHaveProperty('verified', true);
+
+			const setCookie = response.headers.get('Set-Cookie');
+			expect(setCookie).toContain(`keeproot_session=${data.token}`);
+			expect(setCookie).toContain('Max-Age=604800');
+			expect(setCookie).toContain('HttpOnly');
+			expect(setCookie).toContain('SameSite=Strict');
+			expect(setCookie).toContain('Secure');
+
+			const cookie = setCookie!.split(';', 1)[0];
+			const accountContext = createExecutionContext();
+			const accountResponse = await worker.fetch(new Request('https://example.com/account', {
+				headers: { Cookie: cookie },
+			}), env, accountContext);
+			await waitOnExecutionContext(accountContext);
+			expect(accountResponse.status).toBe(200);
+
+			const crossOriginLogoutContext = createExecutionContext();
+			const crossOriginLogoutResponse = await worker.fetch(new Request('https://example.com/auth/logout', {
+				headers: {
+					Cookie: cookie,
+					Origin: 'https://attacker.example',
+				},
+				method: 'POST',
+			}), env, crossOriginLogoutContext);
+			await waitOnExecutionContext(crossOriginLogoutContext);
+			expect(crossOriginLogoutResponse.status).toBe(401);
+
+			const logoutContext = createExecutionContext();
+			const logoutResponse = await worker.fetch(new Request('https://example.com/auth/logout', {
+				headers: {
+					Cookie: cookie,
+					Origin: 'https://example.com',
+				},
+				method: 'POST',
+			}), env, logoutContext);
+			await waitOnExecutionContext(logoutContext);
+			expect(logoutResponse.status).toBe(200);
+			expect(logoutResponse.headers.get('Set-Cookie')).toContain('Max-Age=0');
 		});
 	});
 
@@ -1280,6 +1457,11 @@ describe('KeepRoot Worker', () => {
 		const stats = await statsResponse.json() as any;
 		expect(stats.items.total).toBe(0);
 		expect(stats.sources.total).toBe(0);
+		expect(stats.ingestion).toEqual(expect.objectContaining({
+			dailyRefreshes: 0,
+			health: 'green',
+			queue: expect.objectContaining({ backlog: 0 }),
+		}));
 	});
 
 	it('manages MCP sources through authenticated REST routes', async () => {
@@ -2429,6 +2611,7 @@ describe('KeepRoot Worker', () => {
 		expect(stats.payload.items.total).toBe(1);
 		expect(stats.payload.items.byStatus.archived).toBe(1);
 		expect(stats.payload.inbox.pending).toBe(0);
+		expect(stats.payload.ingestion).toEqual(expect.objectContaining({ health: expect.stringMatching(/green|amber|red/) }));
 		expect(stats.payload.recentToolUsage.length).toBeGreaterThan(0);
 	});
 
@@ -2460,21 +2643,26 @@ describe('KeepRoot Worker', () => {
 
 	it('manages MCP sources, subscriptions, and inbox sync state', async () => {
 		(env as { MCP_EMAIL_DOMAIN?: string }).MCP_EMAIL_DOMAIN = 'mail.keeproot.test';
-		mockTextFetch({
-			'https://feeds.example.com/root.xml': {
-				body: `<?xml version="1.0" encoding="UTF-8"?>
+		let feedItemUrl = 'https://feeds.example.com/posts/1?revision=1';
+		vi.spyOn(globalThis, 'fetch').mockImplementation(async (input) => {
+			const url = typeof input === 'string' ? input : input instanceof URL ? input.toString() : input.url;
+			if (url !== 'https://feeds.example.com/root.xml') {
+				throw new Error(`Unexpected fetch URL: ${url}`);
+			}
+			return new Response(`<?xml version="1.0" encoding="UTF-8"?>
 					<rss version="2.0">
 						<channel>
 							<title>KeepRoot Feed</title>
 							<item>
 								<title>Feed Story</title>
-								<link>https://feeds.example.com/posts/1</link>
+								<link>${feedItemUrl}</link>
+								<guid isPermaLink="false">root-feed-story-1</guid>
 								<description>Fresh story from a synced source.</description>
 							</item>
 						</channel>
-					</rss>`,
-				contentType: 'application/rss+xml; charset=utf-8',
-			},
+					</rss>`, {
+				headers: { 'Content-Type': 'application/rss+xml; charset=utf-8' },
+			});
 		});
 
 		const emailSource = await mcpCallTool('add_source', {
@@ -2510,6 +2698,21 @@ describe('KeepRoot Worker', () => {
 		await mcpCallTool('mark_done', {
 			id: inbox.payload.entries[0].id,
 		});
+
+		feedItemUrl = 'https://feeds.example.com/posts/1?revision=2';
+		const repeatedSync = await mcpCallTool('add_source', {
+			identifier: 'https://feeds.example.com/root.xml',
+			kind: 'rss',
+			name: 'Root Feed',
+		});
+		expect(repeatedSync.payload.id).toBe(rssSourceId);
+
+		const inboxAfterRepeatedSync = await mcpCallTool('list_inbox');
+		expect(inboxAfterRepeatedSync.payload.entries).toHaveLength(0);
+
+		const statsAfterRepeatedSync = await mcpCallTool('get_stats');
+		expect(statsAfterRepeatedSync.payload.items.total).toBe(1);
+		expect(statsAfterRepeatedSync.payload.inbox.pending).toBe(0);
 
 		const removed = await mcpCallTool('remove_source', {
 			id: rssSourceId,

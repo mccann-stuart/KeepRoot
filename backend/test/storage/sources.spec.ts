@@ -1,6 +1,6 @@
 import { env } from 'cloudflare:test';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
-import { addSource } from '../../src/storage/sources';
+import { addSource, listActivePollableSources } from '../../src/storage/sources';
 
 describe('sources storage', () => {
     describe('addSource', () => {
@@ -64,6 +64,64 @@ describe('sources storage', () => {
             expect(prepareSpy.mock.calls[1][0]).not.toContain('INSERT OR REPLACE');
 
             expect(batchSpy).toHaveBeenCalledTimes(1);
+        });
+    });
+
+    describe('listActivePollableSources', () => {
+        beforeEach(() => {
+            vi.restoreAllMocks();
+        });
+
+        it('returns sources that are active and have a poll_url', async () => {
+            const prepareSpy = vi.spyOn(env.KEEPROOT_DB, 'prepare').mockImplementation((query) => {
+                return {
+                    all: async () => ({
+                        results: [
+                            {
+                                config_json: '{"foo":"bar"}',
+                                id: '1',
+                                kind: 'rss',
+                                last_polled_at: '2023-01-01',
+                                name: 'my source',
+                                poll_url: 'http://foo',
+                                user_id: 'u1'
+                            }
+                        ]
+                    })
+                } as any;
+            });
+
+            const sources = await listActivePollableSources(env as any);
+
+            expect(prepareSpy).toHaveBeenCalledTimes(1);
+            expect(prepareSpy.mock.calls[0][0]).toContain('SELECT id, user_id, kind, name, poll_url, config_json, last_polled_at');
+            expect(prepareSpy.mock.calls[0][0]).toContain("WHERE status = 'active' AND poll_url IS NOT NULL");
+
+            expect(sources.length).toBe(1);
+            expect(sources[0]).toEqual({
+                config: { foo: 'bar' },
+                id: '1',
+                kind: 'rss',
+                lastPolledAt: '2023-01-01',
+                name: 'my source',
+                pollUrl: 'http://foo',
+                userId: 'u1'
+            });
+        });
+
+        it('returns empty list when no matching sources exist', async () => {
+            const prepareSpy = vi.spyOn(env.KEEPROOT_DB, 'prepare').mockImplementation((query) => {
+                return {
+                    all: async () => ({
+                        results: []
+                    })
+                } as any;
+            });
+
+            const sources = await listActivePollableSources(env as any);
+
+            expect(prepareSpy).toHaveBeenCalledTimes(1);
+            expect(sources.length).toBe(0);
         });
     });
 });

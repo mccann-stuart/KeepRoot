@@ -511,6 +511,13 @@ a {
 	box-shadow: 4px 3px 0 -2px var(--surface-strong), 4px 3px 0 -0.3px currentColor;
 }
 
+.nav-link__icon--sources::before {
+	inset: 3px 2px 9px;
+	border: 1.7px solid currentColor;
+	border-radius: 50%;
+	box-shadow: 0 5px 0 -0.2px var(--surface-strong), 0 6.5px 0 0 currentColor, 0 10px 0 -0.2px var(--surface-strong), 0 11.5px 0 0 currentColor;
+}
+
 .nav-link__icon--key::before {
 	top: 3px;
 	left: 1px;
@@ -1397,6 +1404,25 @@ a {
 	white-space: nowrap;
 }
 
+.health-pill--green {
+	border-color: color-mix(in srgb, #238636 35%, transparent);
+	background: color-mix(in srgb, #238636 12%, var(--surface-strong));
+	color: #238636;
+}
+
+.health-pill--amber {
+	border-color: color-mix(in srgb, #b58105 38%, transparent);
+	background: color-mix(in srgb, #b58105 12%, var(--surface-strong));
+	color: #8a6500;
+}
+
+.health-pill--red {
+	border-color: color-mix(in srgb, var(--danger) 38%, transparent);
+	background: var(--danger-soft);
+	color: var(--danger);
+}
+
+#sources-view,
 #setup-view,
 #mcp-view,
 #settings-view {
@@ -2063,6 +2089,7 @@ a {
 		margin: 1rem;
 	}
 
+	#sources-view,
 	#setup-view,
 	#mcp-view,
 	#settings-view {

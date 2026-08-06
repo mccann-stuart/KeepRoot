@@ -26,7 +26,7 @@ Current MCP implementation:
 Current limitations:
 - MCP auth is bearer-token based today; OAuth-style MCP auth is planned, not shipped
 - search is currently keyword-backed over the indexed content store
-- source records are supported now; automated polling and email routing require additional Worker handlers and deployment configuration
+- email routing requires additional deployment configuration; RSS, YouTube and bridge-feed sources are dispatched every two hours through a dedicated Cloudflare Queue
 
 See [PRD.md](PRD.md) and [TECHNICAL_ARCHITECTURE.md](TECHNICAL_ARCHITECTURE.md) for the broader product and platform design.
 
@@ -49,9 +49,10 @@ Main components:
   - **Workers runtime:** dashboard, REST API, and `/mcp`
   - **D1 (`KEEPROOT_DB`):** auth data, bookmark metadata, tags, inbox, sources, search documents, and MCP usage events
   - **R2 (`KEEPROOT_CONTENT`):** extracted content blobs in `content/*.json`, optional `html/*.html`, and image objects
+  - **Queues (`SOURCE_QUEUE`, `SOURCE_DLQ`):** durable per-source crawl fan-out, retries, continuations, and dead-letter visibility
 
 Authentication modes:
-- **WebAuthn + sessions** for dashboard sign-up/sign-in
+- **WebAuthn + seven-day sessions** for dashboard sign-up/sign-in
 - **API keys** for extension writes and MCP clients
 
 Security notes:
@@ -62,8 +63,9 @@ Security notes:
 - Browser extension API keys are stored in extension-local storage and can be revoked from the dashboard.
 - Registration is disabled unless `ALLOW_REGISTRATION` is exactly `"1"`; the checked-in Worker configuration keeps it off.
 - Authentication requests are rate-limited per connecting IP, while bookmark saves and immediate source/MCP sync work are rate-limited per account.
-- Stored `/images/*` and `/thumbs/*` objects require bearer authentication and ownership of a bookmark that references the object.
+- Stored `/images/*` and `/thumbs/*` objects require authentication and ownership of a bookmark that references the object.
 - Dashboard logout revokes the current server-side session, and settings can revoke every session for the account.
+- Dashboard sessions are retained for seven days in an `HttpOnly`, same-site cookie; JavaScript-readable bearer tokens are not persisted beyond the current browser session.
 - API keys expire one year after creation and expired keys are highlighted in the dashboard.
 
 ---
@@ -136,10 +138,14 @@ Edit `backend/wrangler.jsonc` to customize resource names if needed.
 |---|---|
 | D1 database | `keeproot` |
 | R2 bucket | `keeproot-content` |
+| Source queue | `keeproot-source-ingest` |
+| Source dead-letter queue | `keeproot-source-ingest-dlq` |
 
 ### Security environment variables
 
-`backend/wrangler.jsonc` sets `ALLOW_REGISTRATION` to `"0"`. Registration routes only work when the value is exactly `"1"`. Keep it disabled during normal operation; temporarily enable it, deploy, register the intended account, then restore `"0"` and deploy again.
+Registration routes only work when `ALLOW_REGISTRATION` is exactly `"1"`. Keep it disabled during normal operation; temporarily enable it, deploy, register the intended account, then restore `"0"` and deploy again.
+
+Set `AUTH_ORIGIN` to the stable `workers.dev` origin for the Worker, without a path. Cloudflare commit and branch preview URLs use different WebAuthn relying-party IDs, so the dashboard completes passkey login or registration on `AUTH_ORIGIN` and returns with a separate session restricted to the exact preview origin. For example, previews of `https://keeproot.example.workers.dev` can be handed back only to hosts shaped like `https://<version-or-alias>-keeproot.example.workers.dev`; the preview token is rejected on production and on other previews.
 
 The same configuration declares Workers Rate Limit bindings for authentication and outbound-cost writes. These counters are per Cloudflare location and intentionally permissive under bursts, so public multi-tenant deployments should also add Cloudflare WAF rate-limiting rules for `/auth/*`, `/bookmarks`, `/sources`, and `/mcp` at the zone level.
 
@@ -169,9 +175,11 @@ npm run provision
 ```
 
 This command:
-- creates missing D1 and R2 resources from `wrangler.jsonc`
+- creates missing D1, R2 and Queue resources from `wrangler.jsonc`
 - applies remote D1 migrations in `backend/migrations/`
 - regenerates Worker types
+
+Source crawling keeps the existing two-hour Cron Trigger. Cron only creates idempotent source runs and publishes `{ sourceId, runId }`; the Queue consumer reloads current source configuration from D1. Feed downloads are capped at 8 MiB and 2,000 visible entries. HTTP validators make unchanged polls return at `304`, while changed work is fingerprinted and processed in groups of 200 with four concurrent item writes until caught up.
 
 ### Deploy
 

@@ -20,11 +20,14 @@ export interface StorageEnv {
 	ASSETS?: Fetcher;
 	AI?: Ai;
 	ALLOWED_EXTENSION_IDS?: string;
+	AUTH_ORIGIN?: string;
 	AUTH_RATE_LIMITER: RateLimit;
 	BROWSER?: Fetcher;
 	EMAIL_SOURCE_DOMAIN?: string;
 	ENABLE_X_SOURCES?: string;
 	INGEST_QUEUE?: Queue<unknown>;
+	SOURCE_DLQ?: Queue<unknown>;
+	SOURCE_QUEUE?: Queue<unknown>;
 	KEEPROOT_DB: D1Database;
 	KEEPROOT_CONTENT: R2Bucket;
 	KEEPROOT_VECTOR_INDEX?: Vectorize;
@@ -66,6 +69,8 @@ export interface BookmarkPayload {
 	processingState?: string;
 	siteName?: string;
 	sortOrder?: number;
+	sourceEntryId?: string;
+	sourceEntryFingerprint?: string;
 	sourceId?: string | null;
 	status?: string;
 	tags?: string[];
@@ -303,7 +308,7 @@ export async function getTableColumnNames(env: StorageEnv, tableName: string): P
 	if (!/^[a-zA-Z0-9_]+$/.test(tableName)) {
 		throw new Error(`Invalid table name: ${tableName}`);
 	}
-	const result = await env.KEEPROOT_DB.prepare(`PRAGMA table_info(${tableName})`).all<D1ColumnInfo>();
+	const result = await env.KEEPROOT_DB.prepare('SELECT name FROM pragma_table_info(?)').bind(tableName).all<D1ColumnInfo>();
 	return new Set(result.results.map((column) => column.name));
 }
 
@@ -373,21 +378,20 @@ function ipv4FromMappedIpv6(ip: string): string | null {
 	].join('.');
 }
 
-function parseIpPart(part: string): number | null {
-	if (/^(0x[0-9a-f]+|0[0-7]+|\d+)$/.test(part)) {
-		if (part.startsWith('0x')) {
-			return parseInt(part, 16);
-		} else if (part.startsWith('0') && part.length > 1) {
-			return parseInt(part, 8);
-		} else {
-			return parseInt(part, 10);
-		}
-	}
-	return null;
-}
-
 export function isUnsafeIpAddress(ip: string): boolean {
-	const normalized = ip.toLowerCase();
+	let hostname = ip;
+	try {
+		const urlStr = ip.includes(':') && !ip.startsWith('[') ? `http://[${ip}]` : `http://${ip}`;
+		const parsed = new URL(urlStr);
+		hostname = parsed.hostname;
+		if (hostname.startsWith('[') && hostname.endsWith(']')) {
+			hostname = hostname.slice(1, -1);
+		}
+	} catch {
+		// Ignore
+	}
+
+	const normalized = hostname.toLowerCase();
 	const mappedIpv4 = ipv4FromMappedIpv6(normalized);
 	if (mappedIpv4) {
 		return isUnsafeIpv4Address(mappedIpv4);
@@ -403,62 +407,7 @@ export function isUnsafeIpAddress(ip: string): boolean {
 			|| normalized.startsWith('ff');
 	}
 
-	const parts = normalized.split('.');
-	if (parts.length > 0 && parts.length <= 4) {
-		let isValid = true;
-		const numParts: number[] = [];
-		for (const part of parts) {
-			const num = parseIpPart(part);
-			if (num !== null && Number.isSafeInteger(num) && num >= 0) {
-				numParts.push(num);
-			} else {
-				isValid = false;
-				break;
-			}
-		}
-
-		if (isValid) {
-			const last = numParts.pop();
-			if (last !== undefined && last <= 0xffffffff) {
-				let parsedIpv4;
-				if (parts.length === 1) {
-					parsedIpv4 = [
-						(last >>> 24) & 0xff,
-						(last >>> 16) & 0xff,
-						(last >>> 8) & 0xff,
-						last & 0xff,
-					].join('.');
-				} else if (parts.length === 2) {
-					parsedIpv4 = [
-						numParts[0] & 0xff,
-						(last >>> 16) & 0xff,
-						(last >>> 8) & 0xff,
-						last & 0xff,
-					].join('.');
-				} else if (parts.length === 3) {
-					parsedIpv4 = [
-						numParts[0] & 0xff,
-						numParts[1] & 0xff,
-						(last >>> 8) & 0xff,
-						last & 0xff,
-					].join('.');
-				} else if (parts.length === 4) {
-					parsedIpv4 = [
-						numParts[0] & 0xff,
-						numParts[1] & 0xff,
-						numParts[2] & 0xff,
-						last & 0xff,
-					].join('.');
-				}
-
-				if (parsedIpv4 && isUnsafeIpv4Address(parsedIpv4)) {
-					return true;
-				}
-			}
-		}
-	}
-
-	return false;
+	return isUnsafeIpv4Address(normalized);
 }
 
 export async function validateSafeUrl(url: string): Promise<boolean> {
@@ -502,4 +451,51 @@ export async function validateSafeUrl(url: string): Promise<boolean> {
 	} catch {
 		return false;
 	}
+}
+
+export interface FetchWithRedirectsResult {
+	response: Response | null;
+	currentUrl: string;
+	errorText?: string;
+}
+
+export async function fetchWithRedirects(
+	url: string,
+	init: RequestInit | ((currentUrl: string) => RequestInit) = {},
+	fetchImpl: typeof fetch = fetch,
+): Promise<FetchWithRedirectsResult> {
+	let currentUrl = url;
+	let response: Response | null = null;
+	let redirectCount = 0;
+
+	while (redirectCount < 5) {
+		if (!(await validateSafeUrl(currentUrl))) {
+			return { response: null, currentUrl, errorText: 'Unsafe redirect URL' };
+		}
+
+		const requestInit = typeof init === 'function' ? init(currentUrl) : init;
+		const fetchInit = { ...requestInit, redirect: 'manual' as const };
+		response = await fetchImpl(currentUrl, fetchInit);
+
+		if ([301, 302, 303, 307, 308].includes(response.status)) {
+			await response.body?.cancel().catch(() => {
+				// Safely ignore cancellation errors during redirect body cleanup
+			});
+			const location = response.headers.get('location');
+			if (!location) {
+				return { response: null, currentUrl, errorText: 'Redirect missing location header' };
+			}
+			try {
+				currentUrl = new URL(location, currentUrl).toString();
+			} catch {
+				return { response: null, currentUrl, errorText: 'Invalid redirect location URL' };
+			}
+			redirectCount += 1;
+			continue;
+		}
+
+		break;
+	}
+
+	return { response, currentUrl };
 }

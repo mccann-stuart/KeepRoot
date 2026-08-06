@@ -7,7 +7,7 @@ import { escapeHtml, renderMarkdown } from './lib/markdown';
 import { loadProtectedMedia } from './lib/media';
 import { buildMcpPresets, getDefaultSourceKind, getMcpEndpoint, getSourceKindOptions, getSourceSummaryLine } from './lib/mcp';
 import { registerServiceWorker } from './lib/service-worker';
-import { buildDataSnapshot, createAppState, getBookmarkId, type AccountFeatures, type ApiKeyRecord, type BookmarkDetail, type BookmarkSummary, type HighlightRecord, type SmartListSummary, type SourceHealthRecord, type SourceRecord, type ToolUsageRecord, type ViewName } from './lib/state';
+import { buildDataSnapshot, createAppState, getBookmarkId, type AccountFeatures, type ApiKeyRecord, type BookmarkDetail, type BookmarkSummary, type HighlightRecord, type SmartListSummary, type SourceHealthRecord, type SourceRecord, type ToolUsageRecord, type UsageStats, type ViewName } from './lib/state';
 import { clearDashboardDataPreservingSession, clearRememberedUsername, clearSessionToken, loadHighlights, loadPreferences, loadRememberedUsername, loadSessionToken, saveHighlights, savePreference, saveRememberedUsername, saveSessionToken } from './lib/storage';
 
 const dom = getDom();
@@ -21,6 +21,8 @@ let currentHighlightSelection = '';
 let lastSnapshot = '';
 let toastTimeout = 0;
 let silentRefreshInFlight = false;
+let authenticationOrigin = window.location.origin;
+let requiresAuthenticationHandoff = false;
 
 async function runWithButtonBusy(button: HTMLButtonElement, busyText: string, task: () => Promise<void>): Promise<void> {
 	if (button.disabled || button.dataset.busy === 'true') {
@@ -68,6 +70,43 @@ function showToast(message: string, tone: 'error' | 'success' = 'success') {
 function showAuthError(message = '') {
 	dom.authStatus.textContent = message;
 	dom.authStatus.classList.toggle('is-hidden', !message);
+}
+
+function navigate(url: string): void {
+	const anchor = document.createElement('a');
+	anchor.href = url;
+	anchor.rel = 'noreferrer';
+	anchor.hidden = true;
+	document.body.append(anchor);
+	anchor.click();
+	anchor.remove();
+}
+
+function redirectToAuthenticationOrigin(): boolean {
+	if (!requiresAuthenticationHandoff || authenticationOrigin === window.location.origin) {
+		return false;
+	}
+
+	const target = new URL('/', authenticationOrigin);
+	target.searchParams.set('preview_return', window.location.origin);
+	navigate(target.toString());
+	return true;
+}
+
+function redirectToRequestedPreviewSession(): boolean {
+	if (requiresAuthenticationHandoff || authenticationOrigin !== window.location.origin) {
+		return false;
+	}
+
+	const returnOrigin = new URLSearchParams(window.location.search).get('preview_return')?.trim();
+	if (!returnOrigin) {
+		return false;
+	}
+
+	const target = new URL('/auth/preview-session', window.location.origin);
+	target.searchParams.set('return_to', returnOrigin);
+	navigate(target.toString());
+	return true;
 }
 
 function getResolvedTheme(theme: 'auto' | 'dark' | 'light'): 'dark' | 'light' {
@@ -120,6 +159,7 @@ function updateNavigationState() {
 	const isLibraryView = state.currentView === 'inbox' || state.currentView === 'content';
 	dom.navInbox.classList.toggle('nav-link--active', isLibraryView && state.filterType === 'inbox');
 	dom.navAll.classList.toggle('nav-link--active', isLibraryView && state.filterType === 'all');
+	dom.navSources.classList.toggle('nav-link--active', state.currentView === 'sources');
 	dom.setupBtn.classList.toggle('nav-link--active', state.currentView === 'setup');
 	dom.navMcp.classList.toggle('nav-link--active', state.currentView === 'mcp');
 	dom.openSettingsBtn.classList.toggle('nav-link--active', state.currentView === 'settings');
@@ -149,6 +189,7 @@ function switchView(viewName: ViewName, filterType = state.filterType, filterId 
 	dom.contentView.classList.toggle('is-hidden', !isLibraryView || !hasSelectedBookmark);
 	dom.setupView.classList.toggle('is-hidden', viewName !== 'setup');
 	dom.mcpView.classList.toggle('is-hidden', viewName !== 'mcp');
+	dom.sourcesView.classList.toggle('is-hidden', viewName !== 'sources');
 	dom.settingsView.classList.toggle('is-hidden', viewName !== 'settings');
 
 	if (viewName === 'inbox') {
@@ -171,12 +212,15 @@ function switchView(viewName: ViewName, filterType = state.filterType, filterId 
 	} else if (viewName === 'setup') {
 		dom.currentViewTitle.textContent = 'API Keys';
 		void fetchApiKeys();
+	} else if (viewName === 'sources') {
+		dom.currentViewTitle.textContent = 'Sources';
+		renderSourceKindOptions(state.account?.features ?? null);
+		renderSources(state.sources);
+		void fetchMcpData();
 	} else if (viewName === 'mcp') {
 		dom.currentViewTitle.textContent = 'MCP Setup';
 		renderMcpConnection();
-		renderSourceKindOptions(state.account?.features ?? null);
 		renderMcpStatus();
-		renderSources(state.sources);
 		void fetchMcpData();
 	} else if (viewName === 'settings') {
 		dom.currentViewTitle.textContent = 'Settings';
@@ -521,7 +565,7 @@ function renderMcpStatus() {
 		{ label: 'Items', value: String(stats?.items.total ?? 0) },
 		{ label: 'Sources', value: String(stats?.sources.total ?? 0) },
 		{ label: 'Inbox Pending', value: String(stats?.inbox.pending ?? 0) },
-		{ label: 'Source Kinds', value: String(Object.keys(stats?.sources.byKind ?? {}).length) },
+		{ label: 'Feed Backlog', value: String(stats?.ingestion?.queue.backlog ?? 0) },
 	];
 	for (const stat of statCards) {
 		const card = document.createElement('article');
@@ -531,7 +575,7 @@ function renderMcpStatus() {
 	}
 
 	renderToolUsage(stats?.recentToolUsage ?? []);
-	renderSourceHealth(stats?.sourceHealth ?? []);
+	renderSourceHealth(stats?.sourceHealth ?? [], stats?.ingestion);
 }
 
 function renderToolUsage(entries: ToolUsageRecord[]) {
@@ -556,11 +600,27 @@ function renderToolUsage(entries: ToolUsageRecord[]) {
 	}
 }
 
-function renderSourceHealth(entries: SourceHealthRecord[]) {
+function renderSourceHealth(entries: SourceHealthRecord[], ingestion?: UsageStats['ingestion']) {
 	dom.mcpSourceHealthList.innerHTML = '';
+	if (ingestion) {
+		const overview = document.createElement('article');
+		overview.className = 'stack-item stack-item--split ingestion-overview';
+		overview.innerHTML = `
+			<div>
+				<h3>Feed ingestion</h3>
+				<p class="muted-copy">${escapeHtml(ingestion.interpretation)}</p>
+				<p class="muted-copy">Queue ${escapeHtml(String(ingestion.queue.backlog))} · Oldest ${escapeHtml(String(ingestion.queue.oldestJobAgeSeconds))}s · DLQ ${escapeHtml(String(ingestion.dlq.backlog))}</p>
+			</div>
+			<span class="pill health-pill health-pill--${escapeHtml(ingestion.health)}">${escapeHtml(ingestion.health)}</span>
+		`;
+		dom.mcpSourceHealthList.appendChild(overview);
+	}
 
 	if (!entries.length) {
-		dom.mcpSourceHealthList.innerHTML = '<p class="muted-copy">No source runs recorded yet.</p>';
+		const empty = document.createElement('p');
+		empty.className = 'muted-copy';
+		empty.textContent = 'No source runs recorded yet.';
+		dom.mcpSourceHealthList.appendChild(empty);
 		return;
 	}
 
@@ -571,9 +631,10 @@ function renderSourceHealth(entries: SourceHealthRecord[]) {
 			<div>
 				<h3>${escapeHtml(entry.name)}</h3>
 				<p class="muted-copy">${escapeHtml(entry.kind)} · Last success ${escapeHtml(formatTimestamp(entry.lastSuccessAt))}</p>
+				<p class="muted-copy">Discovered ${escapeHtml(String(entry.discoveredCount ?? 0))} · New ${escapeHtml(String(entry.createdCount ?? 0))} · Refreshed ${escapeHtml(String(entry.refreshedCount ?? 0))} · Errors ${escapeHtml(String(entry.errorCount ?? 0))}</p>
 				${entry.lastError ? `<p class="muted-copy">${escapeHtml(entry.lastError)}</p>` : ''}
 			</div>
-			<span class="pill">${escapeHtml(entry.status)}</span>
+			<span class="pill health-pill health-pill--${escapeHtml(entry.health ?? 'amber')}">${escapeHtml(entry.health ?? entry.status)}</span>
 		`;
 		dom.mcpSourceHealthList.appendChild(item);
 	}
@@ -664,8 +725,17 @@ async function markBookmarkAsRead(bookmarkId: string) {
 }
 
 async function loadBookmark(bookmarkId: string) {
+	const previousBookmarkId = state.currentBookmarkId;
 	state.currentBookmarkId = bookmarkId;
 	switchView('content');
+
+	if (previousBookmarkId && previousBookmarkId !== bookmarkId) {
+		void markBookmarkAsRead(previousBookmarkId)
+			.then(() => renderBookmarkLists())
+			.catch((error) => {
+				showToast(error instanceof Error ? error.message : 'Failed to update bookmark', 'error');
+			});
+	}
 
 	dom.markdownContainer.innerHTML = '<div class="panel"><p class="muted-copy">Loading bookmark…</p></div>';
 	dom.viewTitle.textContent = 'Loading…';
@@ -721,12 +791,6 @@ async function loadBookmark(bookmarkId: string) {
 		await loadProtectedMedia(fragment, api);
 		dom.markdownContainer.appendChild(fragment);
 		renderBookmarkLists();
-
-		if (!bookmark.metadata?.isRead) {
-			void markBookmarkAsRead(bookmarkId).catch((error) => {
-				showToast(error instanceof Error ? error.message : 'Failed to update bookmark', 'error');
-			});
-		}
 	} catch (error) {
 		dom.markdownContainer.innerHTML = '<div class="panel"><p class="muted-copy">Failed to load bookmark content.</p></div>';
 		showToast(error instanceof Error ? error.message : 'Failed to load bookmark', 'error');
@@ -932,6 +996,9 @@ function loginSuccess(token: string, username: string) {
 	}
 	state.secret = token;
 	saveSessionToken(token);
+	if (redirectToRequestedPreviewSession()) {
+		return;
+	}
 	showApp();
 	switchView('inbox', 'inbox', null);
 	void refreshData();
@@ -1013,6 +1080,7 @@ function bindEvents() {
 	dom.brandTitle.addEventListener('click', () => switchView('inbox', 'all', null));
 	dom.navInbox.addEventListener('click', () => switchView('inbox', 'inbox', null));
 	dom.navAll.addEventListener('click', () => switchView('inbox', 'all', null));
+	dom.navSources.addEventListener('click', () => switchView('sources'));
 	dom.setupBtn.addEventListener('click', () => switchView('setup'));
 	dom.navMcp.addEventListener('click', () => switchView('mcp'));
 	dom.openSettingsBtn.addEventListener('click', () => switchView('settings'));
@@ -1038,6 +1106,9 @@ function bindEvents() {
 		if (dom.btnLogin.disabled || dom.btnRegister.disabled) {
 			return;
 		}
+		if (redirectToAuthenticationOrigin()) {
+			return;
+		}
 		const username = dom.usernameInput.value.trim();
 		if (!username) {
 			showAuthError('Enter a username first');
@@ -1061,6 +1132,9 @@ function bindEvents() {
 
 	dom.btnRegister.addEventListener('click', async () => {
 		if (dom.btnLogin.disabled || dom.btnRegister.disabled) {
+			return;
+		}
+		if (redirectToAuthenticationOrigin()) {
 			return;
 		}
 		const username = dom.usernameInput.value.trim();
@@ -1634,12 +1708,49 @@ function hydrateInitialUI() {
 	dom.rememberUsernameInput.checked = Boolean(rememberedUsername);
 }
 
+function consumePreviewSessionFragment(): string | null {
+	const params = new URLSearchParams(window.location.hash.slice(1));
+	const token = params.get('preview_session')?.trim();
+	if (!token) {
+		return null;
+	}
+
+	saveSessionToken(token);
+	window.history.replaceState(window.history.state, '', `${window.location.pathname}${window.location.search}`);
+	return token;
+}
+
 async function init() {
 	bindEvents();
 	hydrateInitialUI();
-	state.secret = loadSessionToken();
+	try {
+		const authContext = await api.getAuthContext();
+		authenticationOrigin = new URL(authContext.authenticationOrigin).origin;
+		requiresAuthenticationHandoff = authContext.requiresHandoff;
+	} catch {
+		// Older/local Workers without preview handoff continue using same-origin WebAuthn.
+	}
+	state.secret = consumePreviewSessionFragment() ?? loadSessionToken();
 
-	if (state.secret) {
+	if (!state.secret) {
+		try {
+			await fetchAccount();
+		} catch (error) {
+			if (!(error instanceof ApiError && error.status === 401)) {
+				showToast(error instanceof Error ? error.message : 'Failed to restore session', 'error');
+			}
+			showLogin();
+			switchView('empty');
+			await registerServiceWorker();
+			return;
+		}
+	}
+
+	if (state.secret || state.account) {
+		if (redirectToRequestedPreviewSession()) {
+			await registerServiceWorker();
+			return;
+		}
 		showApp();
 		switchView('inbox', 'inbox', null);
 		await refreshData();

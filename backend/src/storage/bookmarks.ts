@@ -6,6 +6,7 @@ import {
 	encoder,
 	normalizeCanonicalUrl,
 	sha256Hex,
+	fetchWithRedirects,
 	validateSafeUrl,
 	type BookmarkImagePayload,
 	type BookmarkListItem,
@@ -347,36 +348,7 @@ async function fetchImageAsPayload(imageUrl: string, pageUrl: string): Promise<B
 		return parseDataUrl(absoluteUrl);
 	}
 
-	let currentUrl = absoluteUrl;
-	let response: Response | null = null;
-	let redirectCount = 0;
-
-	while (redirectCount < 5) {
-		if (!await validateSafeUrl(currentUrl)) {
-			return null;
-		}
-
-		response = await fetch(currentUrl, { redirect: 'manual' });
-
-		if ([301, 302, 303, 307, 308].includes(response.status)) {
-			await response.body?.cancel().catch(() => {
-				// Safely ignore cancellation errors during redirect body cleanup
-			});
-			const location = response.headers.get('location');
-			if (!location) {
-				return null;
-			}
-			try {
-				currentUrl = new URL(location, currentUrl).toString();
-			} catch {
-				return null;
-			}
-			redirectCount += 1;
-			continue;
-		}
-
-		break;
-	}
+	let { response } = await fetchWithRedirects(absoluteUrl);
 
 	if (!response || !response.ok) {
 		return null;
@@ -592,15 +564,30 @@ async function syncTags(
 		normalizedTags.push({ normalized, name });
 	}
 
-	for (const tag of normalizedTags) {
+	const CHUNK_SIZE = 50;
+	for (let i = 0; i < normalizedTags.length; i += CHUNK_SIZE) {
+		const chunk = normalizedTags.slice(i, i + CHUNK_SIZE);
+
+		const tagValues: string[] = [];
+		const tagBindings: (string | number)[] = [];
+		const bookmarkTagValues: string[] = [];
+		const bookmarkTagBindings: (string | number)[] = [];
+
+		for (const tag of chunk) {
+			tagValues.push('(?, ?, ?, ?, ?)');
+			tagBindings.push(crypto.randomUUID(), userId, tag.name, tag.normalized, createdAt);
+
+			bookmarkTagValues.push('SELECT ?, id FROM tags WHERE user_id = ? AND normalized_name = ?');
+			bookmarkTagBindings.push(bookmarkId, userId, tag.normalized);
+		}
+
 		batchStatements.push(
 			env.KEEPROOT_DB.prepare(
-				'INSERT OR IGNORE INTO tags (id, user_id, name, normalized_name, created_at) VALUES (?, ?, ?, ?, ?)',
-			).bind(crypto.randomUUID(), userId, tag.name, tag.normalized, createdAt),
+				`INSERT OR IGNORE INTO tags (id, user_id, name, normalized_name, created_at) VALUES ${tagValues.join(', ')}`,
+			).bind(...tagBindings),
 			env.KEEPROOT_DB.prepare(
-				`INSERT OR IGNORE INTO bookmark_tags (bookmark_id, tag_id)
-				 SELECT ?, id FROM tags WHERE user_id = ? AND normalized_name = ?`,
-			).bind(bookmarkId, userId, tag.normalized),
+				`INSERT OR IGNORE INTO bookmark_tags (bookmark_id, tag_id) ${bookmarkTagValues.join(' UNION ALL ')}`,
+			).bind(...bookmarkTagBindings),
 		);
 	}
 
@@ -627,18 +614,37 @@ async function syncImages(env: StorageEnv, bookmarkId: string, images: BookmarkI
 	const uploadPromises: Promise<void>[] = [];
 	const seenKeys = new Set<string>();
 
+	let chunkPlaceholders: string[] = [];
+	let chunkBindings: any[] = [];
+
 	for (const { image, bytes, imageHash, key } of processedImages) {
 		if (!seenKeys.has(key)) {
 			seenKeys.add(key);
 			uploadPromises.push(putIfMissing(env.KEEPROOT_CONTENT, key, bytes, image.contentType ?? 'application/octet-stream'));
 
-			batchStatements.push(
-				env.KEEPROOT_DB.prepare(
-					`INSERT OR REPLACE INTO bookmark_images (bookmark_id, image_hash, r2_key, width, height, type, created_at)
-					VALUES (?, ?, ?, ?, ?, ?, ?)`,
-				).bind(bookmarkId, imageHash, key, image.width ?? null, image.height ?? null, image.contentType ?? null, createdAt)
-			);
+			chunkPlaceholders.push('(?, ?, ?, ?, ?, ?, ?)');
+			chunkBindings.push(bookmarkId, imageHash, key, image.width ?? null, image.height ?? null, image.contentType ?? null, createdAt);
+
+			if (chunkPlaceholders.length >= 14) {
+				batchStatements.push(
+					env.KEEPROOT_DB.prepare(
+						`INSERT OR REPLACE INTO bookmark_images (bookmark_id, image_hash, r2_key, width, height, type, created_at)
+						VALUES ${chunkPlaceholders.join(', ')}`,
+					).bind(...chunkBindings)
+				);
+				chunkPlaceholders = [];
+				chunkBindings = [];
+			}
 		}
+	}
+
+	if (chunkPlaceholders.length > 0) {
+		batchStatements.push(
+			env.KEEPROOT_DB.prepare(
+				`INSERT OR REPLACE INTO bookmark_images (bookmark_id, image_hash, r2_key, width, height, type, created_at)
+				VALUES ${chunkPlaceholders.join(', ')}`,
+			).bind(...chunkBindings)
+		);
 	}
 
 	await Promise.all([
@@ -665,7 +671,7 @@ export async function saveBookmark(
 	user: Pick<{ userId: string; username: string }, 'userId' | 'username'>,
 	payload: BookmarkPayload,
 	options: { appendTags?: boolean } = {},
-): Promise<{ id: string; metadata: Record<string, unknown> }> {
+): Promise<{ created: boolean; id: string; metadata: Record<string, unknown> }> {
 	if (!payload.url) {
 		throw new Error('Missing url');
 	}
@@ -694,6 +700,7 @@ export async function saveBookmark(
 	const processingState = (payload.processingState ?? 'ready').trim().toLowerCase() || 'ready';
 	const status = normalizeStatus(payload.status);
 	const siteName = payload.siteName?.trim() || domain;
+	const sourceEntryId = payload.sourceEntryId?.trim() || null;
 	const sourceId = payload.sourceId ?? null;
 	const hydratedImages = await hydrateImagePayloads(payload, normalizedUrl);
 
@@ -791,7 +798,17 @@ export async function saveBookmark(
 	await putIfMissing(env.KEEPROOT_CONTENT, contentKey, contentJson, 'application/json');
 
 	const urlHash = await sha256Hex(canonicalUrl);
-	const existingBookmark = await env.KEEPROOT_DB.prepare(
+	const existingBySourceEntry = sourceId && sourceEntryId
+		? await env.KEEPROOT_DB.prepare(
+			`SELECT id, created_at, is_read
+			FROM bookmarks
+			WHERE user_id = ? AND source_id = ? AND source_entry_id = ?
+			LIMIT 1`,
+		)
+			.bind(user.userId, sourceId, sourceEntryId)
+			.first<{ created_at: string; id: string; is_read: number }>()
+		: null;
+	const existingBookmark = existingBySourceEntry ?? await env.KEEPROOT_DB.prepare(
 		`SELECT id, created_at, is_read
 		FROM bookmarks
 		WHERE user_id = ? AND url_hash = ?
@@ -806,7 +823,7 @@ export async function saveBookmark(
 	if (existingBookmark) {
 		await env.KEEPROOT_DB.prepare(
 			`UPDATE bookmarks
-			SET url = ?, canonical_url = ?, url_hash = ?, title = ?, site_name = ?, domain = ?, status = ?, notes = ?, source_id = ?, processing_state = ?,
+			SET url = ?, canonical_url = ?, url_hash = ?, title = ?, site_name = ?, domain = ?, status = ?, notes = ?, source_id = ?, source_entry_id = ?, source_entry_fingerprint = ?, processing_state = ?,
 				updated_at = ?, last_fetched_at = ?, content_hash = ?, content_ref = ?, content_type = ?,
 				content_length = ?, excerpt = ?, word_count = ?, lang = ?, list_id = ?, pinned = ?, sort_order = ?, is_read = ?
 			WHERE id = ? AND user_id = ?`,
@@ -821,6 +838,8 @@ export async function saveBookmark(
 				status,
 				notes,
 				sourceId,
+				sourceEntryId,
+				payload.sourceEntryFingerprint ?? null,
 				processingState,
 				now,
 				now,
@@ -842,8 +861,8 @@ export async function saveBookmark(
 	} else {
 		await env.KEEPROOT_DB.prepare(
 			`INSERT INTO bookmarks
-			(id, user_id, url, canonical_url, url_hash, title, site_name, domain, status, notes, source_id, processing_state, created_at, updated_at, last_fetched_at, content_hash, content_ref, content_type, content_length, excerpt, word_count, lang, list_id, pinned, sort_order, is_read)
-			VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+			(id, user_id, url, canonical_url, url_hash, title, site_name, domain, status, notes, source_id, source_entry_id, source_entry_fingerprint, processing_state, created_at, updated_at, last_fetched_at, content_hash, content_ref, content_type, content_length, excerpt, word_count, lang, list_id, pinned, sort_order, is_read)
+			VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
 		)
 			.bind(
 				bookmarkId,
@@ -857,6 +876,8 @@ export async function saveBookmark(
 				status,
 				notes,
 				sourceId,
+				sourceEntryId,
+				payload.sourceEntryFingerprint ?? null,
 				processingState,
 				createdAt,
 				now,
@@ -906,6 +927,7 @@ export async function saveBookmark(
 	await refreshBookmarkIndexes(env, bookmarkId);
 
 	return {
+		created: !existingBookmark,
 		id: bookmarkId,
 		metadata: compactObject({
 			contentHash,

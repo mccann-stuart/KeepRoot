@@ -81,8 +81,12 @@
 					<div id="sidebar-tags" class="sidebar-collection sidebar-collection--tags"></div>
 				</section>
 
-				<section class="sidebar-group">
+				<section class="sidebar-group sidebar-group--connections">
 					<h2>Connections</h2>
+					<button id="nav-sources" type="button" class="nav-link">
+						<span class="nav-link__icon nav-link__icon--sources" aria-hidden="true"></span>
+						<span>Sources</span>
+					</button>
 					<button id="setup-btn" type="button" class="nav-link">
 						<span class="nav-link__icon nav-link__icon--key" aria-hidden="true"></span>
 						<span>API keys</span>
@@ -218,6 +222,65 @@
 				</section>
 			</div>
 
+			<section id="sources-view" class="view is-hidden">
+				<div class="stack-layout">
+					<header class="panel-header">
+						<p class="eyebrow">Connections</p>
+						<h2>Sources</h2>
+						<p>Add and manage the content sources that feed your archive.</p>
+					</header>
+
+					<section class="mcp-source-layout">
+						<section class="panel">
+							<header class="panel-header panel-header--tight">
+								<h3>Add Source</h3>
+								<p>Create an RSS, YouTube, X, or email source. Unsupported kinds remain visible but disabled from account capabilities.</p>
+							</header>
+							<form id="mcp-source-form" class="stack-form">
+								<label class="field">
+									<span>Source Type</span>
+									<select id="mcp-source-kind"></select>
+								</label>
+								<p id="mcp-source-kind-help" class="muted-copy"></p>
+
+								<label class="field">
+									<span id="mcp-source-identifier-label">Identifier</span>
+									<input id="mcp-source-identifier" type="text" required>
+								</label>
+								<p id="mcp-source-identifier-help" class="muted-copy"></p>
+
+								<label class="field">
+									<span>Name</span>
+									<input id="mcp-source-name" type="text" placeholder="Optional display name">
+								</label>
+
+								<label id="mcp-source-bridge-field" class="field is-hidden">
+									<span>RSS Bridge URL</span>
+									<input id="mcp-source-bridge-url" type="url" placeholder="https://feeds.example.com/account.xml">
+								</label>
+
+								<button id="mcp-source-submit" type="submit" class="btn btn-primary">Add Source</button>
+							</form>
+						</section>
+
+						<section class="panel">
+							<header class="panel-header panel-header--tight">
+								<h3>Configured Sources</h3>
+								<p>KeepRoot will soft-remove a source instead of deleting its historical records.</p>
+							</header>
+							<div id="mcp-sources-list" class="stack-list"></div>
+						</section>
+					</section>
+
+					<section class="panel">
+						<header class="panel-header panel-header--tight">
+							<h3>Source Health</h3>
+						</header>
+						<div id="mcp-source-health-list" class="stack-list"></div>
+					</section>
+				</div>
+			</section>
+
 			<section id="setup-view" class="view is-hidden">
 				<div class="stack-layout">
 					<header class="panel-header">
@@ -269,7 +332,7 @@
 					<header class="panel-header">
 						<p class="eyebrow">Remote MCP</p>
 						<h2>MCP Setup</h2>
-						<p>Connect KeepRoot to remote MCP clients, review account capabilities, and manage the content sources that feed your archive.</p>
+						<p>Connect KeepRoot to remote MCP clients and review account capabilities.</p>
 						<div class="button-row">
 							<button id="open-api-keys-from-mcp-btn" type="button" class="btn btn-secondary btn-compact">Manage API Keys</button>
 						</div>
@@ -338,53 +401,7 @@
 								<h4>Recent Tool Usage</h4>
 								<div id="mcp-tool-usage-list" class="stack-list"></div>
 							</section>
-							<section>
-								<h4>Source Health</h4>
-								<div id="mcp-source-health-list" class="stack-list"></div>
-							</section>
 						</div>
-					</section>
-
-					<section class="mcp-source-layout">
-						<section class="panel">
-							<header class="panel-header panel-header--tight">
-								<h3>Add Source</h3>
-								<p>Create an RSS, YouTube, X, or email source. Unsupported kinds remain visible but disabled from account capabilities.</p>
-							</header>
-							<form id="mcp-source-form" class="stack-form">
-								<label class="field">
-									<span>Source Type</span>
-									<select id="mcp-source-kind"></select>
-								</label>
-								<p id="mcp-source-kind-help" class="muted-copy"></p>
-
-								<label class="field">
-									<span id="mcp-source-identifier-label">Identifier</span>
-									<input id="mcp-source-identifier" type="text" required>
-								</label>
-								<p id="mcp-source-identifier-help" class="muted-copy"></p>
-
-								<label class="field">
-									<span>Name</span>
-									<input id="mcp-source-name" type="text" placeholder="Optional display name">
-								</label>
-
-								<label id="mcp-source-bridge-field" class="field is-hidden">
-									<span>RSS Bridge URL</span>
-									<input id="mcp-source-bridge-url" type="url" placeholder="https://feeds.example.com/account.xml">
-								</label>
-
-								<button id="mcp-source-submit" type="submit" class="btn btn-primary">Add Source</button>
-							</form>
-						</section>
-
-						<section class="panel">
-							<header class="panel-header panel-header--tight">
-								<h3>Configured Sources</h3>
-								<p>KeepRoot will soft-remove a source instead of deleting its historical records.</p>
-							</header>
-							<div id="mcp-sources-list" class="stack-list"></div>
-						</section>
 					</section>
 				</div>
 			</section>

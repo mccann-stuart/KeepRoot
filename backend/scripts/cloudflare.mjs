@@ -87,6 +87,14 @@ function ensureRemoteResources() {
 
 		runWrangler(['r2', 'bucket', 'create', bucket.bucket_name], { allowAlreadyExists: true });
 	}
+
+	const queueNames = new Set([
+		...(config.queues?.producers ?? []).map((queue) => queue.queue),
+		...(config.queues?.consumers ?? []).map((queue) => queue.dead_letter_queue),
+	].filter(Boolean));
+	for (const queueName of queueNames) {
+		runWrangler(['queues', 'create', queueName], { allowAlreadyExists: true });
+	}
 }
 
 switch (command) {

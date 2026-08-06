@@ -128,7 +128,7 @@ flowchart LR
 | Workers OAuth Provider | `@cloudflare/workers-oauth-provider` | Production-grade remote OAuth flow for MCP clients when enabled |
 | D1 | `KEEPROOT_DB` binding | Canonical relational store for items, state, sources, inbox, and search metadata |
 | R2 | `KEEPROOT_CONTENT` binding | Durable storage for Markdown payloads, HTML snapshots, and optional raw ingest payloads |
-| Queues | `INGEST_QUEUE` binding | Asynchronous URL extraction, source sync, and re-indexing |
+| Queues | `INGEST_QUEUE`, `SOURCE_QUEUE`, and `SOURCE_DLQ` bindings | Asynchronous URL extraction plus durable source fan-out, retries, continuations, and dead-letter visibility |
 | Cron Triggers | Worker `scheduled()` | Periodic polling of active sources |
 | Workers AI | `AI` binding | Query and item embeddings, and optional later reranking |
 | Vectorize | `KEEPROOT_VECTOR_INDEX` binding | Semantic retrieval over canonical records or chunks |
@@ -155,7 +155,9 @@ Escalation path:
 | `KEEPROOT_CONTENT` | R2 | Content payloads and stored documents |
 | `KEEPROOT_VECTOR_INDEX` | Vectorize | Semantic search index |
 | `AI` | Workers AI | Embedding generation and future reranking |
-| `INGEST_QUEUE` | Queues | Async ingest and source processing |
+| `INGEST_QUEUE` | Queues | Optional asynchronous URL ingestion |
+| `SOURCE_QUEUE` | Queues | One minimal `{ sourceId, runId }` source-crawl message per delivery |
+| `SOURCE_DLQ` | Queues | Terminal source-crawl failures and health metrics |
 | `BROWSER` | Browser Rendering, optional | Rendered-page extraction fallback |
 | `MCP_EMAIL_DOMAIN` | environment variable | Stable inbound alias generation for email sources |
 | `USAGE_ANALYTICS` | Workers Analytics Engine, optional | High-volume telemetry if needed later |
@@ -181,6 +183,7 @@ backend/
     ingest/
       save-url.ts
       source-sync.ts
+      source-queue.ts
       email.ts
       jobs.ts
     storage/
@@ -452,11 +455,14 @@ The higher-level tools should compose the same canonical and retrieval layers in
 9. Create or refresh an inbox entry.
 
 ### Source sync
-1. Cron or manual action identifies active sources.
-2. Queue fan-out runs source-specific sync jobs.
-3. Feed entries become candidate items.
-4. Candidate items go through the same dedupe and save path as manual saves.
-5. Source health is recorded in `source_runs`.
+1. The two-hour Cron Trigger creates one idempotent D1 run per active source and publishes minimal jobs with `sendBatch`.
+2. The Queue consumer reloads current source configuration, acknowledges inactive or completed runs, and acquires an expiring per-source lease.
+3. RSS and Atom fetches validate the initial URL and every redirect. `ETag` and `Last-Modified` are sent only to the URL that issued them; `304` completes without parsing.
+4. A streaming 8 MiB guard runs before XML parsing. At most 2,000 visible entries are fingerprinted and looked up through indexed, batched D1 reads.
+5. Stable RSS GUID or Atom ID remains the source identity, with canonical URL as fallback. Missing post-migration fingerprints are baselined without rewriting stored content.
+6. At most 200 new or changed entries are handled per delivery, with four expensive writes in flight. A continuation requeues the same run until caught up.
+7. Successful writes remain idempotent, source tags remain append-only, and refreshed records do not re-enter the inbox.
+8. D1 records queued, running, retrying, success, partial and error lifecycle data. Queue bindings provide realtime backlog and DLQ metrics, with D1 state as the `/stats` fallback.
 
 ### Email ingestion
 1. Email Routing forwards inbound mail to the Worker `email()` handler.
