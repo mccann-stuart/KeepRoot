@@ -159,7 +159,6 @@ async function extractPdfBookmark(url: string, pdfBytes: Uint8Array, fallbackTit
 	const loadingTask = getDocument({
 		data: pdfBytes,
 		disableFontFace: true,
-		isEvalSupported: false,
 		isImageDecoderSupported: false,
 		isOffscreenCanvasSupported: false,
 		useWorkerFetch: false,

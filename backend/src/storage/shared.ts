@@ -377,21 +377,20 @@ function ipv4FromMappedIpv6(ip: string): string | null {
 	].join('.');
 }
 
-function parseIpPart(part: string): number | null {
-	if (/^(0x[0-9a-f]+|0[0-7]+|\d+)$/.test(part)) {
-		if (part.startsWith('0x')) {
-			return parseInt(part, 16);
-		} else if (part.startsWith('0') && part.length > 1) {
-			return parseInt(part, 8);
-		} else {
-			return parseInt(part, 10);
-		}
-	}
-	return null;
-}
-
 export function isUnsafeIpAddress(ip: string): boolean {
-	const normalized = ip.toLowerCase();
+	let hostname = ip;
+	try {
+		const urlStr = ip.includes(':') && !ip.startsWith('[') ? `http://[${ip}]` : `http://${ip}`;
+		const parsed = new URL(urlStr);
+		hostname = parsed.hostname;
+		if (hostname.startsWith('[') && hostname.endsWith(']')) {
+			hostname = hostname.slice(1, -1);
+		}
+	} catch {
+		// Ignore
+	}
+
+	const normalized = hostname.toLowerCase();
 	const mappedIpv4 = ipv4FromMappedIpv6(normalized);
 	if (mappedIpv4) {
 		return isUnsafeIpv4Address(mappedIpv4);
@@ -407,62 +406,7 @@ export function isUnsafeIpAddress(ip: string): boolean {
 			|| normalized.startsWith('ff');
 	}
 
-	const parts = normalized.split('.');
-	if (parts.length > 0 && parts.length <= 4) {
-		let isValid = true;
-		const numParts: number[] = [];
-		for (const part of parts) {
-			const num = parseIpPart(part);
-			if (num !== null && Number.isSafeInteger(num) && num >= 0) {
-				numParts.push(num);
-			} else {
-				isValid = false;
-				break;
-			}
-		}
-
-		if (isValid) {
-			const last = numParts.pop();
-			if (last !== undefined && last <= 0xffffffff) {
-				let parsedIpv4;
-				if (parts.length === 1) {
-					parsedIpv4 = [
-						(last >>> 24) & 0xff,
-						(last >>> 16) & 0xff,
-						(last >>> 8) & 0xff,
-						last & 0xff,
-					].join('.');
-				} else if (parts.length === 2) {
-					parsedIpv4 = [
-						numParts[0] & 0xff,
-						(last >>> 16) & 0xff,
-						(last >>> 8) & 0xff,
-						last & 0xff,
-					].join('.');
-				} else if (parts.length === 3) {
-					parsedIpv4 = [
-						numParts[0] & 0xff,
-						numParts[1] & 0xff,
-						(last >>> 8) & 0xff,
-						last & 0xff,
-					].join('.');
-				} else if (parts.length === 4) {
-					parsedIpv4 = [
-						numParts[0] & 0xff,
-						numParts[1] & 0xff,
-						numParts[2] & 0xff,
-						last & 0xff,
-					].join('.');
-				}
-
-				if (parsedIpv4 && isUnsafeIpv4Address(parsedIpv4)) {
-					return true;
-				}
-			}
-		}
-	}
-
-	return false;
+	return isUnsafeIpv4Address(normalized);
 }
 
 export async function validateSafeUrl(url: string): Promise<boolean> {
