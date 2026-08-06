@@ -1,9 +1,6 @@
-ALTER TABLE bookmarks ADD COLUMN notes TEXT;
-ALTER TABLE bookmarks ADD COLUMN source_id TEXT;
-ALTER TABLE bookmarks ADD COLUMN processing_state TEXT NOT NULL DEFAULT 'ready';
-ALTER TABLE bookmarks ADD COLUMN search_updated_at TEXT;
-ALTER TABLE bookmarks ADD COLUMN embedding_updated_at TEXT;
-
+-- Bookmark hot-path columns are added by 0004_bookmark_hot_path.sql.
+-- Keeping them out of this legacy migration allows fresh databases to apply
+-- both historical 0003 migrations without duplicate-column failures.
 CREATE TABLE IF NOT EXISTS account_settings (
 	user_id TEXT PRIMARY KEY,
 	plan_code TEXT NOT NULL DEFAULT 'self_hosted',

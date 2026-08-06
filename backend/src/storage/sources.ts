@@ -13,19 +13,28 @@ interface SourceRow {
 	normalized_identifier: string;
 	poll_url: string | null;
 	status: string;
+	http_etag?: string | null;
+	http_last_modified?: string | null;
+	validator_url?: string | null;
 	updated_at: string;
 }
 
 interface SourceRunRow {
+	attempt_count?: number;
+	created_count?: number;
 	discovered_count: number;
 	error_count: number;
 	error_text: string | null;
 	finished_at: string | null;
 	id: string;
+	processed_count?: number;
+	refreshed_count?: number;
 	run_type: string;
 	saved_count: number;
+	saturated?: number;
 	started_at: string;
 	status: string;
+	unchanged_count?: number;
 }
 
 function decodeCursor(cursor?: string | null): number {
@@ -359,7 +368,8 @@ export async function getSourceById(env: StorageEnv, userId: string, sourceId: s
 			LIMIT 1`,
 		).bind(sourceId, userId),
 		env.KEEPROOT_DB.prepare(
-			`SELECT id, run_type, status, discovered_count, saved_count, error_count, started_at, finished_at, error_text
+			`SELECT id, run_type, status, attempt_count, discovered_count, processed_count, saved_count,
+				created_count, refreshed_count, unchanged_count, error_count, saturated, started_at, finished_at, error_text
 			FROM source_runs
 			WHERE source_id = ?
 			ORDER BY started_at DESC
@@ -387,15 +397,21 @@ export async function getSourceById(env: StorageEnv, userId: string, sourceId: s
 		normalizedIdentifier: source.normalized_identifier,
 		pollUrl: source.poll_url,
 		recentRuns: recentRuns.results.map((run) => compactObject({
+			attempts: run.attempt_count,
+			createdCount: run.created_count,
 			discoveredCount: run.discovered_count,
 			errorCount: run.error_count,
 			errorText: run.error_text,
 			finishedAt: run.finished_at,
 			id: run.id,
+			processedCount: run.processed_count,
+			refreshedCount: run.refreshed_count,
 			runType: run.run_type,
 			savedCount: run.saved_count,
+			saturated: Boolean(run.saturated),
 			startedAt: run.started_at,
 			status: run.status,
+			unchangedCount: run.unchanged_count,
 		})),
 		status: source.status,
 		updatedAt: source.updated_at,
@@ -425,22 +441,26 @@ export async function getSourceByEmailAlias(env: StorageEnv, emailAlias: string)
 	};
 }
 
-export async function listActivePollableSources(env: StorageEnv): Promise<Array<{ config: Record<string, unknown>; id: string; kind: SourceKind; lastPolledAt: string | null; name: string; pollUrl: string; userId: string }>> {
+export async function listActivePollableSources(env: StorageEnv): Promise<Array<{ config: Record<string, unknown>; httpEtag: string | null; httpLastModified: string | null; id: string; kind: SourceKind; lastPolledAt: string | null; name: string; pollUrl: string; userId: string; validatorUrl: string | null }>> {
 	const result = await env.KEEPROOT_DB.prepare(
-		`SELECT id, user_id, kind, name, poll_url, config_json, last_polled_at
+		`SELECT id, user_id, kind, name, poll_url, config_json, last_polled_at,
+			validator_url, http_etag, http_last_modified
 		FROM sources
 		WHERE status = 'active' AND poll_url IS NOT NULL`,
 	)
-		.all<{ config_json: string; id: string; kind: SourceKind; last_polled_at: string | null; name: string; poll_url: string; user_id: string }>();
+		.all<{ config_json: string; http_etag: string | null; http_last_modified: string | null; id: string; kind: SourceKind; last_polled_at: string | null; name: string; poll_url: string; user_id: string; validator_url: string | null }>();
 
 	return result.results.map((row) => ({
 		config: parseConfig(row.config_json),
+		httpEtag: row.http_etag,
+		httpLastModified: row.http_last_modified,
 		id: row.id,
 		kind: row.kind,
 		lastPolledAt: row.last_polled_at,
 		name: row.name,
 		pollUrl: row.poll_url,
 		userId: row.user_id,
+		validatorUrl: row.validator_url,
 	}));
 }
 

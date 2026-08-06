@@ -78,6 +78,28 @@
 			}
 		}
 	],
+	"queues": {
+		"producers": [
+			{
+				"binding": "SOURCE_QUEUE",
+				"queue": "keeproot-source-ingest"
+			},
+			{
+				"binding": "SOURCE_DLQ",
+				"queue": "keeproot-source-ingest-dlq"
+			}
+		],
+		"consumers": [
+			{
+				"queue": "keeproot-source-ingest",
+				"max_batch_size": 1,
+				"max_batch_timeout": 5,
+				"max_retries": 5,
+				"dead_letter_queue": "keeproot-source-ingest-dlq",
+				"max_concurrency": 8
+			}
+		]
+	},
 	/**
 	 * Static Assets
 	 * https://developers.cloudflare.com/workers/static-assets/binding/

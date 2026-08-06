@@ -1,5 +1,5 @@
 import { syncSource } from '../ingest/source-sync';
-import type { IngestJob } from '../ingest/jobs';
+import { enqueueSourceRun } from '../ingest/source-queue';
 import type { SourceKind, StorageEnv } from '../storage/shared';
 
 export async function maybeQueueSourceSync(
@@ -16,18 +16,8 @@ export async function maybeQueueSourceSync(
 		return;
 	}
 
-	if (env.INGEST_QUEUE) {
-		const job: IngestJob = {
-			kind: 'sync_source',
-			payload: {
-				id,
-				kind,
-				name,
-				pollUrl,
-				userId,
-			},
-		};
-		await env.INGEST_QUEUE.send(job);
+	if (env.SOURCE_QUEUE) {
+		await enqueueSourceRun(env, id);
 		return;
 	}
 
