@@ -26,6 +26,7 @@ let toastTimeout = 0;
 let silentRefreshInFlight = false;
 let authenticationOrigin = window.location.origin;
 let requiresAuthenticationHandoff = false;
+let mobileFontMenuOpen = false;
 let mobileOverflowOpen = false;
 let mobileSurface: MobileSurface = 'library';
 let mobileCollectionScrollTop: number | null = null;
@@ -145,6 +146,7 @@ function applyFontSize(fontSize: number) {
 	savePreference('fontSize', state.preferences.fontSize);
 	document.documentElement.style.setProperty('--reader-font-size', `${state.preferences.fontSize}px`);
 	dom.fontSizeValue.textContent = `${state.preferences.fontSize} px`;
+	dom.mobileReaderFontValue.textContent = `${state.preferences.fontSize} px`;
 }
 
 function showLogin() {
@@ -195,6 +197,8 @@ function syncMobileSurface() {
 	dom.mobileListsSurface.classList.toggle('is-hidden', mobileSurface !== 'lists');
 	dom.mobileTagsSurface.classList.toggle('is-hidden', mobileSurface !== 'tags');
 	dom.mobileReaderSurface.classList.toggle('is-hidden', mobileSurface !== 'reader');
+	dom.mobileReaderFontMenu.classList.toggle('is-hidden', !mobileFontMenuOpen);
+	dom.mobileReaderFont.setAttribute('aria-expanded', String(mobileFontMenuOpen));
 	dom.mobileOverflowMenu.classList.toggle('is-hidden', !mobileOverflowOpen);
 	dom.mobileTabMore.setAttribute('aria-expanded', String(mobileOverflowOpen));
 	dom.mobileLibraryInbox.setAttribute('aria-pressed', String(isLibrarySurface && state.filterType === 'inbox'));
@@ -211,6 +215,7 @@ mobileSurfaceMediaQuery.addEventListener('change', syncMobileSurface);
 
 function setMobileSurface(nextSurface: MobileSurface) {
 	mobileSurface = nextSurface;
+	mobileFontMenuOpen = false;
 	mobileOverflowOpen = false;
 	syncMobileSurface();
 }
@@ -1317,7 +1322,12 @@ function bindEvents() {
 	dom.mobileOverflowLogout.addEventListener('click', () => void logout());
 	dom.mobileCreateListBtn.addEventListener('click', () => dom.addListBtn.click());
 	dom.mobileReaderBack.addEventListener('click', returnToMobileLibrary);
-	dom.mobileReaderFont.addEventListener('click', () => applyFontSize(state.preferences.fontSize + 2));
+	dom.mobileReaderFont.addEventListener('click', () => {
+		mobileFontMenuOpen = !mobileFontMenuOpen;
+		syncMobileSurface();
+	});
+	dom.mobileReaderFontDecrease.addEventListener('click', () => applyFontSize(state.preferences.fontSize - 2));
+	dom.mobileReaderFontIncrease.addEventListener('click', () => applyFontSize(state.preferences.fontSize + 2));
 	dom.mobileReaderTags.addEventListener('click', openTagEditor);
 	dom.mobileReaderDetails.addEventListener('click', toggleReaderDetails);
 	dom.mobileReaderPin.addEventListener('click', () => {

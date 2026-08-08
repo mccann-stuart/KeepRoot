@@ -883,6 +883,28 @@ describe('dashboard mobile reader', () => {
 		expect(cardMeta.textContent).toBe(`example.com · 2 min · ${new Date(publishedAt).toLocaleDateString()}`);
 	});
 
+	it('opens reader text-size controls without changing the size until an adjustment is chosen', async () => {
+		await bootDashboard({ mobileMatches: true });
+
+		const trigger = document.getElementById('mobile-reader-font') as HTMLButtonElement;
+		const menu = document.getElementById('mobile-reader-font-menu') as HTMLElement | null;
+		expect(menu).not.toBeNull();
+
+		trigger.click();
+		expect(trigger.getAttribute('aria-expanded')).toBe('true');
+		expect(menu?.classList.contains('is-hidden')).toBe(false);
+		expect(window.localStorage.getItem('keeproot_font_size')).toBe('16');
+		expect(document.getElementById('mobile-reader-font-value')?.textContent).toBe('16 px');
+
+		(document.getElementById('mobile-reader-font-increase') as HTMLButtonElement).click();
+		expect(window.localStorage.getItem('keeproot_font_size')).toBe('18');
+		expect(document.getElementById('mobile-reader-font-value')?.textContent).toBe('18 px');
+
+		(document.getElementById('mobile-reader-font-decrease') as HTMLButtonElement).click();
+		expect(window.localStorage.getItem('keeproot_font_size')).toBe('16');
+		expect(document.getElementById('mobile-reader-font-value')?.textContent).toBe('16 px');
+	});
+
 	it('reuses reader preferences, detail, tag and bookmark actions on mobile', async () => {
 		let pinned = false;
 		let isRead = false;
@@ -940,6 +962,7 @@ describe('dashboard mobile reader', () => {
 		await flush();
 
 		(document.getElementById('mobile-reader-font') as HTMLButtonElement).click();
+		(document.getElementById('mobile-reader-font-increase') as HTMLButtonElement).click();
 		expect(window.localStorage.getItem('keeproot_font_size')).toBe('18');
 		expect((document.getElementById('font-size-value') as HTMLElement).textContent).toBe('18 px');
 		(document.getElementById('mobile-reader-details') as HTMLButtonElement).click();

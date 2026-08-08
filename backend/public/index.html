@@ -51,9 +51,16 @@
 					<button id="mobile-reader-back" type="button">Back</button>
 					<h2 id="mobile-reader-title">Reader</h2>
 					<div aria-label="Reader controls">
-						<button id="mobile-reader-font" type="button" aria-label="Increase reader font size">Aa</button>
-						<button id="mobile-reader-tags" type="button" aria-label="Edit tags">Tags</button>
-						<button id="mobile-reader-details" type="button" aria-pressed="false">Details</button>
+						<div class="mobile-reader-font-control">
+							<button id="mobile-reader-font" type="button" aria-label="Reader text size" aria-controls="mobile-reader-font-menu" aria-expanded="false">Aa</button>
+							<div id="mobile-reader-font-menu" class="mobile-reader-font-menu is-hidden" role="group" aria-label="Reader text size controls">
+								<button id="mobile-reader-font-decrease" type="button" aria-label="Decrease reader font size">A−</button>
+								<span id="mobile-reader-font-value">16 px</span>
+								<button id="mobile-reader-font-increase" type="button" aria-label="Increase reader font size">A+</button>
+							</div>
+						</div>
+						<button id="mobile-reader-tags" type="button" aria-label="Edit tags">#</button>
+						<button id="mobile-reader-details" type="button" aria-label="Show item details" aria-pressed="false">…</button>
 					</div>
 				</header>
 				<div>
@@ -100,7 +107,7 @@
 				<button id="mobile-tab-lists" type="button">Lists</button>
 				<button id="mobile-tab-tags" type="button">Tags</button>
 				<button id="mobile-tab-settings" type="button">Settings</button>
-				<button id="mobile-tab-more" type="button" aria-controls="mobile-overflow-menu" aria-expanded="false">More</button>
+				<button id="mobile-tab-more" type="button" aria-label="More destinations" aria-controls="mobile-overflow-menu" aria-expanded="false">…</button>
 			</nav>
 		</section>
 
