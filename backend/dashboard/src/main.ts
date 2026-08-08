@@ -10,6 +10,8 @@ import { registerServiceWorker } from './lib/service-worker';
 import { buildDataSnapshot, createAppState, getBookmarkId, type AccountFeatures, type ApiKeyRecord, type BookmarkDetail, type BookmarkSummary, type HighlightRecord, type SmartListSummary, type SourceHealthRecord, type SourceRecord, type ToolUsageRecord, type UsageStats, type ViewName } from './lib/state';
 import { clearDashboardDataPreservingSession, clearRememberedUsername, clearSessionToken, loadHighlights, loadPreferences, loadRememberedUsername, loadSessionToken, saveHighlights, savePreference, saveRememberedUsername, saveSessionToken } from './lib/storage';
 
+type MobileSurface = 'library' | 'lists' | 'tags' | 'reader' | 'settings' | 'sources' | 'setup' | 'mcp';
+
 const dom = getDom();
 const state = createAppState(loadPreferences());
 const api = new KeepRootApi(() => state.secret);
@@ -23,6 +25,8 @@ let toastTimeout = 0;
 let silentRefreshInFlight = false;
 let authenticationOrigin = window.location.origin;
 let requiresAuthenticationHandoff = false;
+let mobileOverflowOpen = false;
+let mobileSurface: MobileSurface = 'library';
 
 async function runWithButtonBusy(button: HTMLButtonElement, busyText: string, task: () => Promise<void>): Promise<void> {
 	if (button.disabled || button.dataset.busy === 'true') {
@@ -172,6 +176,52 @@ function updateNavigationState() {
 	});
 }
 
+function setMobileTabState(button: HTMLButtonElement, active: boolean) {
+	button.classList.toggle('is-active', active);
+	if (active) {
+		button.setAttribute('aria-current', 'page');
+	} else {
+		button.removeAttribute('aria-current');
+	}
+}
+
+function syncMobileSurface() {
+	const isLibrarySurface = mobileSurface === 'library';
+	dom.mobileShell.hidden = !window.matchMedia('(max-width: 720px)').matches;
+	dom.mobileShell.dataset.surface = mobileSurface;
+	dom.mobileLibrarySurface.classList.toggle('is-hidden', !isLibrarySurface);
+	dom.mobileListsSurface.classList.toggle('is-hidden', mobileSurface !== 'lists');
+	dom.mobileTagsSurface.classList.toggle('is-hidden', mobileSurface !== 'tags');
+	dom.mobileOverflowMenu.classList.toggle('is-hidden', !mobileOverflowOpen);
+	dom.mobileTabMore.setAttribute('aria-expanded', String(mobileOverflowOpen));
+	dom.mobileLibraryInbox.setAttribute('aria-pressed', String(isLibrarySurface && state.filterType === 'inbox'));
+	dom.mobileLibraryAll.setAttribute('aria-pressed', String(isLibrarySurface && state.filterType === 'all'));
+
+	setMobileTabState(dom.mobileTabLibrary, mobileSurface === 'library' || mobileSurface === 'reader');
+	setMobileTabState(dom.mobileTabLists, mobileSurface === 'lists');
+	setMobileTabState(dom.mobileTabTags, mobileSurface === 'tags');
+	setMobileTabState(dom.mobileTabSettings, mobileSurface === 'settings');
+	setMobileTabState(dom.mobileTabMore, mobileSurface === 'sources' || mobileSurface === 'setup' || mobileSurface === 'mcp');
+}
+
+function setMobileSurface(nextSurface: MobileSurface) {
+	mobileSurface = nextSurface;
+	mobileOverflowOpen = false;
+	syncMobileSurface();
+}
+
+function syncMobileSurfaceForView(viewName: ViewName) {
+	const surfaceByView: Partial<Record<ViewName, MobileSurface>> = {
+		content: 'reader',
+		inbox: 'library',
+		mcp: 'mcp',
+		settings: 'settings',
+		setup: 'setup',
+		sources: 'sources',
+	};
+	setMobileSurface(surfaceByView[viewName] ?? 'library');
+}
+
 function updateListHeaderActions() {
 	const isLibraryView = state.currentView === 'inbox' || state.currentView === 'content';
 	const showActions = isLibraryView && (state.filterType === 'list' || state.filterType === 'smartlist');
@@ -233,6 +283,8 @@ function switchView(viewName: ViewName, filterType = state.filterType, filterId 
 
 	updateListHeaderActions();
 	updateNavigationState();
+	syncMobileSurfaceForView(viewName);
+	renderMobileIndices();
 }
 
 function createSidebarButton(options: {
@@ -308,6 +360,53 @@ function renderSidebar() {
 				indent: parts.length - 1,
 				label: parts[parts.length - 1],
 			}));
+		}
+	}
+
+	renderMobileIndices();
+}
+
+function createMobileIndexButton(options: {
+	filterId: string;
+	filterType: 'list' | 'smartlist' | 'tag';
+	label: string;
+}) {
+	const button = document.createElement('button');
+	button.type = 'button';
+	button.className = 'mobile-index-item';
+	button.dataset.filterId = options.filterId;
+	button.dataset.filterType = options.filterType;
+	button.textContent = options.label;
+	button.setAttribute('aria-pressed', String(state.filterType === options.filterType && state.filterId === options.filterId));
+	return button;
+}
+
+function renderMobileIndices() {
+	dom.mobileListsIndex.innerHTML = '';
+	dom.mobileSmartListsIndex.innerHTML = '';
+	dom.mobileTagsIndex.innerHTML = '';
+
+	if (!state.lists.length) {
+		dom.mobileListsIndex.innerHTML = '<p class="muted-copy">No lists yet.</p>';
+	} else {
+		for (const list of state.lists) {
+			dom.mobileListsIndex.appendChild(createMobileIndexButton({ filterId: list.id, filterType: 'list', label: list.name }));
+		}
+	}
+
+	if (!state.smartLists.length) {
+		dom.mobileSmartListsIndex.innerHTML = '<p class="muted-copy">No smart lists yet.</p>';
+	} else {
+		for (const list of state.smartLists) {
+			dom.mobileSmartListsIndex.appendChild(createMobileIndexButton({ filterId: list.id, filterType: 'smartlist', label: list.name }));
+		}
+	}
+
+	if (!state.tags.length) {
+		dom.mobileTagsIndex.innerHTML = '<p class="muted-copy">No tags yet.</p>';
+	} else {
+		for (const tag of state.tags) {
+			dom.mobileTagsIndex.appendChild(createMobileIndexButton({ filterId: tag, filterType: 'tag', label: `# ${tag}` }));
 		}
 	}
 }
@@ -1105,6 +1204,21 @@ function bindEvents() {
 	dom.openSettingsBtn.addEventListener('click', () => switchView('settings'));
 	dom.mcpOpenApiKeysBtn.addEventListener('click', () => switchView('setup'));
 	dom.logoutBtn.addEventListener('click', () => void logout());
+	dom.mobileLibraryInbox.addEventListener('click', () => switchView('inbox', 'inbox', null));
+	dom.mobileLibraryAll.addEventListener('click', () => switchView('inbox', 'all', null));
+	dom.mobileTabLibrary.addEventListener('click', () => switchView('inbox', state.filterType, state.filterId));
+	dom.mobileTabLists.addEventListener('click', () => setMobileSurface('lists'));
+	dom.mobileTabTags.addEventListener('click', () => setMobileSurface('tags'));
+	dom.mobileTabSettings.addEventListener('click', () => switchView('settings'));
+	dom.mobileTabMore.addEventListener('click', () => {
+		mobileOverflowOpen = !mobileOverflowOpen;
+		syncMobileSurface();
+	});
+	dom.mobileOverflowSources.addEventListener('click', () => switchView('sources'));
+	dom.mobileOverflowSetup.addEventListener('click', () => switchView('setup'));
+	dom.mobileOverflowMcp.addEventListener('click', () => switchView('mcp'));
+	dom.mobileOverflowLogout.addEventListener('click', () => void logout());
+	dom.mobileCreateListBtn.addEventListener('click', () => dom.addListBtn.click());
 	dom.logoutAllBtn.addEventListener('click', () => {
 		if (!window.confirm('Log out every device signed in to this account?')) {
 			return;
@@ -1266,6 +1380,20 @@ function bindEvents() {
 		}
 		switchView('inbox', 'tag', button.dataset.filterId ?? null);
 	});
+
+	for (const [container, filterType] of [
+		[dom.mobileListsIndex, 'list'],
+		[dom.mobileSmartListsIndex, 'smartlist'],
+		[dom.mobileTagsIndex, 'tag'],
+	] as const) {
+		container.addEventListener('click', (event) => {
+			const button = (event.target as Element).closest<HTMLButtonElement>('[data-filter-id]');
+			if (!button) {
+				return;
+			}
+			switchView('inbox', filterType, button.dataset.filterId ?? null);
+		});
+	}
 
 	const bookmarkContainers = [dom.bookmarkList, dom.pinnedBookmarkList];
 	for (const container of bookmarkContainers) {

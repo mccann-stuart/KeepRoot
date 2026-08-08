@@ -475,6 +475,145 @@ describe('dashboard keyboard shortcuts', () => {
 	});
 });
 
+describe('dashboard mobile navigation shell', () => {
+	beforeEach(() => {
+		vi.restoreAllMocks();
+	});
+
+	it('switches mobile library filters between Inbox and All items with matching active states', async () => {
+		await bootDashboard();
+
+		const inbox = document.getElementById('mobile-library-inbox') as HTMLButtonElement;
+		const allItems = document.getElementById('mobile-library-all') as HTMLButtonElement;
+		allItems.click();
+
+		expect((document.getElementById('current-view-title') as HTMLElement).textContent).toBe('All Bookmarks');
+		expect(allItems.getAttribute('aria-pressed')).toBe('true');
+		expect(inbox.getAttribute('aria-pressed')).toBe('false');
+
+		inbox.click();
+
+		expect((document.getElementById('current-view-title') as HTMLElement).textContent).toBe('Inbox');
+		expect(inbox.getAttribute('aria-pressed')).toBe('true');
+		expect(allItems.getAttribute('aria-pressed')).toBe('false');
+	});
+
+	it('routes bottom tabs to Lists, Tags and Settings with matching active states', async () => {
+		await bootDashboard();
+
+		const library = document.getElementById('mobile-tab-library') as HTMLButtonElement;
+		const lists = document.getElementById('mobile-tab-lists') as HTMLButtonElement;
+		const tags = document.getElementById('mobile-tab-tags') as HTMLButtonElement;
+		const settings = document.getElementById('mobile-tab-settings') as HTMLButtonElement;
+
+		lists.click();
+		expect((document.getElementById('mobile-shell') as HTMLElement).dataset.surface).toBe('lists');
+		expect(lists.getAttribute('aria-current')).toBe('page');
+		expect(library.hasAttribute('aria-current')).toBe(false);
+
+		tags.click();
+		expect((document.getElementById('mobile-shell') as HTMLElement).dataset.surface).toBe('tags');
+		expect(tags.getAttribute('aria-current')).toBe('page');
+
+		settings.click();
+		expect((document.getElementById('current-view-title') as HTMLElement).textContent).toBe('Settings');
+		expect((document.getElementById('mobile-shell') as HTMLElement).dataset.surface).toBe('settings');
+		expect(settings.getAttribute('aria-current')).toBe('page');
+	});
+
+	it('renders mobile list, smart-list and tag indices that return to the filtered Library surface', async () => {
+		await bootDashboard({
+			handleFetch: (url, method) => {
+				if (url.endsWith('/bookmarks') && method === 'GET') {
+					return jsonResponse({ keys: [{
+						id: 'bookmark-1',
+						metadata: { tags: ['research'], title: 'Research article', url: 'https://example.com/research' },
+					}] });
+				}
+				if (url.endsWith('/lists') && method === 'GET') {
+					return jsonResponse({ lists: [{ id: 'list-1', name: 'Reading queue' }] });
+				}
+				if (url.endsWith('/smart-lists') && method === 'GET') {
+					return jsonResponse({ lists: [{ id: 'smart-1', name: 'Unread research', rules: '{"isRead":false}' }] });
+				}
+				return undefined;
+			},
+		});
+
+		(document.getElementById('mobile-tab-lists') as HTMLButtonElement).click();
+		const list = document.querySelector<HTMLButtonElement>('#mobile-lists-index [data-filter-id="list-1"]');
+		const smartList = document.querySelector<HTMLButtonElement>('#mobile-smart-lists-index [data-filter-id="smart-1"]');
+		expect(list?.textContent).toBe('Reading queue');
+		expect(smartList?.textContent).toBe('Unread research');
+
+		list?.click();
+		expect((document.getElementById('mobile-shell') as HTMLElement).dataset.surface).toBe('library');
+		expect((document.getElementById('current-view-title') as HTMLElement).textContent).toBe('Reading queue');
+		expect(document.querySelector<HTMLButtonElement>('#mobile-lists-index [data-filter-id="list-1"]')?.getAttribute('aria-pressed')).toBe('true');
+
+		(document.getElementById('mobile-tab-lists') as HTMLButtonElement).click();
+		document.querySelector<HTMLButtonElement>('#mobile-smart-lists-index [data-filter-id="smart-1"]')?.click();
+		expect((document.getElementById('current-view-title') as HTMLElement).textContent).toBe('Unread research');
+
+		(document.getElementById('mobile-tab-tags') as HTMLButtonElement).click();
+		const tag = document.querySelector<HTMLButtonElement>('#mobile-tags-index [data-filter-id="research"]');
+		expect(tag?.textContent).toBe('# research');
+		tag?.click();
+		expect((document.getElementById('current-view-title') as HTMLElement).textContent).toBe('# research');
+	});
+
+	it('renders empty mobile collection indices when no lists, smart lists or tags exist', async () => {
+		await bootDashboard();
+
+		expect((document.getElementById('mobile-lists-index') as HTMLElement).textContent).toContain('No lists yet.');
+		expect((document.getElementById('mobile-smart-lists-index') as HTMLElement).textContent).toContain('No smart lists yet.');
+		expect((document.getElementById('mobile-tags-index') as HTMLElement).textContent).toContain('No tags yet.');
+	});
+
+	it('opens overflow destinations and reuses the existing create-list control', async () => {
+		await bootDashboard();
+
+		const more = document.getElementById('mobile-tab-more') as HTMLButtonElement;
+		const overflowMenu = document.getElementById('mobile-overflow-menu') as HTMLElement;
+		more.click();
+		expect(more.getAttribute('aria-expanded')).toBe('true');
+		expect(overflowMenu.classList.contains('is-hidden')).toBe(false);
+
+		(document.getElementById('mobile-overflow-sources') as HTMLButtonElement).click();
+		expect((document.getElementById('current-view-title') as HTMLElement).textContent).toBe('Sources');
+		expect((document.getElementById('mobile-shell') as HTMLElement).dataset.surface).toBe('sources');
+
+		more.click();
+		(document.getElementById('mobile-overflow-setup') as HTMLButtonElement).click();
+		expect((document.getElementById('current-view-title') as HTMLElement).textContent).toBe('API Keys');
+
+		more.click();
+		(document.getElementById('mobile-overflow-mcp') as HTMLButtonElement).click();
+		expect((document.getElementById('current-view-title') as HTMLElement).textContent).toBe('MCP Setup');
+
+		const listModal = document.getElementById('list-modal') as HTMLDialogElement;
+		const showModal = vi.fn();
+		Object.defineProperty(listModal, 'showModal', { configurable: true, value: showModal });
+		(document.getElementById('mobile-create-list-btn') as HTMLButtonElement).click();
+		expect(showModal).toHaveBeenCalledOnce();
+	});
+
+	it('reuses the existing logout action from the mobile overflow menu', async () => {
+		await bootDashboard({
+			handleFetch: (url, method) => url.endsWith('/auth/logout') && method === 'POST'
+				? jsonResponse({ ok: true })
+				: undefined,
+		});
+
+		(document.getElementById('mobile-tab-more') as HTMLButtonElement).click();
+		(document.getElementById('mobile-overflow-logout') as HTMLButtonElement).click();
+		await flush();
+		await flush();
+
+		expect(fetch).toHaveBeenCalledWith('/auth/logout', expect.objectContaining({ method: 'POST' }));
+	});
+});
+
 describe('dashboard MCP setup view', () => {
 	beforeEach(() => {
 		vi.restoreAllMocks();
