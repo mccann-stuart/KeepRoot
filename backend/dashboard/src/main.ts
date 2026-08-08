@@ -10,9 +10,12 @@ import { registerServiceWorker } from './lib/service-worker';
 import { buildDataSnapshot, createAppState, getBookmarkId, type AccountFeatures, type ApiKeyRecord, type BookmarkDetail, type BookmarkSummary, type HighlightRecord, type SmartListSummary, type SourceHealthRecord, type SourceRecord, type ToolUsageRecord, type UsageStats, type ViewName } from './lib/state';
 import { clearDashboardDataPreservingSession, clearRememberedUsername, clearSessionToken, loadHighlights, loadPreferences, loadRememberedUsername, loadSessionToken, saveHighlights, savePreference, saveRememberedUsername, saveSessionToken } from './lib/storage';
 
+type MobileSurface = 'library' | 'lists' | 'tags' | 'reader' | 'settings' | 'sources' | 'setup' | 'mcp';
+
 const dom = getDom();
 const state = createAppState(loadPreferences());
 const api = new KeepRootApi(() => state.secret);
+const mobileSurfaceMediaQuery = window.matchMedia('(max-width: 720px)');
 
 let editingListId: string | null = null;
 let editingListType: 'list' | 'smartlist' | null = null;
@@ -23,6 +26,10 @@ let toastTimeout = 0;
 let silentRefreshInFlight = false;
 let authenticationOrigin = window.location.origin;
 let requiresAuthenticationHandoff = false;
+let mobileFontMenuOpen = false;
+let mobileOverflowOpen = false;
+let mobileSurface: MobileSurface = 'library';
+let mobileCollectionScrollTop: number | null = null;
 
 async function runWithButtonBusy(button: HTMLButtonElement, busyText: string, task: () => Promise<void>): Promise<void> {
 	if (button.disabled || button.dataset.busy === 'true') {
@@ -139,6 +146,7 @@ function applyFontSize(fontSize: number) {
 	savePreference('fontSize', state.preferences.fontSize);
 	document.documentElement.style.setProperty('--reader-font-size', `${state.preferences.fontSize}px`);
 	dom.fontSizeValue.textContent = `${state.preferences.fontSize} px`;
+	dom.mobileReaderFontValue.textContent = `${state.preferences.fontSize} px`;
 }
 
 function showLogin() {
@@ -170,6 +178,99 @@ function updateNavigationState() {
 			&& String(element.dataset.filterId ?? '') === String(state.filterId ?? '');
 		element.classList.toggle('is-active', isActive);
 	});
+}
+
+function setMobileTabState(button: HTMLButtonElement, active: boolean) {
+	button.classList.toggle('is-active', active);
+	if (active) {
+		button.setAttribute('aria-current', 'page');
+	} else {
+		button.removeAttribute('aria-current');
+	}
+}
+
+function setMobilePresentationVisibility(element: HTMLElement, visible: boolean) {
+	element.hidden = !visible;
+	element.inert = !visible;
+	element.classList.toggle('mobile-presentation-hidden', !visible);
+	if (visible) {
+		element.removeAttribute('aria-hidden');
+	} else {
+		element.setAttribute('aria-hidden', 'true');
+	}
+}
+
+function syncMobilePresentationState() {
+	const surfaces: Array<[HTMLElement, boolean]> = [
+		[dom.mobileLibrarySurface, mobileSurface === 'library'],
+		[dom.mobileListsSurface, mobileSurface === 'lists'],
+		[dom.mobileTagsSurface, mobileSurface === 'tags'],
+		[dom.mobileReaderSurface, mobileSurface === 'reader'],
+		[dom.libraryWorkspace, mobileSurface === 'library' || mobileSurface === 'reader'],
+		[dom.inboxView, mobileSurface === 'library'],
+		[dom.contentView, mobileSurface === 'reader'],
+		[dom.emptyState, false],
+	];
+
+	for (const [element, visibleOnMobile] of surfaces) {
+		setMobilePresentationVisibility(element, mobileSurfaceMediaQuery.matches ? visibleOnMobile : true);
+	}
+}
+
+function syncMobileSurface() {
+	const isLibrarySurface = mobileSurface === 'library';
+	dom.mobileShell.hidden = !mobileSurfaceMediaQuery.matches;
+	dom.mobileShell.dataset.surface = mobileSurface;
+	dom.mobileLibrarySurface.classList.toggle('is-hidden', !isLibrarySurface);
+	dom.mobileListsSurface.classList.toggle('is-hidden', mobileSurface !== 'lists');
+	dom.mobileTagsSurface.classList.toggle('is-hidden', mobileSurface !== 'tags');
+	dom.mobileReaderSurface.classList.toggle('is-hidden', mobileSurface !== 'reader');
+	dom.mobileReaderFontMenu.classList.toggle('is-hidden', !mobileFontMenuOpen);
+	dom.mobileReaderFont.setAttribute('aria-expanded', String(mobileFontMenuOpen));
+	dom.mobileOverflowMenu.classList.toggle('is-hidden', !mobileOverflowOpen);
+	dom.mobileTabMore.setAttribute('aria-expanded', String(mobileOverflowOpen));
+	dom.mobileLibraryInbox.setAttribute('aria-pressed', String(isLibrarySurface && state.filterType === 'inbox'));
+	dom.mobileLibraryAll.setAttribute('aria-pressed', String(isLibrarySurface && state.filterType === 'all'));
+	syncMobilePresentationState();
+
+	setMobileTabState(dom.mobileTabLibrary, mobileSurface === 'library' || mobileSurface === 'reader');
+	setMobileTabState(dom.mobileTabLists, mobileSurface === 'lists');
+	setMobileTabState(dom.mobileTabTags, mobileSurface === 'tags');
+	setMobileTabState(dom.mobileTabSettings, mobileSurface === 'settings');
+	setMobileTabState(dom.mobileTabMore, mobileSurface === 'sources' || mobileSurface === 'setup' || mobileSurface === 'mcp');
+}
+
+mobileSurfaceMediaQuery.addEventListener('change', syncMobileSurface);
+
+function setMobileSurface(nextSurface: MobileSurface) {
+	mobileSurface = nextSurface;
+	mobileFontMenuOpen = false;
+	mobileOverflowOpen = false;
+	syncMobileSurface();
+}
+
+function returnToMobileLibrary() {
+	setMobileSurface('library');
+	if (mobileCollectionScrollTop === null) {
+		return;
+	}
+
+	const collection = document.querySelector<HTMLElement>('.collection-scroll');
+	if (collection) {
+		collection.scrollTop = mobileCollectionScrollTop;
+	}
+}
+
+function syncMobileSurfaceForView(viewName: ViewName) {
+	const surfaceByView: Partial<Record<ViewName, MobileSurface>> = {
+		content: 'reader',
+		inbox: 'library',
+		mcp: 'mcp',
+		settings: 'settings',
+		setup: 'setup',
+		sources: 'sources',
+	};
+	setMobileSurface(surfaceByView[viewName] ?? 'library');
 }
 
 function updateListHeaderActions() {
@@ -233,6 +334,8 @@ function switchView(viewName: ViewName, filterType = state.filterType, filterId 
 
 	updateListHeaderActions();
 	updateNavigationState();
+	syncMobileSurfaceForView(viewName);
+	renderMobileIndices();
 }
 
 function createSidebarButton(options: {
@@ -310,6 +413,53 @@ function renderSidebar() {
 			}));
 		}
 	}
+
+	renderMobileIndices();
+}
+
+function createMobileIndexButton(options: {
+	filterId: string;
+	filterType: 'list' | 'smartlist' | 'tag';
+	label: string;
+}) {
+	const button = document.createElement('button');
+	button.type = 'button';
+	button.className = 'mobile-index-item';
+	button.dataset.filterId = options.filterId;
+	button.dataset.filterType = options.filterType;
+	button.textContent = options.label;
+	button.setAttribute('aria-pressed', String(state.filterType === options.filterType && state.filterId === options.filterId));
+	return button;
+}
+
+function renderMobileIndices() {
+	dom.mobileListsIndex.innerHTML = '';
+	dom.mobileSmartListsIndex.innerHTML = '';
+	dom.mobileTagsIndex.innerHTML = '';
+
+	if (!state.lists.length) {
+		dom.mobileListsIndex.innerHTML = '<p class="muted-copy">No lists yet.</p>';
+	} else {
+		for (const list of state.lists) {
+			dom.mobileListsIndex.appendChild(createMobileIndexButton({ filterId: list.id, filterType: 'list', label: list.name }));
+		}
+	}
+
+	if (!state.smartLists.length) {
+		dom.mobileSmartListsIndex.innerHTML = '<p class="muted-copy">No smart lists yet.</p>';
+	} else {
+		for (const list of state.smartLists) {
+			dom.mobileSmartListsIndex.appendChild(createMobileIndexButton({ filterId: list.id, filterType: 'smartlist', label: list.name }));
+		}
+	}
+
+	if (!state.tags.length) {
+		dom.mobileTagsIndex.innerHTML = '<p class="muted-copy">No tags yet.</p>';
+	} else {
+		for (const tag of state.tags) {
+			dom.mobileTagsIndex.appendChild(createMobileIndexButton({ filterId: tag, filterType: 'tag', label: `# ${tag}` }));
+		}
+	}
 }
 
 function getBookmarkDisplayDate(metadata: Record<string, any> | undefined): { date: Date; label: 'Published' | 'Saved' } | null {
@@ -359,7 +509,21 @@ function createBookmarkCard(bookmark: BookmarkSummary) {
 	title.textContent = decodeHtmlCharacterReferences(String(bookmark.metadata?.title ?? 'Untitled'));
 	card.tabIndex = 0;
 	card.setAttribute('aria-label', `Open ${title.textContent}`);
-	meta.textContent = `${domain} · ${readingTime} min · ${displayDate ? displayDate.date.toLocaleDateString() : 'Unknown date'}`;
+	const metadataParts = [
+		{ role: 'bookmark-domain', value: domain },
+		{ role: 'bookmark-reading-time', value: `${readingTime} min` },
+		{ role: 'bookmark-date', value: displayDate ? displayDate.date.toLocaleDateString() : 'Unknown date' },
+	];
+	meta.replaceChildren();
+	metadataParts.forEach((part, index) => {
+		if (index > 0) {
+			meta.append(' · ');
+		}
+		const value = document.createElement('span');
+		value.dataset.role = part.role;
+		value.textContent = part.value;
+		meta.append(value);
+	});
 	const thumbnailLabel = String(bookmark.metadata?.siteName ?? domain).replace(/^www\./, '').trim();
 	thumbnail.textContent = thumbnailLabel.slice(0, 2).toUpperCase() || 'KR';
 	const hue = [...domain].reduce((value, character) => value + character.charCodeAt(0), 0) % 360;
@@ -691,7 +855,7 @@ function renderSources(sources: SourceRecord[]) {
 	}
 }
 
-function renderReaderStats(bookmark: BookmarkDetail) {
+function renderReaderStats(bookmark: Pick<BookmarkSummary, 'metadata'>) {
 	const wordCount = Number(bookmark.metadata?.wordCount ?? 0);
 	const readingTime = Math.max(1, Math.ceil(wordCount / 200));
 	let domain = '—';
@@ -706,6 +870,50 @@ function renderReaderStats(bookmark: BookmarkDetail) {
 	dom.viewStatus.textContent = String(bookmark.metadata?.status ?? 'saved');
 	dom.viewWordCount.textContent = String(wordCount);
 	dom.viewReadingTime.textContent = `${readingTime} min`;
+	dom.mobileReaderDomain.textContent = domain;
+	dom.mobileReaderReadingTime.textContent = `${readingTime} min`;
+	dom.mobileReaderDetailsPanel.textContent = `${domain} · ${readingTime} min · ${wordCount} words`;
+}
+
+function renderMobileReaderTags(tags: string[]) {
+	dom.mobileReaderTagsList.replaceChildren();
+	if (!tags.length) {
+		dom.mobileReaderTagsList.textContent = 'No tags';
+		return;
+	}
+
+	for (const tag of tags) {
+		const pill = document.createElement('span');
+		pill.className = 'tag-pill';
+		pill.textContent = tag;
+		dom.mobileReaderTagsList.append(pill);
+	}
+}
+
+function renderMobileReaderActions(bookmark: BookmarkSummary | BookmarkDetail | undefined) {
+	const isPinned = Boolean(bookmark?.metadata?.pinned);
+	const isRead = Boolean(bookmark?.metadata?.isRead);
+	dom.mobileReaderPin.textContent = isPinned ? 'Unpin' : 'Pin';
+	dom.mobileReaderPin.setAttribute('aria-label', isPinned ? 'Unpin bookmark' : 'Pin bookmark');
+	dom.mobileReaderRead.textContent = isRead ? 'Mark as unread' : 'Mark as read';
+	dom.mobileReaderRead.setAttribute('aria-label', isRead ? 'Mark as unread' : 'Mark as read');
+}
+
+function toggleReaderDetails() {
+	const isHidden = dom.statsPanel.classList.toggle('is-hidden');
+	dom.mobileReaderDetailsPanel.classList.toggle('is-hidden', isHidden);
+	dom.toggleStatsBtn.setAttribute('aria-pressed', String(!isHidden));
+	dom.mobileReaderDetails.setAttribute('aria-pressed', String(!isHidden));
+}
+
+function openTagEditor() {
+	if (!state.currentBookmarkId) {
+		return;
+	}
+
+	const bookmark = state.bookmarks.find((item) => getBookmarkId(item) === state.currentBookmarkId);
+	dom.tagsInput.value = Array.isArray(bookmark?.metadata?.tags) ? bookmark.metadata.tags.join(', ') : '';
+	openDialog(dom.tagsModal);
 }
 
 function updateBookmarkSummary(bookmarkId: string, updates: Record<string, unknown>) {
@@ -746,6 +954,11 @@ async function markBookmarkAsRead(bookmarkId: string) {
 }
 
 async function loadBookmark(bookmarkId: string) {
+	if (mobileSurfaceMediaQuery.matches && mobileSurface !== 'reader') {
+		mobileCollectionScrollTop = document.querySelector<HTMLElement>('.collection-scroll')?.scrollTop ?? 0;
+	}
+
+	const bookmarkSummary = state.bookmarks.find((item) => getBookmarkId(item) === bookmarkId);
 	const previousBookmarkId = state.currentBookmarkId;
 	state.currentBookmarkId = bookmarkId;
 	switchView('content');
@@ -763,12 +976,21 @@ async function loadBookmark(bookmarkId: string) {
 	dom.viewUrl.style.display = 'none';
 	dom.viewDate.textContent = '';
 	dom.viewTags.innerHTML = '';
+	dom.mobileReaderArticleTitle.textContent = 'Loading…';
+	dom.mobileReaderDate.textContent = '';
+	dom.mobileReaderDate.removeAttribute('datetime');
+	dom.mobileReaderTagsList.replaceChildren();
+	dom.mobileReaderOpenOriginal.href = '#';
+	renderReaderStats(bookmarkSummary ?? { metadata: {} });
+	renderMobileReaderTags(Array.isArray(bookmarkSummary?.metadata?.tags) ? bookmarkSummary.metadata.tags : []);
+	renderMobileReaderActions(bookmarkSummary);
 
 	try {
 		const bookmark = await api.getBookmark(bookmarkId);
 		const highlights = loadHighlights(bookmarkId);
 
 		dom.viewTitle.textContent = decodeHtmlCharacterReferences(String(bookmark.metadata?.title ?? 'Untitled'));
+		dom.mobileReaderArticleTitle.textContent = dom.viewTitle.textContent;
 		if (bookmark.metadata?.url) {
 			try {
 				const parsedUrl = new URL(bookmark.metadata.url);
@@ -779,6 +1001,7 @@ async function loadBookmark(bookmarkId: string) {
 				}
 				dom.viewUrl.textContent = parsedUrl.hostname;
 				dom.viewUrl.style.display = 'inline-flex';
+				dom.mobileReaderOpenOriginal.href = dom.viewUrl.href;
 			} catch {
 				dom.viewUrl.style.display = 'none';
 			}
@@ -790,6 +1013,10 @@ async function loadBookmark(bookmarkId: string) {
 		dom.viewDate.textContent = displayDate
 			? `${displayDate.label} ${displayDate.date.toLocaleString()}`
 			: '';
+		dom.mobileReaderDate.textContent = displayDate ? displayDate.date.toLocaleDateString() : '';
+		if (displayDate) {
+			dom.mobileReaderDate.dateTime = displayDate.date.toISOString();
+		}
 
 		const tags = Array.isArray(bookmark.metadata?.tags) ? bookmark.metadata.tags : [];
 		if (!tags.length) {
@@ -803,8 +1030,10 @@ async function loadBookmark(bookmarkId: string) {
 				dom.viewTags.appendChild(pill);
 			}
 		}
+		renderMobileReaderTags(tags);
 
 		renderReaderStats(bookmark);
+		renderMobileReaderActions(bookmark);
 		dom.markdownContainer.innerHTML = '';
 		const fragment = renderMarkdown(bookmark.markdownData, highlights) as DocumentFragment;
 		await loadProtectedMedia(fragment, api);
@@ -1088,6 +1317,7 @@ async function handleBookmarkCardAction(action: string, bookmarkId: string) {
 		if (action === 'toggle-pin') {
 			await api.updateBookmark(bookmarkId, { pinned: !bookmark.metadata?.pinned });
 			await refreshData(true);
+			renderMobileReaderActions(state.bookmarks.find((item) => getBookmarkId(item) === bookmarkId));
 			return;
 		}
 	} catch (error) {
@@ -1105,6 +1335,41 @@ function bindEvents() {
 	dom.openSettingsBtn.addEventListener('click', () => switchView('settings'));
 	dom.mcpOpenApiKeysBtn.addEventListener('click', () => switchView('setup'));
 	dom.logoutBtn.addEventListener('click', () => void logout());
+	dom.mobileLibraryInbox.addEventListener('click', () => switchView('inbox', 'inbox', null));
+	dom.mobileLibraryAll.addEventListener('click', () => switchView('inbox', 'all', null));
+	dom.mobileTabLibrary.addEventListener('click', () => switchView('inbox', state.filterType, state.filterId));
+	dom.mobileTabLists.addEventListener('click', () => setMobileSurface('lists'));
+	dom.mobileTabTags.addEventListener('click', () => setMobileSurface('tags'));
+	dom.mobileTabSettings.addEventListener('click', () => switchView('settings'));
+	dom.mobileTabMore.addEventListener('click', () => {
+		mobileOverflowOpen = !mobileOverflowOpen;
+		syncMobileSurface();
+	});
+	dom.mobileOverflowSources.addEventListener('click', () => switchView('sources'));
+	dom.mobileOverflowSetup.addEventListener('click', () => switchView('setup'));
+	dom.mobileOverflowMcp.addEventListener('click', () => switchView('mcp'));
+	dom.mobileOverflowLogout.addEventListener('click', () => void logout());
+	dom.mobileCreateListBtn.addEventListener('click', () => dom.addListBtn.click());
+	dom.mobileReaderBack.addEventListener('click', returnToMobileLibrary);
+	dom.mobileReaderFont.addEventListener('click', () => {
+		mobileFontMenuOpen = !mobileFontMenuOpen;
+		syncMobileSurface();
+	});
+	dom.mobileReaderFontDecrease.addEventListener('click', () => applyFontSize(state.preferences.fontSize - 2));
+	dom.mobileReaderFontIncrease.addEventListener('click', () => applyFontSize(state.preferences.fontSize + 2));
+	dom.mobileReaderTags.addEventListener('click', openTagEditor);
+	dom.mobileReaderDetails.addEventListener('click', toggleReaderDetails);
+	dom.mobileReaderPin.addEventListener('click', () => {
+		if (state.currentBookmarkId) {
+			void handleBookmarkCardAction('toggle-pin', state.currentBookmarkId);
+		}
+	});
+	dom.mobileReaderRead.addEventListener('click', () => {
+		if (state.currentBookmarkId) {
+			void handleBookmarkCardAction('toggle-read', state.currentBookmarkId);
+		}
+	});
+	dom.mobileReaderDelete.addEventListener('click', () => dom.deleteBtn.click());
 	dom.logoutAllBtn.addEventListener('click', () => {
 		if (!window.confirm('Log out every device signed in to this account?')) {
 			return;
@@ -1199,10 +1464,7 @@ function bindEvents() {
 		}
 	});
 
-	dom.toggleStatsBtn.addEventListener('click', () => {
-		const isHidden = dom.statsPanel.classList.toggle('is-hidden');
-		dom.toggleStatsBtn.setAttribute('aria-pressed', String(!isHidden));
-	});
+	dom.toggleStatsBtn.addEventListener('click', toggleReaderDetails);
 
 	dom.fontDecreaseBtn.addEventListener('click', () => applyFontSize(state.preferences.fontSize - 2));
 	dom.fontIncreaseBtn.addEventListener('click', () => applyFontSize(state.preferences.fontSize + 2));
@@ -1266,6 +1528,20 @@ function bindEvents() {
 		}
 		switchView('inbox', 'tag', button.dataset.filterId ?? null);
 	});
+
+	for (const [container, filterType] of [
+		[dom.mobileListsIndex, 'list'],
+		[dom.mobileSmartListsIndex, 'smartlist'],
+		[dom.mobileTagsIndex, 'tag'],
+	] as const) {
+		container.addEventListener('click', (event) => {
+			const button = (event.target as Element).closest<HTMLButtonElement>('[data-filter-id]');
+			if (!button) {
+				return;
+			}
+			switchView('inbox', filterType, button.dataset.filterId ?? null);
+		});
+	}
 
 	const bookmarkContainers = [dom.bookmarkList, dom.pinnedBookmarkList];
 	for (const container of bookmarkContainers) {
@@ -1618,15 +1894,7 @@ function bindEvents() {
 	dom.btnCancelTags.addEventListener('click', () => closeDialog(dom.tagsModal));
 	dom.btnCancelNote.addEventListener('click', () => closeDialog(dom.noteModal));
 
-	dom.btnEditTags.addEventListener('click', () => {
-		if (!state.currentBookmarkId) {
-			return;
-		}
-
-		const bookmark = state.bookmarks.find((item) => getBookmarkId(item) === state.currentBookmarkId);
-		dom.tagsInput.value = Array.isArray(bookmark?.metadata?.tags) ? bookmark.metadata.tags.join(', ') : '';
-		openDialog(dom.tagsModal);
-	});
+	dom.btnEditTags.addEventListener('click', openTagEditor);
 
 	dom.btnSaveTags.addEventListener('click', async () => {
 		if (!state.currentBookmarkId) {

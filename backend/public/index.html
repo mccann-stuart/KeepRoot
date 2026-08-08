@@ -38,6 +38,79 @@
 	</dialog>
 
 	<div id="app" class="app-shell is-hidden">
+		<section id="mobile-shell" class="mobile-only" aria-label="Mobile library navigation" hidden>
+			<section id="mobile-library-surface" aria-label="Library filters">
+				<div role="group" aria-label="Library collection">
+					<button id="mobile-library-inbox" type="button" aria-pressed="true">Inbox</button>
+					<button id="mobile-library-all" type="button" aria-pressed="false">All items</button>
+				</div>
+			</section>
+
+			<section id="mobile-reader-surface" class="is-hidden" aria-labelledby="mobile-reader-title">
+				<header>
+					<button id="mobile-reader-back" type="button">Back</button>
+					<h2 id="mobile-reader-title">Reader</h2>
+					<div aria-label="Reader controls">
+						<div class="mobile-reader-font-control">
+							<button id="mobile-reader-font" type="button" aria-label="Reader text size" aria-controls="mobile-reader-font-menu" aria-expanded="false">Aa</button>
+							<div id="mobile-reader-font-menu" class="mobile-reader-font-menu is-hidden" role="group" aria-label="Reader text size controls">
+								<button id="mobile-reader-font-decrease" type="button" aria-label="Decrease reader font size">A−</button>
+								<span id="mobile-reader-font-value">16 px</span>
+								<button id="mobile-reader-font-increase" type="button" aria-label="Increase reader font size">A+</button>
+							</div>
+						</div>
+						<button id="mobile-reader-tags" type="button" aria-label="Edit tags">#</button>
+						<button id="mobile-reader-details" type="button" aria-label="Show item details" aria-pressed="false">…</button>
+					</div>
+				</header>
+				<div>
+					<h3 id="mobile-reader-article-title">Loading…</h3>
+					<div aria-label="Article metadata">
+						<span id="mobile-reader-domain">—</span>
+						<span id="mobile-reader-reading-time">0 min</span>
+						<time id="mobile-reader-date"></time>
+					</div>
+					<div id="mobile-reader-tags-list" class="tag-list"></div>
+					<div aria-label="Bookmark actions">
+						<button id="mobile-reader-pin" type="button">Pin</button>
+						<button id="mobile-reader-read" type="button">Mark as read</button>
+						<a id="mobile-reader-open-original" href="#" target="_blank" rel="noreferrer">Open original</a>
+						<button id="mobile-reader-delete" type="button">Delete</button>
+					</div>
+					<aside id="mobile-reader-details-panel" class="is-hidden" aria-label="Item details"></aside>
+				</div>
+			</section>
+
+			<section id="mobile-lists-surface" class="is-hidden" aria-labelledby="mobile-lists-title">
+				<header>
+					<h2 id="mobile-lists-title">Lists</h2>
+					<button id="mobile-create-list-btn" type="button" aria-label="Create list">Create list</button>
+				</header>
+				<div id="mobile-lists-index" aria-label="Lists"></div>
+				<div id="mobile-smart-lists-index" aria-label="Smart lists"></div>
+			</section>
+
+			<section id="mobile-tags-surface" class="is-hidden" aria-labelledby="mobile-tags-title">
+				<h2 id="mobile-tags-title">Tags</h2>
+				<div id="mobile-tags-index" aria-label="Tags"></div>
+			</section>
+
+			<div id="mobile-overflow-menu" class="is-hidden" aria-label="More destinations">
+				<button id="mobile-overflow-sources" type="button">Sources</button>
+				<button id="mobile-overflow-setup" type="button">API keys</button>
+				<button id="mobile-overflow-mcp" type="button">MCP setup</button>
+				<button id="mobile-overflow-logout" type="button">Log out</button>
+			</div>
+
+			<nav aria-label="Mobile primary navigation">
+				<button id="mobile-tab-library" type="button" aria-current="page">Library</button>
+				<button id="mobile-tab-lists" type="button">Lists</button>
+				<button id="mobile-tab-tags" type="button">Tags</button>
+				<button id="mobile-tab-settings" type="button">Settings</button>
+				<button id="mobile-tab-more" type="button" aria-label="More destinations" aria-controls="mobile-overflow-menu" aria-expanded="false">…</button>
+			</nav>
+		</section>
+
 		<aside class="sidebar glass-panel">
 			<button id="brand-title" type="button" class="brand" aria-label="Open library">
 				<span class="brand__mark" aria-hidden="true"><span></span></span>
