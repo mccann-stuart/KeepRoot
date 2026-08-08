@@ -29,6 +29,7 @@ const MAX_FEED_BYTES = 8 * 1024 * 1024;
 const MAX_VISIBLE_ENTRIES = 2_000;
 const MAX_CHANGED_ENTRIES_PER_ATTEMPT = 200;
 const MAX_ENTRY_WRITE_CONCURRENCY = 4;
+const htmlEntityParser = new XMLParser({ htmlEntities: true });
 
 async function mapSettledWithConcurrency<T>(
 	items: T[],
@@ -122,6 +123,19 @@ function firstDefinedString(...values: Array<unknown>): string | undefined {
 	return undefined;
 }
 
+function decodeHtmlCharacterReferences(value: string): string {
+	if (!/[&<>]/.test(value)) {
+		return value;
+	}
+
+	const xmlSafeValue = value
+		.replace(/&(?!(?:#\d+|#x[\da-f]+|[a-z][\w.-]*);)/gi, '&amp;')
+		.replace(/</g, '&lt;')
+		.replace(/>/g, '&gt;');
+	const decoded = htmlEntityParser.parse(`<value>${xmlSafeValue}</value>`) as { value?: unknown };
+	return typeof decoded.value === 'string' ? decoded.value : value;
+}
+
 function extractEntryContent(entry: FeedEntry): { markdownData: string; textContent: string } {
 	const rawContent = entry.content?.trim() || entry.title;
 	if (!/<[a-z][\s\S]*>/i.test(rawContent)) {
@@ -210,7 +224,7 @@ function parseFeedEntries(xml: string): FeedEntry[] {
 				content: firstDefinedString(item['content:encoded'], item.description),
 				id,
 				publishedAt: firstDefinedString(item.pubDate, item.isoDate),
-				title: firstDefinedString(item.title) ?? link,
+				title: decodeHtmlCharacterReferences(firstDefinedString(item.title) ?? link),
 				url: link,
 			});
 		}
@@ -230,7 +244,7 @@ function parseFeedEntries(xml: string): FeedEntry[] {
 				content: firstDefinedString(entry.content, entry.summary),
 				id: firstDefinedString(entry.id, link) ?? link,
 				publishedAt: firstDefinedString(entry.updated, entry.published),
-				title: firstDefinedString(entry.title) ?? link,
+				title: decodeHtmlCharacterReferences(firstDefinedString(entry.title) ?? link),
 				url: link,
 			});
 		}
