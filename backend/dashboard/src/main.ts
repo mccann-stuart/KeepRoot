@@ -189,6 +189,33 @@ function setMobileTabState(button: HTMLButtonElement, active: boolean) {
 	}
 }
 
+function setMobilePresentationVisibility(element: HTMLElement, visible: boolean) {
+	element.hidden = !visible;
+	element.inert = !visible;
+	if (visible) {
+		element.removeAttribute('aria-hidden');
+	} else {
+		element.setAttribute('aria-hidden', 'true');
+	}
+}
+
+function syncMobilePresentationState() {
+	const surfaces: Array<[HTMLElement, boolean]> = [
+		[dom.mobileLibrarySurface, mobileSurface === 'library'],
+		[dom.mobileListsSurface, mobileSurface === 'lists'],
+		[dom.mobileTagsSurface, mobileSurface === 'tags'],
+		[dom.mobileReaderSurface, mobileSurface === 'reader'],
+		[dom.libraryWorkspace, mobileSurface === 'library' || mobileSurface === 'reader'],
+		[dom.inboxView, mobileSurface === 'library'],
+		[dom.contentView, mobileSurface === 'reader'],
+		[dom.emptyState, false],
+	];
+
+	for (const [element, visibleOnMobile] of surfaces) {
+		setMobilePresentationVisibility(element, mobileSurfaceMediaQuery.matches ? visibleOnMobile : true);
+	}
+}
+
 function syncMobileSurface() {
 	const isLibrarySurface = mobileSurface === 'library';
 	dom.mobileShell.hidden = !mobileSurfaceMediaQuery.matches;
@@ -203,6 +230,7 @@ function syncMobileSurface() {
 	dom.mobileTabMore.setAttribute('aria-expanded', String(mobileOverflowOpen));
 	dom.mobileLibraryInbox.setAttribute('aria-pressed', String(isLibrarySurface && state.filterType === 'inbox'));
 	dom.mobileLibraryAll.setAttribute('aria-pressed', String(isLibrarySurface && state.filterType === 'all'));
+	syncMobilePresentationState();
 
 	setMobileTabState(dom.mobileTabLibrary, mobileSurface === 'library' || mobileSurface === 'reader');
 	setMobileTabState(dom.mobileTabLists, mobileSurface === 'lists');

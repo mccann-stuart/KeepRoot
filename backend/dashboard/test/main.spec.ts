@@ -566,6 +566,31 @@ describe('dashboard mobile navigation shell', () => {
 		expect(settings.getAttribute('aria-current')).toBe('page');
 	});
 
+	it('hides and removes the library workspace from focus while Lists or Tags is active', async () => {
+		await bootDashboard({ mobileMatches: true });
+
+		const libraryWorkspace = document.getElementById('library-workspace') as HTMLElement;
+		const listsSurface = document.getElementById('mobile-lists-surface') as HTMLElement;
+		const tagsSurface = document.getElementById('mobile-tags-surface') as HTMLElement;
+
+		(document.getElementById('mobile-tab-lists') as HTMLButtonElement).click();
+		expect(libraryWorkspace.hidden).toBe(true);
+		expect(libraryWorkspace.inert).toBe(true);
+		expect(libraryWorkspace.getAttribute('aria-hidden')).toBe('true');
+		expect(listsSurface.hidden).toBe(false);
+		expect(listsSurface.inert).toBe(false);
+		expect(tagsSurface.hidden).toBe(true);
+		expect(tagsSurface.inert).toBe(true);
+
+		(document.getElementById('mobile-tab-tags') as HTMLButtonElement).click();
+		expect(libraryWorkspace.hidden).toBe(true);
+		expect(libraryWorkspace.inert).toBe(true);
+		expect(listsSurface.hidden).toBe(true);
+		expect(listsSurface.inert).toBe(true);
+		expect(tagsSurface.hidden).toBe(false);
+		expect(tagsSurface.inert).toBe(false);
+	});
+
 	it('unhides the mobile shell when the viewport changes from desktop to mobile', async () => {
 		const { mobileMediaQuery } = await bootDashboard({ mobileMatches: false });
 		const mobileShell = document.getElementById('mobile-shell') as HTMLElement;
@@ -575,6 +600,54 @@ describe('dashboard mobile navigation shell', () => {
 		mobileMediaQuery.dispatchChange();
 
 		expect(mobileShell.hidden).toBe(false);
+	});
+
+	it('removes mobile visibility and focus overrides when the viewport leaves the 720px breakpoint', async () => {
+		const { mobileMediaQuery } = await bootDashboard({
+			mobileMatches: true,
+			handleFetch: (url, method) => {
+				if (url.endsWith('/bookmarks') && method === 'GET') {
+					return jsonResponse({ keys: [{
+						id: 'bookmark-desktop-restore',
+						metadata: { title: 'Desktop restore', url: 'https://example.com/desktop-restore' },
+					}] });
+				}
+				if (url.endsWith('/bookmarks/bookmark-desktop-restore') && method === 'GET') {
+					return jsonResponse({
+						id: 'bookmark-desktop-restore',
+						markdownData: '# Desktop restore',
+						metadata: { title: 'Desktop restore', url: 'https://example.com/desktop-restore' },
+					});
+				}
+				return undefined;
+			},
+		});
+		document.querySelector<HTMLElement>('[data-bookmark-id="bookmark-desktop-restore"]')?.click();
+		await flush();
+		await flush();
+
+		const mobileShell = document.getElementById('mobile-shell') as HTMLElement;
+		const desktopSurfaces = [
+			document.getElementById('library-workspace') as HTMLElement,
+			document.getElementById('inbox-view') as HTMLElement,
+			document.getElementById('content-view') as HTMLElement,
+			document.getElementById('empty-state') as HTMLElement,
+		];
+		expect((document.getElementById('inbox-view') as HTMLElement).hidden).toBe(true);
+		expect((document.getElementById('content-view') as HTMLElement).hidden).toBe(false);
+
+		mobileMediaQuery.matches = false;
+		mobileMediaQuery.dispatchChange();
+
+		expect(mobileShell.hidden).toBe(true);
+		for (const surface of desktopSurfaces) {
+			expect(surface.hidden).toBe(false);
+			expect(surface.inert).toBe(false);
+			expect(surface.hasAttribute('aria-hidden')).toBe(false);
+		}
+		expect((document.getElementById('inbox-view') as HTMLElement).classList.contains('is-hidden')).toBe(false);
+		expect((document.getElementById('content-view') as HTMLElement).classList.contains('is-hidden')).toBe(false);
+		expect((document.getElementById('empty-state') as HTMLElement).classList.contains('is-hidden')).toBe(true);
 	});
 
 	it('renders mobile list, smart-list and tag indices that return to the filtered Library surface', async () => {
@@ -713,6 +786,8 @@ describe('dashboard mobile reader', () => {
 		query.value = 'Retain';
 		query.dispatchEvent(new Event('input', { bubbles: true }));
 		const collection = document.querySelector<HTMLElement>('.collection-scroll')!;
+		const inboxView = document.getElementById('inbox-view') as HTMLElement;
+		const contentView = document.getElementById('content-view') as HTMLElement;
 		collection.scrollTop = 144;
 
 		document.querySelector<HTMLElement>('[data-bookmark-id="bookmark-reader"]')?.click();
@@ -720,9 +795,21 @@ describe('dashboard mobile reader', () => {
 		await flush();
 
 		expect((document.getElementById('mobile-shell') as HTMLElement).dataset.surface).toBe('reader');
+		expect(inboxView.hidden).toBe(true);
+		expect(inboxView.inert).toBe(true);
+		expect(inboxView.getAttribute('aria-hidden')).toBe('true');
+		expect(contentView.hidden).toBe(false);
+		expect(contentView.inert).toBe(false);
+		expect(contentView.hasAttribute('aria-hidden')).toBe(false);
 		(document.getElementById('mobile-reader-back') as HTMLButtonElement).click();
 
 		expect((document.getElementById('mobile-shell') as HTMLElement).dataset.surface).toBe('library');
+		expect(inboxView.hidden).toBe(false);
+		expect(inboxView.inert).toBe(false);
+		expect(inboxView.hasAttribute('aria-hidden')).toBe(false);
+		expect(contentView.hidden).toBe(true);
+		expect(contentView.inert).toBe(true);
+		expect(contentView.getAttribute('aria-hidden')).toBe('true');
 		expect((document.getElementById('current-view-title') as HTMLElement).textContent).toBe('Reader');
 		expect((document.getElementById('mobile-library-all') as HTMLButtonElement).getAttribute('aria-pressed')).toBe('true');
 		expect(query.value).toBe('Retain');
