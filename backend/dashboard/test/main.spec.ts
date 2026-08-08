@@ -577,18 +577,23 @@ describe('dashboard mobile navigation shell', () => {
 		expect(libraryWorkspace.hidden).toBe(true);
 		expect(libraryWorkspace.inert).toBe(true);
 		expect(libraryWorkspace.getAttribute('aria-hidden')).toBe('true');
+		expect(libraryWorkspace.classList.contains('mobile-presentation-hidden')).toBe(true);
 		expect(listsSurface.hidden).toBe(false);
 		expect(listsSurface.inert).toBe(false);
+		expect(listsSurface.classList.contains('mobile-presentation-hidden')).toBe(false);
 		expect(tagsSurface.hidden).toBe(true);
 		expect(tagsSurface.inert).toBe(true);
+		expect(tagsSurface.classList.contains('mobile-presentation-hidden')).toBe(true);
 
 		(document.getElementById('mobile-tab-tags') as HTMLButtonElement).click();
 		expect(libraryWorkspace.hidden).toBe(true);
 		expect(libraryWorkspace.inert).toBe(true);
 		expect(listsSurface.hidden).toBe(true);
 		expect(listsSurface.inert).toBe(true);
+		expect(listsSurface.classList.contains('mobile-presentation-hidden')).toBe(true);
 		expect(tagsSurface.hidden).toBe(false);
 		expect(tagsSurface.inert).toBe(false);
+		expect(tagsSurface.classList.contains('mobile-presentation-hidden')).toBe(false);
 	});
 
 	it('unhides the mobile shell when the viewport changes from desktop to mobile', async () => {
@@ -633,8 +638,17 @@ describe('dashboard mobile navigation shell', () => {
 			document.getElementById('content-view') as HTMLElement,
 			document.getElementById('empty-state') as HTMLElement,
 		];
+		const presentationSurfaces = [
+			...desktopSurfaces,
+			document.getElementById('mobile-library-surface') as HTMLElement,
+			document.getElementById('mobile-lists-surface') as HTMLElement,
+			document.getElementById('mobile-tags-surface') as HTMLElement,
+			document.getElementById('mobile-reader-surface') as HTMLElement,
+		];
 		expect((document.getElementById('inbox-view') as HTMLElement).hidden).toBe(true);
+		expect((document.getElementById('inbox-view') as HTMLElement).classList.contains('mobile-presentation-hidden')).toBe(true);
 		expect((document.getElementById('content-view') as HTMLElement).hidden).toBe(false);
+		expect((document.getElementById('content-view') as HTMLElement).classList.contains('mobile-presentation-hidden')).toBe(false);
 
 		mobileMediaQuery.matches = false;
 		mobileMediaQuery.dispatchChange();
@@ -644,6 +658,9 @@ describe('dashboard mobile navigation shell', () => {
 			expect(surface.hidden).toBe(false);
 			expect(surface.inert).toBe(false);
 			expect(surface.hasAttribute('aria-hidden')).toBe(false);
+		}
+		for (const surface of presentationSurfaces) {
+			expect(surface.classList.contains('mobile-presentation-hidden')).toBe(false);
 		}
 		expect((document.getElementById('inbox-view') as HTMLElement).classList.contains('is-hidden')).toBe(false);
 		expect((document.getElementById('content-view') as HTMLElement).classList.contains('is-hidden')).toBe(false);
@@ -798,18 +815,22 @@ describe('dashboard mobile reader', () => {
 		expect(inboxView.hidden).toBe(true);
 		expect(inboxView.inert).toBe(true);
 		expect(inboxView.getAttribute('aria-hidden')).toBe('true');
+		expect(inboxView.classList.contains('mobile-presentation-hidden')).toBe(true);
 		expect(contentView.hidden).toBe(false);
 		expect(contentView.inert).toBe(false);
 		expect(contentView.hasAttribute('aria-hidden')).toBe(false);
+		expect(contentView.classList.contains('mobile-presentation-hidden')).toBe(false);
 		(document.getElementById('mobile-reader-back') as HTMLButtonElement).click();
 
 		expect((document.getElementById('mobile-shell') as HTMLElement).dataset.surface).toBe('library');
 		expect(inboxView.hidden).toBe(false);
 		expect(inboxView.inert).toBe(false);
 		expect(inboxView.hasAttribute('aria-hidden')).toBe(false);
+		expect(inboxView.classList.contains('mobile-presentation-hidden')).toBe(false);
 		expect(contentView.hidden).toBe(true);
 		expect(contentView.inert).toBe(true);
 		expect(contentView.getAttribute('aria-hidden')).toBe('true');
+		expect(contentView.classList.contains('mobile-presentation-hidden')).toBe(true);
 		expect((document.getElementById('current-view-title') as HTMLElement).textContent).toBe('Reader');
 		expect((document.getElementById('mobile-library-all') as HTMLButtonElement).getAttribute('aria-pressed')).toBe('true');
 		expect(query.value).toBe('Retain');

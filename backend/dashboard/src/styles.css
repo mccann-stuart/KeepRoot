@@ -2058,6 +2058,10 @@ a {
 		display: contents;
 	}
 
+	.mobile-presentation-hidden {
+		display: none !important;
+	}
+
 	.sidebar {
 		position: relative;
 		z-index: 5;

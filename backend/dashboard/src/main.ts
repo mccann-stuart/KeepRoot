@@ -192,6 +192,7 @@ function setMobileTabState(button: HTMLButtonElement, active: boolean) {
 function setMobilePresentationVisibility(element: HTMLElement, visible: boolean) {
 	element.hidden = !visible;
 	element.inert = !visible;
+	element.classList.toggle('mobile-presentation-hidden', !visible);
 	if (visible) {
 		element.removeAttribute('aria-hidden');
 	} else {
