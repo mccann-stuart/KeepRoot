@@ -12,6 +12,11 @@ const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const dashboardHtml = readFileSync(path.resolve(__dirname, '../../public/index.html'), 'utf8');
 const bodyMarkup = dashboardHtml.match(/<body[^>]*>([\s\S]*)<\/body>/i)?.[1] ?? dashboardHtml;
 
+type MobileMediaQueryMock = {
+	dispatchChange(): void;
+	matches: boolean;
+};
+
 function createStorageMock(): Storage {
 	const store = new Map<string, string>();
 	return {
@@ -57,11 +62,12 @@ async function bootDashboard(options?: {
 	cookieSession?: boolean;
 	handleFetch?: (url: string, method: string, init?: RequestInit) => Response | Promise<Response> | undefined;
 	initialUrl?: string;
+	mobileMatches?: boolean;
 	rememberedUsername?: string;
 	sessionToken?: string | null;
 	sources?: Array<Record<string, unknown>>;
 	stats?: Record<string, unknown>;
-}): Promise<{ fetchSpy: ReturnType<typeof vi.fn> }> {
+}): Promise<{ fetchSpy: ReturnType<typeof vi.fn>; mobileMediaQuery: MobileMediaQueryMock }> {
 	vi.resetModules();
 	document.body.innerHTML = bodyMarkup;
 	Object.defineProperty(window, 'localStorage', {
@@ -81,13 +87,38 @@ async function bootDashboard(options?: {
 	}
 	window.history.replaceState({}, '', options?.initialUrl ?? '/dashboard');
 
+	const mobileMediaListeners = new Set<EventListenerOrEventListenerObject>();
+	const mobileMediaQuery = {
+		addEventListener: vi.fn((type: string, listener: EventListenerOrEventListenerObject) => {
+			if (type === 'change') {
+				mobileMediaListeners.add(listener);
+			}
+		}),
+		dispatchChange() {
+			const event = new Event('change');
+			for (const listener of mobileMediaListeners) {
+				if (typeof listener === 'function') {
+					listener(event);
+				} else {
+					listener.handleEvent(event);
+				}
+			}
+		},
+		matches: options?.mobileMatches ?? false,
+		removeEventListener: vi.fn((type: string, listener: EventListenerOrEventListenerObject) => {
+			if (type === 'change') {
+				mobileMediaListeners.delete(listener);
+			}
+		}),
+	} as MediaQueryList & MobileMediaQueryMock;
+	const colorSchemeMediaQuery = {
+		addEventListener: vi.fn(),
+		matches: false,
+		removeEventListener: vi.fn(),
+	} as MediaQueryList;
 	Object.defineProperty(window, 'matchMedia', {
 		configurable: true,
-		value: vi.fn().mockReturnValue({
-			addEventListener: vi.fn(),
-			matches: false,
-			removeEventListener: vi.fn(),
-		}),
+		value: vi.fn((query: string) => query === '(max-width: 720px)' ? mobileMediaQuery : colorSchemeMediaQuery),
 	});
 	Object.defineProperty(globalThis, 'navigator', {
 		configurable: true,
@@ -210,7 +241,7 @@ async function bootDashboard(options?: {
 	await import('../src/main');
 	await flush();
 	await flush();
-	return { fetchSpy };
+	return { fetchSpy, mobileMediaQuery };
 }
 
 describe('dashboard extension downloads', () => {
@@ -519,6 +550,17 @@ describe('dashboard mobile navigation shell', () => {
 		expect((document.getElementById('current-view-title') as HTMLElement).textContent).toBe('Settings');
 		expect((document.getElementById('mobile-shell') as HTMLElement).dataset.surface).toBe('settings');
 		expect(settings.getAttribute('aria-current')).toBe('page');
+	});
+
+	it('unhides the mobile shell when the viewport changes from desktop to mobile', async () => {
+		const { mobileMediaQuery } = await bootDashboard({ mobileMatches: false });
+		const mobileShell = document.getElementById('mobile-shell') as HTMLElement;
+		expect(mobileShell.hidden).toBe(true);
+
+		mobileMediaQuery.matches = true;
+		mobileMediaQuery.dispatchChange();
+
+		expect(mobileShell.hidden).toBe(false);
 	});
 
 	it('renders mobile list, smart-list and tag indices that return to the filtered Library surface', async () => {

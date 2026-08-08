@@ -15,6 +15,7 @@ type MobileSurface = 'library' | 'lists' | 'tags' | 'reader' | 'settings' | 'sou
 const dom = getDom();
 const state = createAppState(loadPreferences());
 const api = new KeepRootApi(() => state.secret);
+const mobileSurfaceMediaQuery = window.matchMedia('(max-width: 720px)');
 
 let editingListId: string | null = null;
 let editingListType: 'list' | 'smartlist' | null = null;
@@ -187,7 +188,7 @@ function setMobileTabState(button: HTMLButtonElement, active: boolean) {
 
 function syncMobileSurface() {
 	const isLibrarySurface = mobileSurface === 'library';
-	dom.mobileShell.hidden = !window.matchMedia('(max-width: 720px)').matches;
+	dom.mobileShell.hidden = !mobileSurfaceMediaQuery.matches;
 	dom.mobileShell.dataset.surface = mobileSurface;
 	dom.mobileLibrarySurface.classList.toggle('is-hidden', !isLibrarySurface);
 	dom.mobileListsSurface.classList.toggle('is-hidden', mobileSurface !== 'lists');
@@ -203,6 +204,8 @@ function syncMobileSurface() {
 	setMobileTabState(dom.mobileTabSettings, mobileSurface === 'settings');
 	setMobileTabState(dom.mobileTabMore, mobileSurface === 'sources' || mobileSurface === 'setup' || mobileSurface === 'mcp');
 }
+
+mobileSurfaceMediaQuery.addEventListener('change', syncMobileSurface);
 
 function setMobileSurface(nextSurface: MobileSurface) {
 	mobileSurface = nextSurface;
