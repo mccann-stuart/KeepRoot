@@ -3,7 +3,7 @@ import { loginWithPasskey, registerWithPasskey } from './lib/auth';
 import { ApiError, KeepRootApi } from './lib/api';
 import { getDom } from './lib/dom';
 import { collectTags, filterBookmarks } from './lib/filters';
-import { escapeHtml, renderMarkdown } from './lib/markdown';
+import { decodeHtmlCharacterReferences, escapeHtml, renderMarkdown } from './lib/markdown';
 import { loadProtectedMedia } from './lib/media';
 import { buildMcpPresets, getDefaultSourceKind, getMcpEndpoint, getSourceKindOptions, getSourceSummaryLine } from './lib/mcp';
 import { registerServiceWorker } from './lib/service-worker';
@@ -506,7 +506,7 @@ function createBookmarkCard(bookmark: BookmarkSummary) {
 	card.dataset.bookmarkId = bookmarkId;
 	card.classList.toggle('is-active', state.currentBookmarkId === bookmarkId);
 
-	title.textContent = String(bookmark.metadata?.title ?? 'Untitled');
+	title.textContent = decodeHtmlCharacterReferences(String(bookmark.metadata?.title ?? 'Untitled'));
 	card.tabIndex = 0;
 	card.setAttribute('aria-label', `Open ${title.textContent}`);
 	const metadataParts = [
@@ -989,7 +989,7 @@ async function loadBookmark(bookmarkId: string) {
 		const bookmark = await api.getBookmark(bookmarkId);
 		const highlights = loadHighlights(bookmarkId);
 
-		dom.viewTitle.textContent = String(bookmark.metadata?.title ?? 'Untitled');
+		dom.viewTitle.textContent = decodeHtmlCharacterReferences(String(bookmark.metadata?.title ?? 'Untitled'));
 		dom.mobileReaderArticleTitle.textContent = dom.viewTitle.textContent;
 		if (bookmark.metadata?.url) {
 			try {

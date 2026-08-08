@@ -65,6 +65,25 @@ describe('source-sync', () => {
         expect(items.saveItemContent).toHaveBeenCalledTimes(1);
 	});
 
+	it('decodes HTML character references nested inside RSS titles', async () => {
+		vi.stubGlobal('fetch', vi.fn().mockResolvedValue(new Response(`
+			<rss><channel><item>
+				<title>Tim Cook&amp;#39;s &amp;amp; Apple&amp;rsquo;s</title>
+				<link>https://example.com/tim-cook</link>
+			</item></channel></rss>
+		`, { status: 200 })));
+
+		await syncSource(env as any, {
+			id: 'source-encoded-title',
+			kind: 'rss',
+			pollUrl: 'https://example.com/feed.xml',
+			userId: 'user-1',
+		});
+
+		const payload = vi.mocked(items.saveItemContent).mock.calls[0][2];
+		expect(payload.title).toBe("Tim Cook's & Apple’s");
+	});
+
 	it('treats a conditional 304 response as a successful no-work poll', async () => {
 		const source = {
 			httpEtag: '"feed-v2"',

@@ -3,6 +3,7 @@ import { marked } from 'marked';
 import type { HighlightRecord } from './state';
 
 const DOMPurify = createDOMPurify(window);
+const htmlEntityDecoder = document.createElement('textarea');
 
 marked.setOptions({
 	breaks: true,
@@ -16,6 +17,11 @@ export function escapeHtml(value: string): string {
 		.replace(/>/g, '&gt;')
 		.replace(/"/g, '&quot;')
 		.replace(/'/g, '&#039;');
+}
+
+export function decodeHtmlCharacterReferences(value: string): string {
+	htmlEntityDecoder.innerHTML = String(value ?? '');
+	return htmlEntityDecoder.value;
 }
 
 function encodeHtmlEntities(text: string): string {

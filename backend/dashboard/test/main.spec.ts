@@ -1133,6 +1133,47 @@ describe('dashboard mobile reader', () => {
 	});
 });
 
+describe('dashboard bookmark titles', () => {
+	beforeEach(() => {
+		vi.restoreAllMocks();
+	});
+
+	it('decodes stored HTML character references in list and reader titles', async () => {
+		const encodedTitle = 'Tim Cook&#39;s Impeccable Timing';
+		await bootDashboard({
+			handleFetch: (url, method) => {
+				if (url.endsWith('/bookmarks') && method === 'GET') {
+					return jsonResponse({ keys: [{
+						id: 'bookmark-encoded-title',
+						metadata: {
+							createdAt: '2026-08-06T12:00:00.000Z',
+							title: encodedTitle,
+							url: 'https://example.com/tim-cook',
+						},
+					}] });
+				}
+				if (url.endsWith('/bookmarks/bookmark-encoded-title') && method === 'GET') {
+					return jsonResponse({
+						id: 'bookmark-encoded-title',
+						markdownData: 'Article body',
+						metadata: { title: encodedTitle, url: 'https://example.com/tim-cook' },
+					});
+				}
+				return undefined;
+			},
+		});
+
+		const card = document.querySelector<HTMLElement>('[data-bookmark-id="bookmark-encoded-title"]');
+		expect(card?.querySelector('[data-role="bookmark-title"]')?.textContent).toBe("Tim Cook's Impeccable Timing");
+		card?.click();
+		await flush();
+		await flush();
+
+		expect((document.getElementById('view-title') as HTMLElement).textContent).toBe("Tim Cook's Impeccable Timing");
+		expect((document.getElementById('mobile-reader-article-title') as HTMLElement).textContent).toBe("Tim Cook's Impeccable Timing");
+	});
+});
+
 describe('dashboard MCP setup view', () => {
 	beforeEach(() => {
 		vi.restoreAllMocks();
