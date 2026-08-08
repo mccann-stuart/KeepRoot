@@ -249,6 +249,11 @@ function setMobileSurface(nextSurface: MobileSurface) {
 	syncMobileSurface();
 }
 
+function openMobileIndex(nextSurface: 'lists' | 'tags') {
+	switchView('inbox', state.filterType, state.filterId);
+	setMobileSurface(nextSurface);
+}
+
 function returnToMobileLibrary() {
 	setMobileSurface('library');
 	if (mobileCollectionScrollTop === null) {
@@ -1338,8 +1343,8 @@ function bindEvents() {
 	dom.mobileLibraryInbox.addEventListener('click', () => switchView('inbox', 'inbox', null));
 	dom.mobileLibraryAll.addEventListener('click', () => switchView('inbox', 'all', null));
 	dom.mobileTabLibrary.addEventListener('click', () => switchView('inbox', state.filterType, state.filterId));
-	dom.mobileTabLists.addEventListener('click', () => setMobileSurface('lists'));
-	dom.mobileTabTags.addEventListener('click', () => setMobileSurface('tags'));
+	dom.mobileTabLists.addEventListener('click', () => openMobileIndex('lists'));
+	dom.mobileTabTags.addEventListener('click', () => openMobileIndex('tags'));
 	dom.mobileTabSettings.addEventListener('click', () => switchView('settings'));
 	dom.mobileTabMore.addEventListener('click', () => {
 		mobileOverflowOpen = !mobileOverflowOpen;

@@ -567,6 +567,20 @@ describe('dashboard mobile navigation shell', () => {
 		expect(settings.getAttribute('aria-current')).toBe('page');
 	});
 
+	it.each([
+		{ buttonId: 'mobile-tab-lists', surface: 'lists', surfaceId: 'mobile-lists-surface' },
+		{ buttonId: 'mobile-tab-tags', surface: 'tags', surfaceId: 'mobile-tags-surface' },
+	])('hides Settings before opening the $surface mobile index', async ({ buttonId, surface, surfaceId }) => {
+		await bootDashboard({ mobileMatches: true });
+
+		(document.getElementById('mobile-tab-settings') as HTMLButtonElement).click();
+		(document.getElementById(buttonId) as HTMLButtonElement).click();
+
+		expect((document.getElementById('mobile-shell') as HTMLElement).dataset.surface).toBe(surface);
+		expect((document.getElementById('settings-view') as HTMLElement).classList.contains('is-hidden')).toBe(true);
+		expect((document.getElementById(surfaceId) as HTMLElement).hidden).toBe(false);
+	});
+
 	it('keeps the bottom navigation stretched across the mobile grid after changing surfaces', async () => {
 		await bootDashboard({ mobileMatches: true });
 
