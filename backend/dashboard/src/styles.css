@@ -2637,7 +2637,10 @@ a {
 		z-index: 10;
 		display: grid;
 		grid-row: 5;
+		grid-column: 1 / -1;
 		grid-template-columns: repeat(4, minmax(0, 1fr));
+		width: 100%;
+		min-width: 0;
 		padding: 0.38rem 0.65rem max(0.38rem, env(safe-area-inset-bottom));
 		border-top: 1px solid var(--border-muted);
 		background: color-mix(in srgb, var(--surface-strong) 88%, transparent);

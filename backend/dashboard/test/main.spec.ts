@@ -10,6 +10,7 @@ vi.mock('@simplewebauthn/browser', () => ({
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const dashboardHtml = readFileSync(path.resolve(__dirname, '../../public/index.html'), 'utf8');
+const dashboardCss = readFileSync(path.resolve(__dirname, '../../public/assets/app.css'), 'utf8');
 const bodyMarkup = dashboardHtml.match(/<body[^>]*>([\s\S]*)<\/body>/i)?.[1] ?? dashboardHtml;
 
 type MobileMediaQueryMock = {
@@ -564,6 +565,27 @@ describe('dashboard mobile navigation shell', () => {
 		expect((document.getElementById('current-view-title') as HTMLElement).textContent).toBe('Settings');
 		expect((document.getElementById('mobile-shell') as HTMLElement).dataset.surface).toBe('settings');
 		expect(settings.getAttribute('aria-current')).toBe('page');
+	});
+
+	it('keeps the bottom navigation stretched across the mobile grid after changing surfaces', async () => {
+		await bootDashboard({ mobileMatches: true });
+
+		(document.getElementById('mobile-tab-settings') as HTMLButtonElement).click();
+		expect((document.getElementById('mobile-shell') as HTMLElement).dataset.surface).toBe('settings');
+
+		const stylesheet = document.createElement('style');
+		stylesheet.textContent = dashboardCss;
+		document.head.append(stylesheet);
+		const mobileRules = [...(stylesheet.sheet?.cssRules ?? [])]
+			.filter((rule): rule is CSSMediaRule => rule.type === CSSRule.MEDIA_RULE)
+			.find((rule) => rule.conditionText.replaceAll(' ', '') === '(max-width:720px)');
+		const navigationRule = [...(mobileRules?.cssRules ?? [])]
+			.filter((rule): rule is CSSStyleRule => rule.type === CSSRule.STYLE_RULE)
+			.find((rule) => rule.selectorText.replaceAll(' ', '') === '#mobile-shell>nav');
+
+		expect(navigationRule?.style.gridColumn).toBe('1 / -1');
+		expect(navigationRule?.style.width).toBe('100%');
+		expect(navigationRule?.style.minWidth).toBe('0px');
 	});
 
 	it('hides and removes the library workspace from focus while Lists or Tags is active', async () => {
