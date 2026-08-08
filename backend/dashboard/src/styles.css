@@ -2019,6 +2019,23 @@ a {
 		height: 100%;
 	}
 
+	button,
+	input:not([type="checkbox"]):not([type="radio"]),
+	select,
+	textarea,
+	.btn {
+		min-height: 44px;
+	}
+
+	.icon-button,
+	.reader-action {
+		min-width: 44px;
+	}
+
+	.toggle {
+		min-height: 44px;
+	}
+
 	body {
 		min-height: 100dvh;
 		overflow: hidden;
@@ -2140,7 +2157,7 @@ a {
 	}
 
 	#mobile-library-surface button {
-		min-height: 40px;
+		min-height: 44px;
 		padding: 0 0.85rem;
 		border: 0;
 		border-radius: 11px;
@@ -2215,7 +2232,7 @@ a {
 	}
 
 	.bookmark-card {
-		grid-template-columns: 54px minmax(0, 1fr) 28px;
+		grid-template-columns: 54px minmax(0, 1fr) 44px;
 		min-height: 82px;
 		padding: 0.68rem;
 		border-color: color-mix(in srgb, var(--border-muted) 66%, transparent);
@@ -2251,8 +2268,8 @@ a {
 
 	.bookmark-card__status,
 	.bookmark-card__pin {
-		width: 28px;
-		height: 28px;
+		width: 44px;
+		height: 44px;
 	}
 
 	.empty-state {
