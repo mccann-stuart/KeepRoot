@@ -46,6 +46,35 @@
 				</div>
 			</section>
 
+			<section id="mobile-reader-surface" class="is-hidden" aria-labelledby="mobile-reader-title">
+				<header>
+					<button id="mobile-reader-back" type="button">Back</button>
+					<h2 id="mobile-reader-title">Reader</h2>
+					<div aria-label="Reader controls">
+						<button id="mobile-reader-font" type="button" aria-label="Increase reader font size">Aa</button>
+						<button id="mobile-reader-tags" type="button" aria-label="Edit tags">Tags</button>
+						<button id="mobile-reader-details" type="button" aria-pressed="false">Details</button>
+					</div>
+				</header>
+				<div>
+					<h3 id="mobile-reader-article-title">Loading…</h3>
+					<div aria-label="Article metadata">
+						<span id="mobile-reader-domain">—</span>
+						<span id="mobile-reader-reading-time">0 min</span>
+						<time id="mobile-reader-date"></time>
+					</div>
+					<div id="mobile-reader-tags-list" class="tag-list"></div>
+					<div aria-label="Bookmark actions">
+						<button id="mobile-reader-pin" type="button">Pin</button>
+						<button id="mobile-reader-read" type="button">Mark as read</button>
+						<a id="mobile-reader-open-original" href="#" target="_blank" rel="noreferrer">Open original</a>
+						<button id="mobile-reader-delete" type="button">Delete</button>
+					</div>
+					<aside id="mobile-reader-details-panel" class="is-hidden" aria-label="Item details"></aside>
+					<article id="mobile-reader-content" aria-live="polite"></article>
+				</div>
+			</section>
+
 			<section id="mobile-lists-surface" class="is-hidden" aria-labelledby="mobile-lists-title">
 				<header>
 					<h2 id="mobile-lists-title">Lists</h2>

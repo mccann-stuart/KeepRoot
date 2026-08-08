@@ -55,6 +55,20 @@ async function flush(): Promise<void> {
 	await new Promise((resolve) => setTimeout(resolve, 0));
 }
 
+async function waitFor<T>(condition: () => T | false | null | undefined, description: string, timeoutMs = 500): Promise<T> {
+	const startedAt = Date.now();
+	while (true) {
+		const value = condition();
+		if (value) {
+			return value;
+		}
+		if (Date.now() - startedAt > timeoutMs) {
+			throw new Error(`Timed out waiting for ${description}`);
+		}
+		await new Promise((resolve) => setTimeout(resolve, 10));
+	}
+}
+
 async function bootDashboard(options?: {
 	account?: Record<string, unknown>;
 	apiKeys?: Array<Record<string, unknown>>;
@@ -653,6 +667,284 @@ describe('dashboard mobile navigation shell', () => {
 		await flush();
 
 		expect(fetch).toHaveBeenCalledWith('/auth/logout', expect.objectContaining({ method: 'POST' }));
+	});
+});
+
+describe('dashboard mobile reader', () => {
+	beforeEach(() => {
+		vi.restoreAllMocks();
+	});
+
+	it('returns to the library surface without losing the selected filter, search or collection position', async () => {
+		const { fetchSpy } = await bootDashboard({
+			mobileMatches: true,
+			handleFetch: (url, method) => {
+				if (url.endsWith('/bookmarks') && method === 'GET') {
+					return jsonResponse({ keys: [{
+						id: 'bookmark-reader',
+						metadata: {
+							createdAt: '2026-03-16T10:00:00.000Z',
+							isRead: false,
+							title: 'Retain this article',
+							url: 'https://example.com/retain',
+							wordCount: 400,
+						},
+					}] });
+				}
+				if (url.endsWith('/bookmarks/bookmark-reader') && method === 'GET') {
+					return jsonResponse({
+						id: 'bookmark-reader',
+						markdownData: '# Retain this article',
+						metadata: {
+							createdAt: '2026-03-16T10:00:00.000Z',
+							isRead: false,
+							title: 'Retain this article',
+							url: 'https://example.com/retain',
+							wordCount: 400,
+						},
+					});
+				}
+				return undefined;
+			},
+		});
+
+		(document.getElementById('mobile-library-all') as HTMLButtonElement).click();
+		const query = document.getElementById('search-input') as HTMLInputElement;
+		query.value = 'Retain';
+		query.dispatchEvent(new Event('input', { bubbles: true }));
+		const collection = document.querySelector<HTMLElement>('.collection-scroll')!;
+		collection.scrollTop = 144;
+
+		document.querySelector<HTMLElement>('[data-bookmark-id="bookmark-reader"]')?.click();
+		await flush();
+		await flush();
+
+		expect((document.getElementById('mobile-shell') as HTMLElement).dataset.surface).toBe('reader');
+		(document.getElementById('mobile-reader-back') as HTMLButtonElement).click();
+
+		expect((document.getElementById('mobile-shell') as HTMLElement).dataset.surface).toBe('library');
+		expect((document.getElementById('current-view-title') as HTMLElement).textContent).toBe('Reader');
+		expect((document.getElementById('mobile-library-all') as HTMLButtonElement).getAttribute('aria-pressed')).toBe('true');
+		expect(query.value).toBe('Retain');
+		expect(collection.scrollTop).toBe(144);
+		expect(fetchSpy).not.toHaveBeenCalledWith('/bookmarks/bookmark-reader', expect.objectContaining({ method: 'PATCH' }));
+	});
+
+	it('keeps Back available when bookmark content cannot be loaded', async () => {
+		await bootDashboard({
+			mobileMatches: true,
+			handleFetch: (url, method) => {
+				if (url.endsWith('/bookmarks') && method === 'GET') {
+					return jsonResponse({ keys: [{
+						id: 'bookmark-error',
+						metadata: { title: 'Unavailable article', url: 'https://example.com/unavailable' },
+					}] });
+				}
+				if (url.endsWith('/bookmarks/bookmark-error') && method === 'GET') {
+					return jsonResponse({ error: 'Unavailable' }, 503);
+				}
+				return undefined;
+			},
+		});
+
+		document.querySelector<HTMLElement>('[data-bookmark-id="bookmark-error"]')?.click();
+		await flush();
+		await flush();
+
+		expect((document.getElementById('mobile-shell') as HTMLElement).dataset.surface).toBe('reader');
+		expect((document.getElementById('mobile-reader-content') as HTMLElement).textContent).toContain('Failed to load bookmark content.');
+		(document.getElementById('mobile-reader-back') as HTMLButtonElement).click();
+		expect((document.getElementById('mobile-shell') as HTMLElement).dataset.surface).toBe('library');
+	});
+
+	it('resets mobile reader actions when a later bookmark fails to load', async () => {
+		await bootDashboard({
+			mobileMatches: true,
+			handleFetch: (url, method) => {
+				if (url.endsWith('/bookmarks') && method === 'GET') {
+					return jsonResponse({ keys: [
+						{
+							id: 'bookmark-loaded',
+							metadata: { isRead: false, pinned: true, title: 'Loaded article', url: 'https://example.com/loaded', wordCount: 400 },
+						},
+						{
+							id: 'bookmark-failed',
+							metadata: { isRead: false, pinned: false, title: 'Failed article', url: 'https://example.com/failed', wordCount: 0 },
+						},
+					] });
+				}
+				if (url.endsWith('/bookmarks/bookmark-loaded') && method === 'GET') {
+					return jsonResponse({
+						id: 'bookmark-loaded',
+						markdownData: '# Loaded article',
+						metadata: { isRead: false, pinned: true, title: 'Loaded article', url: 'https://example.com/loaded', wordCount: 400 },
+					});
+				}
+				if (url.endsWith('/bookmarks/bookmark-failed') && method === 'GET') {
+					return jsonResponse({ error: 'Unavailable' }, 503);
+				}
+				return undefined;
+			},
+		});
+
+		document.querySelector<HTMLElement>('[data-bookmark-id="bookmark-loaded"]')?.click();
+		await flush();
+		await flush();
+		await waitFor(
+			() => (document.getElementById('mobile-reader-pin') as HTMLButtonElement).textContent === 'Unpin',
+			'the initial mobile reader action labels',
+		);
+		expect((document.getElementById('mobile-reader-pin') as HTMLButtonElement).textContent).toBe('Unpin');
+
+		document.querySelector<HTMLElement>('[data-bookmark-id="bookmark-failed"]')?.click();
+		await flush();
+		await flush();
+
+		expect((document.getElementById('mobile-reader-domain') as HTMLElement).textContent).toBe('example.com');
+		expect((document.getElementById('mobile-reader-reading-time') as HTMLElement).textContent).toBe('1 min');
+		expect((document.getElementById('mobile-reader-pin') as HTMLButtonElement).textContent).toBe('Pin');
+		expect((document.getElementById('mobile-reader-read') as HTMLButtonElement).textContent).toBe('Mark as read');
+	});
+
+	it('separates bookmark card metadata into domain, reading-time and date spans', async () => {
+		const publishedAt = '2026-08-06T09:30:00.000Z';
+		await bootDashboard({
+			handleFetch: (url, method) => url.endsWith('/bookmarks') && method === 'GET'
+				? jsonResponse({ keys: [{
+					id: 'bookmark-metadata',
+					metadata: {
+						publishedAt,
+						title: 'Semantic metadata',
+						url: 'https://example.com/semantic',
+						wordCount: 400,
+					},
+				}] })
+				: undefined,
+		});
+
+		const cardMeta = document.querySelector<HTMLElement>('[data-bookmark-id="bookmark-metadata"] [data-role="bookmark-meta"]')!;
+		expect(cardMeta.querySelector('[data-role="bookmark-domain"]')?.textContent).toBe('example.com');
+		expect(cardMeta.querySelector('[data-role="bookmark-reading-time"]')?.textContent).toBe('2 min');
+		expect(cardMeta.querySelector('[data-role="bookmark-date"]')?.textContent).toBe(new Date(publishedAt).toLocaleDateString());
+		expect(cardMeta.textContent).toBe(`example.com · 2 min · ${new Date(publishedAt).toLocaleDateString()}`);
+	});
+
+	it('reuses reader preferences, detail, tag and bookmark actions on mobile', async () => {
+		let pinned = false;
+		let isRead = false;
+		const { fetchSpy } = await bootDashboard({
+			mobileMatches: true,
+			handleFetch: (url, method, init) => {
+				if (url.endsWith('/bookmarks') && method === 'GET') {
+					return jsonResponse({ keys: [{
+						id: 'bookmark-actions',
+						metadata: {
+							createdAt: '2026-03-16T10:00:00.000Z',
+							pinned,
+							isRead,
+							tags: ['research'],
+							title: 'Reader actions',
+							url: 'https://example.com/actions',
+							wordCount: 400,
+						},
+					}] });
+				}
+				if (url.endsWith('/bookmarks/bookmark-actions') && method === 'GET') {
+					return jsonResponse({
+						id: 'bookmark-actions',
+						markdownData: '# Reader actions',
+						metadata: {
+							createdAt: '2026-03-16T10:00:00.000Z',
+							pinned,
+							isRead,
+							tags: ['research'],
+							title: 'Reader actions',
+							url: 'https://example.com/actions',
+							wordCount: 400,
+						},
+					});
+				}
+				if (url.endsWith('/bookmarks/bookmark-actions') && method === 'PATCH') {
+					const updates = JSON.parse(String(init?.body)) as { isRead?: boolean; pinned?: boolean };
+					if (updates.pinned !== undefined) {
+						pinned = updates.pinned;
+					}
+					if (updates.isRead !== undefined) {
+						isRead = updates.isRead;
+					}
+					return jsonResponse({ message: 'Updated successfully' });
+				}
+				if (url.endsWith('/bookmarks/bookmark-actions') && method === 'DELETE') {
+					return jsonResponse({ message: 'Deleted successfully' });
+				}
+				return undefined;
+			},
+		});
+
+		document.querySelector<HTMLElement>('[data-bookmark-id="bookmark-actions"]')?.click();
+		await flush();
+		await flush();
+
+		(document.getElementById('mobile-reader-font') as HTMLButtonElement).click();
+		expect(window.localStorage.getItem('keeproot_font_size')).toBe('18');
+		expect((document.getElementById('font-size-value') as HTMLElement).textContent).toBe('18 px');
+		(document.getElementById('mobile-reader-details') as HTMLButtonElement).click();
+		expect((document.getElementById('stats-panel') as HTMLElement).classList.contains('is-hidden')).toBe(false);
+
+		const tagsModal = document.getElementById('tags-modal') as HTMLDialogElement;
+		const showModal = vi.fn();
+		Object.defineProperty(tagsModal, 'showModal', { configurable: true, value: showModal });
+		(document.getElementById('mobile-reader-tags') as HTMLButtonElement).click();
+		expect(showModal).toHaveBeenCalledOnce();
+		expect((document.getElementById('tags-input') as HTMLInputElement).value).toBe('research');
+		expect((document.getElementById('mobile-reader-open-original') as HTMLAnchorElement).href).toBe('https://example.com/actions');
+
+		(document.getElementById('mobile-reader-pin') as HTMLButtonElement).click();
+		await flush();
+		await flush();
+		expect(fetchSpy).toHaveBeenCalledWith('/bookmarks/bookmark-actions', expect.objectContaining({
+			body: JSON.stringify({ pinned: true }),
+			method: 'PATCH',
+		}));
+		await waitFor(
+			() => (document.getElementById('mobile-reader-pin') as HTMLButtonElement).textContent === 'Unpin',
+			'the mobile pin action to refresh',
+		);
+		expect((document.getElementById('mobile-reader-pin') as HTMLButtonElement).textContent).toBe('Unpin');
+
+		(document.getElementById('mobile-reader-pin') as HTMLButtonElement).click();
+		await flush();
+		await flush();
+		expect(fetchSpy).toHaveBeenCalledWith('/bookmarks/bookmark-actions', expect.objectContaining({
+			body: JSON.stringify({ pinned: false }),
+			method: 'PATCH',
+		}));
+
+		(document.getElementById('mobile-reader-read') as HTMLButtonElement).click();
+		await flush();
+		await flush();
+		expect(fetchSpy).toHaveBeenCalledWith('/bookmarks/bookmark-actions', expect.objectContaining({
+			body: JSON.stringify({ isRead: true }),
+			method: 'PATCH',
+		}));
+		await waitFor(
+			() => (document.getElementById('mobile-reader-read') as HTMLButtonElement).textContent === 'Mark as unread',
+			'the mobile read action to refresh',
+		);
+		expect((document.getElementById('mobile-reader-read') as HTMLButtonElement).textContent).toBe('Mark as unread');
+
+		(document.getElementById('mobile-reader-read') as HTMLButtonElement).click();
+		await flush();
+		await flush();
+		expect(fetchSpy).toHaveBeenCalledWith('/bookmarks/bookmark-actions', expect.objectContaining({
+			body: JSON.stringify({ isRead: false }),
+			method: 'PATCH',
+		}));
+
+		(document.getElementById('mobile-reader-delete') as HTMLButtonElement).click();
+		await flush();
+		await flush();
+		expect(fetchSpy).toHaveBeenCalledWith('/bookmarks/bookmark-actions', expect.objectContaining({ method: 'DELETE' }));
 	});
 });
 
