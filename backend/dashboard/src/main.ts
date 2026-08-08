@@ -947,7 +947,6 @@ async function loadBookmark(bookmarkId: string) {
 	dom.mobileReaderDate.removeAttribute('datetime');
 	dom.mobileReaderTagsList.replaceChildren();
 	dom.mobileReaderOpenOriginal.href = '#';
-	dom.mobileReaderContent.innerHTML = '<p>Loading bookmark…</p>';
 	renderReaderStats(bookmarkSummary ?? { metadata: {} });
 	renderMobileReaderTags(Array.isArray(bookmarkSummary?.metadata?.tags) ? bookmarkSummary.metadata.tags : []);
 	renderMobileReaderActions(bookmarkSummary);
@@ -1004,13 +1003,10 @@ async function loadBookmark(bookmarkId: string) {
 		dom.markdownContainer.innerHTML = '';
 		const fragment = renderMarkdown(bookmark.markdownData, highlights) as DocumentFragment;
 		await loadProtectedMedia(fragment, api);
-		const mobileFragment = fragment.cloneNode(true) as DocumentFragment;
 		dom.markdownContainer.appendChild(fragment);
-		dom.mobileReaderContent.replaceChildren(mobileFragment);
 		renderBookmarkLists();
 	} catch (error) {
 		dom.markdownContainer.innerHTML = '<div class="panel"><p class="muted-copy">Failed to load bookmark content.</p></div>';
-		dom.mobileReaderContent.innerHTML = '<p>Failed to load bookmark content. Use Back to return to your library.</p>';
 		showToast(error instanceof Error ? error.message : 'Failed to load bookmark', 'error');
 	}
 }

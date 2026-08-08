@@ -85,7 +85,6 @@ export function getDom() {
 		mobileListsSurface: required<HTMLElement>('mobile-lists-surface'),
 		mobileReaderArticleTitle: required<HTMLElement>('mobile-reader-article-title'),
 		mobileReaderBack: required<HTMLButtonElement>('mobile-reader-back'),
-		mobileReaderContent: required<HTMLElement>('mobile-reader-content'),
 		mobileReaderDate: required<HTMLTimeElement>('mobile-reader-date'),
 		mobileReaderDelete: required<HTMLButtonElement>('mobile-reader-delete'),
 		mobileReaderDetails: required<HTMLButtonElement>('mobile-reader-details'),

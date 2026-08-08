@@ -752,9 +752,63 @@ describe('dashboard mobile reader', () => {
 		await flush();
 
 		expect((document.getElementById('mobile-shell') as HTMLElement).dataset.surface).toBe('reader');
-		expect((document.getElementById('mobile-reader-content') as HTMLElement).textContent).toContain('Failed to load bookmark content.');
+		expect((document.getElementById('markdown-container') as HTMLElement).textContent).toContain('Failed to load bookmark content.');
 		(document.getElementById('mobile-reader-back') as HTMLButtonElement).click();
 		expect((document.getElementById('mobile-shell') as HTMLElement).dataset.surface).toBe('library');
+	});
+
+	it('uses the existing rendered article surface for mobile highlights and protected media', async () => {
+		const createObjectUrl = vi.fn(() => 'blob:mobile-reader-image');
+		const revokeObjectUrl = vi.fn();
+		await bootDashboard({
+			mobileMatches: true,
+			beforeImport: () => {
+				Object.defineProperty(URL, 'createObjectURL', { configurable: true, value: createObjectUrl });
+				Object.defineProperty(URL, 'revokeObjectURL', { configurable: true, value: revokeObjectUrl });
+			},
+			handleFetch: (url, method) => {
+				if (url.endsWith('/bookmarks') && method === 'GET') {
+					return jsonResponse({ keys: [{
+						id: 'bookmark-shared-surface',
+						metadata: { title: 'Shared surface', url: 'https://example.com/shared-surface' },
+					}] });
+				}
+				if (url.endsWith('/bookmarks/bookmark-shared-surface') && method === 'GET') {
+					return jsonResponse({
+						id: 'bookmark-shared-surface',
+						markdownData: 'Highlight this text.\n\n![Stored image](/images/shared-surface.png)',
+						metadata: { title: 'Shared surface', url: 'https://example.com/shared-surface' },
+					});
+				}
+				if (url.endsWith('/images/shared-surface.png') && method === 'GET') {
+					return new Response(new Blob(['image-bytes'], { type: 'image/png' }), { status: 200 });
+				}
+				return undefined;
+			},
+		});
+		window.localStorage.setItem('keeproot_highlights_bookmark-shared-surface', JSON.stringify([
+			{ id: 'highlight-1', note: 'Reader note', text: 'Highlight this text' },
+		]));
+
+		const noteModal = document.getElementById('note-modal') as HTMLDialogElement;
+		const showModal = vi.fn();
+		Object.defineProperty(noteModal, 'showModal', { configurable: true, value: showModal });
+		document.querySelector<HTMLElement>('[data-bookmark-id="bookmark-shared-surface"]')?.click();
+		await flush();
+		await flush();
+
+		const article = document.getElementById('markdown-container')!;
+		const highlight = article.querySelector<HTMLElement>('mark.highlight[data-id="highlight-1"]');
+		const image = article.querySelector<HTMLImageElement>('img');
+		expect(document.getElementById('mobile-reader-content')).toBeNull();
+		expect(highlight).not.toBeNull();
+		expect(image?.src).toBe('blob:mobile-reader-image');
+		expect(createObjectUrl).toHaveBeenCalledOnce();
+
+		highlight?.click();
+		expect(showModal).toHaveBeenCalledOnce();
+		image?.dispatchEvent(new Event('load'));
+		expect(revokeObjectUrl).toHaveBeenCalledWith('blob:mobile-reader-image');
 	});
 
 	it('resets mobile reader actions when a later bookmark fails to load', async () => {
