@@ -486,16 +486,20 @@ export async function validateSafeUrl(url: string): Promise<boolean> {
 			hostname = hostname.slice(1, -1);
 		}
 
+		const normalizedHostname = hostname.replace(/\.+$/, '');
+
 		if (
-			hostname === 'localhost' ||
-			hostname.endsWith('.localhost') ||
-			hostname.endsWith('.local') ||
-			hostname.endsWith('.internal')
+			normalizedHostname === 'localhost' ||
+			normalizedHostname.endsWith('.localhost') ||
+			normalizedHostname === 'local' ||
+			normalizedHostname.endsWith('.local') ||
+			normalizedHostname === 'internal' ||
+			normalizedHostname.endsWith('.internal')
 		) {
 			return false;
 		}
 
-		if (isUnsafeIpAddress(hostname)) {
+		if (isUnsafeIpAddress(normalizedHostname)) {
 			return false;
 		}
 

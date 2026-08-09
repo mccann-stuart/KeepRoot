@@ -205,6 +205,11 @@ describe('shared storage utilities', () => {
 			await expect(validateSafeUrl('http://app.localhost/')).resolves.toBe(false);
 			await expect(validateSafeUrl('http://my-service.local/')).resolves.toBe(false);
 			await expect(validateSafeUrl('http://db.internal/')).resolves.toBe(false);
+			await expect(validateSafeUrl('http://localhost./')).resolves.toBe(false);
+			await expect(validateSafeUrl('http://app.local./')).resolves.toBe(false);
+			await expect(validateSafeUrl('http://127.0.0.1./')).resolves.toBe(false);
+			await expect(validateSafeUrl('http://local/')).resolves.toBe(false);
+			await expect(validateSafeUrl('http://internal/')).resolves.toBe(false);
 		});
 
 		it('rejects malformed URLs', async () => {
