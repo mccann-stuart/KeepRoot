@@ -1,8 +1,26 @@
 import { env } from 'cloudflare:test';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
-import { runSchemaStatement } from '../../src/storage/shared';
+import { hexFromBytes, runSchemaStatement } from '../../src/storage/shared';
 
 describe('shared storage', () => {
+    describe('hexFromBytes', () => {
+        it('returns an empty string for an empty Uint8Array', () => {
+            expect(hexFromBytes(new Uint8Array())).toBe('');
+        });
+
+        it('returns correct hex for single bytes', () => {
+            expect(hexFromBytes(new Uint8Array([0]))).toBe('00');
+            expect(hexFromBytes(new Uint8Array([15]))).toBe('0f');
+            expect(hexFromBytes(new Uint8Array([16]))).toBe('10');
+            expect(hexFromBytes(new Uint8Array([255]))).toBe('ff');
+        });
+
+        it('returns correct hex for multiple bytes', () => {
+            expect(hexFromBytes(new Uint8Array([0xde, 0xad, 0xbe, 0xef]))).toBe('deadbeef');
+            expect(hexFromBytes(new Uint8Array([0x01, 0x23, 0x45, 0x67, 0x89, 0xab, 0xcd, 0xef]))).toBe('0123456789abcdef');
+        });
+    });
+
     describe('runSchemaStatement', () => {
         beforeEach(() => {
             vi.restoreAllMocks();
