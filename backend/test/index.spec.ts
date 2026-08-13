@@ -12,6 +12,7 @@ import sourceEntryIdentitySchemaSql from '../migrations/0006_source_entry_identi
 import queueFirstFeedCrawlingSchemaSql from '../migrations/0007_queue_first_feed_crawling.sql?raw';
 import adaptiveFeedSchedulingSchemaSql from '../migrations/0008_adaptive_feed_scheduling.sql?raw';
 import browserRunSourcesSchemaSql from '../migrations/0009_browser_run_sources.sql?raw';
+import browserSitemapShortlistSchemaSql from '../migrations/0010_browser_sitemap_shortlist.sql?raw';
 
 const API_KEY = 'test-api-key-12345';
 const TEST_USER_ID = 'test-user-id';
@@ -125,6 +126,7 @@ async function resetDatabase(): Promise<void> {
 	await execStatements(queueFirstFeedCrawlingSchemaSql, true);
 	await execStatements(adaptiveFeedSchedulingSchemaSql, true);
 	await execStatements(browserRunSourcesSchemaSql, true);
+	await execStatements(browserSitemapShortlistSchemaSql, true);
 	await execStatements(`
 		DELETE FROM bookmark_tags;
 		DELETE FROM bookmark_images;
@@ -143,6 +145,7 @@ async function resetDatabase(): Promise<void> {
 	await tryExec('DELETE FROM item_search_documents');
 	await tryExec('DELETE FROM inbox_entries');
 	await tryExec('DELETE FROM source_discoveries');
+	await tryExec('DELETE FROM source_sitemap_urls');
 	await tryExec('DELETE FROM source_runs');
 	await tryExec('DELETE FROM sources');
 	await tryExec('DELETE FROM account_settings');
@@ -430,7 +433,7 @@ describe('KeepRoot Worker', () => {
 		expect(sendBatch.mock.calls[1][0][0].body).toEqual(sent[0].body);
 	});
 
-	it('baselines Browser Run archives, paginates results, and imports each new canonical URL once', async () => {
+	it('uses a sitemap shortlist and imports each newly listed canonical URL once', async () => {
 		const send = vi.fn().mockResolvedValue({});
 		const browserEnv = {
 			...env,
@@ -444,6 +447,9 @@ describe('KeepRoot Worker', () => {
 			name: 'Example Blog',
 			userId: TEST_USER_ID,
 		});
+		await env.KEEPROOT_DB.prepare(
+			'UPDATE sources SET last_success_at = ? WHERE id = ?',
+		).bind('2026-08-12T12:00:00.000Z', source.id).run();
 		const article = (index: number, publishedAt: string) => ({
 			html: `<!doctype html><html><head>
 				<link rel="canonical" href="https://example.com/posts/${index}">
@@ -464,14 +470,33 @@ describe('KeepRoot Worker', () => {
 		const initialRecords = Array.from({ length: 26 }, (_, index) =>
 			article(index + 1, new Date(Date.UTC(2026, 7, index + 1)).toISOString()));
 		const jobs = new Map([
-			['crawl-initial', initialRecords],
-			['crawl-new', [initialRecords[25], article(27, '2026-08-27T12:00:00.000Z')]],
-			['crawl-unchanged', [article(27, '2026-08-27T12:00:00.000Z')]],
+			['crawl-initial', initialRecords.slice(21)],
+			['crawl-new', [article(27, '2026-08-27T12:00:00.000Z')]],
 		]);
 		const jobIds = [...jobs.keys()];
 		const startBodies: Array<Record<string, unknown>> = [];
+		let sitemapRequestCount = 0;
+		const sitemap = (postCount: number) => `<?xml version="1.0" encoding="UTF-8"?>
+			<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">
+				<url><loc>https://example.com/blog</loc><lastmod>2026-08-01</lastmod></url>
+				${Array.from({ length: postCount }, (_, index) => `<url>
+					<loc>https://example.com/posts/${index + 1}</loc>
+					<lastmod>${new Date(Date.UTC(2026, 7, index + 1)).toISOString()}</lastmod>
+				</url>`).join('')}
+			</urlset>`;
 		vi.spyOn(globalThis, 'fetch').mockImplementation(async (input, init) => {
 			const url = new URL(typeof input === 'string' ? input : input instanceof URL ? input : input.url);
+			if (url.origin === 'https://example.com' && url.pathname === '/robots.txt') {
+				return new Response('Sitemap: https://example.com/sitemap.xml', {
+					headers: { 'Content-Type': 'text/plain' },
+				});
+			}
+			if (url.origin === 'https://example.com' && url.pathname === '/sitemap.xml') {
+				sitemapRequestCount += 1;
+				return new Response(sitemap(sitemapRequestCount === 1 ? 26 : 27), {
+					headers: { 'Content-Type': 'application/xml' },
+				});
+			}
 			if (url.pathname.endsWith('/browser-rendering/crawl') && init?.method === 'POST') {
 				startBodies.push(JSON.parse(String(init.body)) as Record<string, unknown>);
 				return Response.json({ success: true, result: jobIds.shift() });
@@ -509,9 +534,14 @@ describe('KeepRoot Worker', () => {
 			`SELECT state, COUNT(*) AS count FROM source_discoveries
 			WHERE source_id = ? GROUP BY state ORDER BY state`,
 		).bind(source.id).all<{ count: number; state: string }>();
-		expect(initialStates.results).toEqual([
-			{ count: 21, state: 'baselined' },
-			{ count: 5, state: 'imported' },
+		expect(initialStates.results).toEqual([{ count: 5, state: 'imported' }]);
+		const initialSitemapStates = await env.KEEPROOT_DB.prepare(
+			`SELECT state, COUNT(*) AS count FROM source_sitemap_urls
+			WHERE source_id = ? GROUP BY state ORDER BY state`,
+		).bind(source.id).all<{ count: number; state: string }>();
+		expect(initialSitemapStates.results).toEqual([
+			{ count: 22, state: 'baselined' },
+			{ count: 5, state: 'processed' },
 		]);
 		const initialBookmarks = await env.KEEPROOT_DB.prepare(
 			'SELECT source_entry_id FROM bookmarks WHERE source_id = ? ORDER BY source_entry_id',
@@ -529,8 +559,8 @@ describe('KeepRoot Worker', () => {
 		).bind(initialRunId).first<Record<string, number | string>>();
 		expect(initialRun).toMatchObject({
 			created_count: 5,
-			discovered_count: 26,
-			examined_count: 26,
+			discovered_count: 5,
+			examined_count: 5,
 			skipped_count: 0,
 			status: 'success',
 		});
@@ -551,15 +581,32 @@ describe('KeepRoot Worker', () => {
 			crawlPurposes: ['search', 'ai-input'],
 			depth: 5,
 			formats: ['html'],
-			limit: 100,
+			limit: 5,
 			maxAge: 0,
+			options: {
+				includeExternalLinks: false,
+				includePatterns: [
+					'https://example.com/posts/26',
+					'https://example.com/posts/25',
+					'https://example.com/posts/24',
+					'https://example.com/posts/23',
+					'https://example.com/posts/22',
+				],
+				includeSubdomains: false,
+			},
 			rejectResourceTypes: ['image', 'media', 'font'],
 			render: true,
-			source: 'all',
+			source: 'sitemaps',
 			url: 'https://example.com/blog',
 		});
 		expect(startBodies[0]).not.toHaveProperty('modifiedSince');
-		expect(startBodies[1]).toHaveProperty('modifiedSince');
+		expect(startBodies[1]).toMatchObject({
+			limit: 1,
+			options: { includePatterns: ['https://example.com/posts/27'] },
+			source: 'sitemaps',
+		});
+		expect(startBodies[1]).not.toHaveProperty('modifiedSince');
+		expect(startBodies).toHaveLength(2);
 	});
 
 	it('coalesces Browser Run refreshes, cancels orphaned runs, and clears a stale source error', async () => {

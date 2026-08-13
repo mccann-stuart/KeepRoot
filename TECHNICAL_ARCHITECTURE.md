@@ -228,7 +228,7 @@ The model should be understood in two ways:
 | --- | --- |
 | items | `bookmarks` plus `bookmark_contents` |
 | tags | `tags` plus `bookmark_tags` |
-| sources | `sources`, `source_runs`, and Browser Run URL state in `source_discoveries` |
+| sources | `sources`, `source_runs`, recognised Browser Run URLs in `source_discoveries`, and sitemap URL state in `source_sitemap_urls` |
 | inbox | `inbox_entries` |
 | account | `account_settings` |
 | keyword search | `item_search_documents` plus `item_search_fts` |
@@ -486,6 +486,14 @@ The default browser transport is the `BROWSER.quickAction()` Worker binding. As 
 7. Selected HTML uses the same Readability and Turndown extraction path as manual URL saves. The canonical URL becomes `sourceEntryId`, source tags are appended, and existing bookmarks do not re-enter the inbox.
 8. A baseline crawl with no recognised posts fails with metadata guidance. A later crawl with zero new URLs succeeds. Partial blocked or errored pages are amber, and reaching the 100-page cap marks the run saturated.
 9. Structured logs mark queued, coalesced, accepted, status, result-page, completion and cancellation boundaries using source, run and upstream job IDs. They include progress counters but exclude crawl URLs and credentials.
+2. The Worker safely discovers same-origin sitemap files from `robots.txt` and `/sitemap.xml`, follows bounded same-origin sitemap indexes, and records each canonical URL plus `<lastmod>` in `source_sitemap_urls`. Collection-like paths and non-HTML resources are excluded from the shortlist.
+3. `<lastmod>` ranks candidates but is not treated as a publication date. The baseline selects the newest five candidate URLs and baselines all older listed URLs. Later runs select only first-seen sitemap URLs, up to 100; an unchanged sitemap completes without creating a Browser Run job. If no usable sitemap exists, KeepRoot retains its bounded broad-crawl fallback and applies `modifiedSince` after the baseline.
+4. The Worker starts one asynchronous Browser Run `/crawl` job restricted to the selected sitemap URLs, with rendered HTML, same-origin traversal, depth five, fresh origin content, blocked images/media/fonts, and `search` plus `ai-input` crawl purposes.
+5. `source_runs` persists the upstream job ID, phase, result cursor, start time, counters, and initial-crawl flag. Each Queue delivery renews the source lease and either polls status after 30 seconds or advances one result page before requeueing.
+6. A crawl still running after 30 minutes is cancelled and failed. HTTP 429 honours `Retry-After`, transient 5xx failures retry, and 401/403 responses fail as non-retryable operator configuration errors.
+7. Completed result pages stage a canonical URL only when the same-origin page has a title and publication timestamp from JSON-LD `BlogPosting`/`Article`/`NewsArticle`, Open Graph article metadata, or one page-level `<article>` with `<time datetime>`.
+8. `source_discoveries` keys each recognised canonical URL by source and SHA-256 hash. Selected HTML uses the same Readability and Turndown extraction path as manual URL saves. The canonical URL becomes `sourceEntryId`, source tags are appended, and existing bookmarks do not re-enter the inbox.
+9. A baseline crawl with no recognised posts fails with metadata guidance. A later crawl with zero new URLs succeeds. Partial blocked or errored pages are amber, and reaching the 100-page cap marks the run saturated.
 
 ### Email ingestion
 1. Email Routing forwards inbound mail to the Worker `email()` handler.
