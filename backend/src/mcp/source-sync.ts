@@ -20,6 +20,9 @@ export async function maybeQueueSourceSync(
 		await enqueueSourceRun(env, id);
 		return;
 	}
+	if (kind === 'browser') {
+		throw new Error('Agentic scraping requires SOURCE_QUEUE');
+	}
 
 	await syncSource(env, {
 		id,

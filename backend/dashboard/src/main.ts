@@ -748,7 +748,7 @@ function renderMcpStatus() {
 		{ label: 'Items', value: String(stats?.items.total ?? 0) },
 		{ label: 'Sources', value: String(stats?.sources.total ?? 0) },
 		{ label: 'Inbox Pending', value: String(stats?.inbox.pending ?? 0) },
-		{ label: 'Feed Backlog', value: String(stats?.ingestion?.queue.backlog ?? 0) },
+		{ label: 'Source Backlog', value: String(stats?.ingestion?.queue.backlog ?? 0) },
 	];
 	for (const stat of statCards) {
 		const card = document.createElement('article');
@@ -790,7 +790,7 @@ function renderSourceHealth(entries: SourceHealthRecord[], ingestion?: UsageStat
 		overview.className = 'stack-item stack-item--split ingestion-overview';
 		overview.innerHTML = `
 			<div>
-				<h3>Feed ingestion</h3>
+				<h3>Source ingestion</h3>
 				<p class="muted-copy">${escapeHtml(ingestion.interpretation)}</p>
 				<p class="muted-copy">Queue ${escapeHtml(String(ingestion.queue.backlog))} · Oldest ${escapeHtml(String(ingestion.queue.oldestJobAgeSeconds))}s · DLQ ${escapeHtml(String(ingestion.dlq.backlog))}</p>
 			</div>
@@ -812,12 +812,15 @@ function renderSourceHealth(entries: SourceHealthRecord[], ingestion?: UsageStat
 		item.className = 'stack-item stack-item--split';
 		const source = state.sources.find((candidate) => candidate.id === entry.id);
 		const canRefresh = source?.status === 'active' && Boolean(source.pollUrl);
+		const activityLine = entry.kind === 'browser'
+			? `Pages ${entry.examinedCount ?? 0} · Posts ${entry.discoveredCount ?? 0} · New ${entry.createdCount ?? 0} · Skipped ${entry.skippedCount ?? 0} · Upstream errors ${entry.upstreamErrorCount ?? 0}`
+			: `Discovered ${entry.discoveredCount ?? 0} · New ${entry.createdCount ?? 0} · Refreshed ${entry.refreshedCount ?? 0} · Errors ${entry.errorCount ?? 0}`;
 		item.innerHTML = `
 			<div>
 				<h3>${escapeHtml(entry.name)}</h3>
-				<p class="muted-copy">${escapeHtml(entry.kind)} · Last success ${escapeHtml(formatTimestamp(entry.lastSuccessAt))}</p>
+				<p class="muted-copy">${escapeHtml(entry.kind)}${entry.status === 'waiting' ? ' · waiting' : ''} · Last success ${escapeHtml(formatTimestamp(entry.lastSuccessAt))}</p>
 				${entry.pollIntervalMinutes || entry.nextPollAt ? `<p class="muted-copy">Every ${escapeHtml(String(entry.pollIntervalMinutes ?? '—'))} min · Next ${escapeHtml(formatTimestamp(entry.nextPollAt))}</p>` : ''}
-				<p class="muted-copy">Discovered ${escapeHtml(String(entry.discoveredCount ?? 0))} · New ${escapeHtml(String(entry.createdCount ?? 0))} · Refreshed ${escapeHtml(String(entry.refreshedCount ?? 0))} · Errors ${escapeHtml(String(entry.errorCount ?? 0))}</p>
+				<p class="muted-copy">${escapeHtml(activityLine)}</p>
 				${entry.lastError ? `<p class="muted-copy">${escapeHtml(entry.lastError)}</p>` : ''}
 			</div>
 			<div class="button-row">

@@ -19,7 +19,7 @@ export type IngestJob =
 		kind: 'sync_source';
 		payload: {
 			id: string;
-			kind: 'rss' | 'youtube' | 'x' | 'email';
+			kind: 'browser' | 'rss' | 'youtube' | 'x' | 'email';
 			name?: string;
 			pollUrl: string;
 			userId: string;
@@ -44,6 +44,10 @@ export async function processIngestJob(env: StorageEnv, job: IngestJob): Promise
 				},
 			);
 			return;
+		}
+
+		if (job.payload.kind === 'browser') {
+			throw new Error('Browser sources must be processed through SOURCE_QUEUE');
 		}
 
 		await syncSource(env, {

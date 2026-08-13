@@ -47,6 +47,7 @@ export interface ApiKeyRecord {
 }
 
 export interface AccountFeatures extends Record<string, boolean | null | number | string | undefined> {
+	browser?: boolean;
 	email?: boolean;
 	rss?: boolean;
 	x?: boolean;
@@ -93,6 +94,7 @@ export interface ToolUsageRecord {
 export interface SourceHealthRecord {
 	createdCount?: number;
 	discoveredCount?: number;
+	examinedCount?: number;
 	errorCount?: number;
 	health?: 'green' | 'amber' | 'red';
 	id: string;
@@ -106,8 +108,10 @@ export interface SourceHealthRecord {
 	processedCount?: number;
 	refreshedCount?: number;
 	saturated?: boolean;
+	skippedCount?: number;
 	status: string;
 	unchangedCount?: number;
+	upstreamErrorCount?: number;
 }
 
 export interface IngestionHealth {

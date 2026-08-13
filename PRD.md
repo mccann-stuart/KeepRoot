@@ -61,7 +61,7 @@ V1 ships the requested 12-tool MCP surface. The product and schema should still 
 ## Product Terms
 - Item: the MCP-facing name for an internally stored bookmark or document record.
 - Canonical record: the structured source of truth for an item and its associated metadata and state.
-- Source: a configured ingest origin such as RSS, YouTube, X, or email.
+- Source: a configured ingest origin such as Agentic scraping, RSS, YouTube, X, or email.
 - Inbox entry: a pending triage record linked to an item.
 - Retrieval interface: the mechanism used by agents to discover or fetch context.
 - Agent action: a permitted mutation or workflow operation exposed as an MCP tool.
@@ -260,8 +260,8 @@ These are the difference between a passive archive and a useful personal memory 
 | MCP transport | Workers `fetch()` on `/mcp`, `agents/mcp/server` `createMcpHandler()`, optional Workers OAuth Provider | `agents`, `@modelcontextprotocol/server`, `zod` |
 | Canonical structured store | D1 (`KEEPROOT_DB`) for metadata and state, R2 (`KEEPROOT_CONTENT`) for stored content payloads | Existing KeepRoot storage modules |
 | Hybrid search | D1 tables plus FTS5, Workers AI (`AI`) for embeddings, Vectorize (`KEEPROOT_VECTOR_INDEX`) for similarity search | `zod` |
-| Save and extraction | Workers runtime, optional Browser Rendering fallback, Queues (`INGEST_QUEUE`) for async work | `linkedom`, `@mozilla/readability`, `turndown`, `pdfjs-dist` |
-| Source ingestion | Cron Triggers, Queues, Email Routing and Email Workers | `fast-xml-parser`, `postal-mime` |
+| Save and extraction | Workers runtime and Queues (`INGEST_QUEUE`) for async work | `linkedom`, `@mozilla/readability`, `turndown`, `pdfjs-dist` |
+| Source ingestion | Cron Triggers, Queues, Browser Run `/crawl` REST API, Email Routing and Email Workers | `fast-xml-parser`, `postal-mime` |
 | Stats and usage | D1 for canonical counters, optional Workers Analytics Engine for high-volume telemetry | Existing storage logic |
 
 ## Key Product Decisions

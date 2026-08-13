@@ -37,6 +37,14 @@ const REQUIRED_SOURCE_RUN_COLUMNS = [
 	'duration_ms',
 	'queued_at',
 	'lease_expires_at',
+	'examined_count',
+	'skipped_count',
+	'upstream_error_count',
+	'upstream_job_id',
+	'upstream_phase',
+	'upstream_cursor',
+	'upstream_started_at',
+	'initial_crawl',
 ] as const;
 
 const REQUIRED_TABLE_NAMES = [
@@ -45,6 +53,7 @@ const REQUIRED_TABLE_NAMES = [
 	'account_settings',
 	'sources',
 	'source_runs',
+	'source_discoveries',
 	'inbox_entries',
 	'item_search_documents',
 	'bookmark_embeddings',
@@ -222,6 +231,14 @@ export async function ensureMcpSchema(env: StorageEnv): Promise<void> {
 		queued_at: 'TEXT',
 		refreshed_count: 'INTEGER NOT NULL DEFAULT 0',
 		saturated: 'INTEGER NOT NULL DEFAULT 0',
+		examined_count: 'INTEGER NOT NULL DEFAULT 0',
+		skipped_count: 'INTEGER NOT NULL DEFAULT 0',
+		upstream_error_count: 'INTEGER NOT NULL DEFAULT 0',
+		upstream_job_id: 'TEXT',
+		upstream_phase: 'TEXT',
+		upstream_cursor: 'TEXT',
+		upstream_started_at: 'TEXT',
+		initial_crawl: 'INTEGER NOT NULL DEFAULT 0',
 		unchanged_count: 'INTEGER NOT NULL DEFAULT 0',
 	};
 	const sourceRunPromises: Promise<void>[] = [];
@@ -231,6 +248,25 @@ export async function ensureMcpSchema(env: StorageEnv): Promise<void> {
 		}
 	}
 	await Promise.all(sourceRunPromises);
+
+	await runSchemaStatement(
+		env,
+		`CREATE TABLE IF NOT EXISTS source_discoveries (
+			source_id TEXT NOT NULL,
+			url_hash TEXT NOT NULL,
+			canonical_url TEXT NOT NULL,
+			title TEXT NOT NULL,
+			published_at TEXT NOT NULL,
+			state TEXT NOT NULL DEFAULT 'pending' CHECK (state IN ('pending', 'imported', 'baselined')),
+			first_seen_run_id TEXT NOT NULL,
+			last_seen_run_id TEXT NOT NULL,
+			first_seen_at TEXT NOT NULL,
+			last_seen_at TEXT NOT NULL,
+			imported_at TEXT,
+			PRIMARY KEY (source_id, url_hash),
+			FOREIGN KEY (source_id) REFERENCES sources(id) ON DELETE CASCADE
+		)`,
+	);
 
 	await runSchemaStatement(
 		env,
@@ -303,6 +339,8 @@ export async function ensureMcpSchema(env: StorageEnv): Promise<void> {
 		runSchemaStatement(env, 'CREATE INDEX IF NOT EXISTS idx_source_runs_source_id_started_at ON source_runs(source_id, started_at DESC)'),
 		runSchemaStatement(env, 'CREATE UNIQUE INDEX IF NOT EXISTS idx_source_runs_dispatch_key ON source_runs(dispatch_key) WHERE dispatch_key IS NOT NULL'),
 		runSchemaStatement(env, 'CREATE INDEX IF NOT EXISTS idx_source_runs_status_queued_at ON source_runs(status, queued_at)'),
+		runSchemaStatement(env, 'CREATE INDEX IF NOT EXISTS idx_source_discoveries_run ON source_discoveries(source_id, first_seen_run_id, state, published_at DESC)'),
+		runSchemaStatement(env, "CREATE INDEX IF NOT EXISTS idx_source_discoveries_pending ON source_discoveries(source_id, state) WHERE state = 'pending'"),
 		runSchemaStatement(env, 'CREATE INDEX IF NOT EXISTS idx_inbox_entries_user_state_created_at ON inbox_entries(user_id, state, created_at DESC)'),
 		runSchemaStatement(env, 'CREATE INDEX IF NOT EXISTS idx_inbox_entries_bookmark_id ON inbox_entries(bookmark_id)'),
 		runSchemaStatement(env, 'CREATE INDEX IF NOT EXISTS idx_item_search_documents_user_id_updated_at ON item_search_documents(user_id, updated_at DESC)'),

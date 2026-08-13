@@ -22,7 +22,8 @@ export interface StorageEnv {
 	ALLOWED_EXTENSION_IDS?: string;
 	AUTH_ORIGIN?: string;
 	AUTH_RATE_LIMITER: RateLimit;
-	BROWSER?: Fetcher;
+	BROWSER_RUN_ACCOUNT_ID?: string;
+	BROWSER_RUN_API_TOKEN?: string;
 	EMAIL_SOURCE_DOMAIN?: string;
 	ENABLE_X_SOURCES?: string;
 	INGEST_QUEUE?: Queue<unknown>;
@@ -133,7 +134,7 @@ export interface BookmarkPatchPayload {
 	title?: string;
 }
 
-export type SourceKind = 'rss' | 'youtube' | 'x' | 'email';
+export type SourceKind = 'browser' | 'rss' | 'youtube' | 'x' | 'email';
 
 export interface PaginationInput {
 	cursor?: string | null;

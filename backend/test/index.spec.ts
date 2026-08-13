@@ -2,6 +2,7 @@ import { env, createExecutionContext, waitOnExecutionContext } from 'cloudflare:
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import worker from '../src/index';
 import { addSource, createApiKey, createList, createSession, createSmartList, createUserWithCredential, ensureAccountSettings, getBookmark, hashToken, recordToolEvent, saveBookmark, storeAuthChallenge } from '../src/storage';
+import { enqueueSourceRun, processSourceQueueJob } from '../src/ingest/source-queue';
 import initialSchemaSql from '../migrations/0001_initial.sql?raw';
 import organizationSchemaSql from '../migrations/0002_organization.sql?raw';
 import mcpServerSchemaSql from '../migrations/0003_mcp_server.sql?raw';
@@ -10,6 +11,7 @@ import securityHardeningSchemaSql from '../migrations/0005_security_hardening.sq
 import sourceEntryIdentitySchemaSql from '../migrations/0006_source_entry_identity.sql?raw';
 import queueFirstFeedCrawlingSchemaSql from '../migrations/0007_queue_first_feed_crawling.sql?raw';
 import adaptiveFeedSchedulingSchemaSql from '../migrations/0008_adaptive_feed_scheduling.sql?raw';
+import browserRunSourcesSchemaSql from '../migrations/0009_browser_run_sources.sql?raw';
 
 const API_KEY = 'test-api-key-12345';
 const TEST_USER_ID = 'test-user-id';
@@ -122,6 +124,7 @@ async function resetDatabase(): Promise<void> {
 	await execStatements(sourceEntryIdentitySchemaSql, true);
 	await execStatements(queueFirstFeedCrawlingSchemaSql, true);
 	await execStatements(adaptiveFeedSchedulingSchemaSql, true);
+	await execStatements(browserRunSourcesSchemaSql, true);
 	await execStatements(`
 		DELETE FROM bookmark_tags;
 		DELETE FROM bookmark_images;
@@ -139,6 +142,7 @@ async function resetDatabase(): Promise<void> {
 	await tryExec('DELETE FROM bookmark_embeddings');
 	await tryExec('DELETE FROM item_search_documents');
 	await tryExec('DELETE FROM inbox_entries');
+	await tryExec('DELETE FROM source_discoveries');
 	await tryExec('DELETE FROM source_runs');
 	await tryExec('DELETE FROM sources');
 	await tryExec('DELETE FROM account_settings');
@@ -395,6 +399,21 @@ describe('KeepRoot Worker', () => {
 			now,
 			now,
 		).run();
+		await env.KEEPROOT_DB.prepare(
+			`INSERT INTO sources
+			(id, user_id, kind, name, normalized_identifier, poll_url, status, config_json,
+				active_run_id, lease_expires_at, created_at, updated_at)
+			VALUES (?, ?, 'browser', 'Leased browser source', ?, ?, 'active', '{}', ?, ?, ?, ?)`,
+		).bind(
+			'source-leased',
+			TEST_USER_ID,
+			'https://example.com/blog',
+			'https://example.com/blog',
+			'run-active',
+			'2026-08-06T12:10:00.000Z',
+			now,
+			now,
+		).run();
 		const sendBatch = vi.fn().mockResolvedValue({ metadata: { metrics: { backlogBytes: 1, backlogCount: 1 } } });
 		const sourceQueue = { sendBatch } as unknown as Queue<unknown>;
 		const scheduledTime = Date.parse('2026-08-06T12:00:00.000Z');
@@ -409,6 +428,184 @@ describe('KeepRoot Worker', () => {
 		expect(sent[0].body).toEqual({ runId: expect.any(String), sourceId: 'source-cron' });
 		expect(JSON.stringify(sent[0].body)).not.toContain('example.com');
 		expect(sendBatch.mock.calls[1][0][0].body).toEqual(sent[0].body);
+	});
+
+	it('baselines Browser Run archives, paginates results, and imports each new canonical URL once', async () => {
+		const send = vi.fn().mockResolvedValue({});
+		const browserEnv = {
+			...env,
+			BROWSER_RUN_ACCOUNT_ID: 'browser-account',
+			BROWSER_RUN_API_TOKEN: 'browser-token',
+			SOURCE_QUEUE: { send },
+		};
+		const source = await addSource(browserEnv as any, {
+			identifier: 'https://example.com/blog',
+			kind: 'browser',
+			name: 'Example Blog',
+			userId: TEST_USER_ID,
+		});
+		const article = (index: number, publishedAt: string) => ({
+			html: `<!doctype html><html><head>
+				<link rel="canonical" href="https://example.com/posts/${index}">
+				<script type="application/ld+json">${JSON.stringify({
+					'@context': 'https://schema.org',
+					'@type': 'BlogPosting',
+					datePublished: publishedAt,
+					headline: `Post ${index}`,
+				})}</script>
+			</head><body><article><h1>Post ${index}</h1>
+				<p>This is a complete article paragraph for post ${index}, with enough useful text for readable extraction.</p>
+				<p>A second paragraph preserves the shared HTML to Markdown content path.</p>
+			</article></body></html>`,
+			metadata: { status: 200, title: `Post ${index}`, url: `https://example.com/posts/${index}` },
+			status: 'completed',
+			url: `https://example.com/posts/${index}`,
+		});
+		const initialRecords = Array.from({ length: 26 }, (_, index) =>
+			article(index + 1, new Date(Date.UTC(2026, 7, index + 1)).toISOString()));
+		const jobs = new Map([
+			['crawl-initial', initialRecords],
+			['crawl-new', [initialRecords[25], article(27, '2026-08-27T12:00:00.000Z')]],
+			['crawl-unchanged', [article(27, '2026-08-27T12:00:00.000Z')]],
+		]);
+		const jobIds = [...jobs.keys()];
+		const startBodies: Array<Record<string, unknown>> = [];
+		vi.spyOn(globalThis, 'fetch').mockImplementation(async (input, init) => {
+			const url = new URL(typeof input === 'string' ? input : input instanceof URL ? input : input.url);
+			if (url.pathname.endsWith('/browser-rendering/crawl') && init?.method === 'POST') {
+				startBodies.push(JSON.parse(String(init.body)) as Record<string, unknown>);
+				return Response.json({ success: true, result: jobIds.shift() });
+			}
+			const jobId = url.pathname.split('/').at(-1) ?? '';
+			const records = jobs.get(jobId) ?? [];
+			const limit = Number(url.searchParams.get('limit') ?? 25);
+			const offset = Number(url.searchParams.get('cursor') ?? 0);
+			const nextOffset = Math.min(offset + limit, records.length);
+			return Response.json({
+				success: true,
+				result: {
+					cursor: limit === 1 || nextOffset >= records.length ? null : String(nextOffset),
+					finished: records.length,
+					id: jobId,
+					records: limit === 1 ? [] : records.slice(offset, nextOffset),
+					status: 'completed',
+					total: records.length,
+				},
+			});
+		});
+
+		const runToCompletion = async (runType: string) => {
+			const runId = await enqueueSourceRun(browserEnv as any, String(source.id), runType);
+			let outcome: Awaited<ReturnType<typeof processSourceQueueJob>> = 'ignored';
+			for (let delivery = 0; delivery < 12 && outcome !== 'completed'; delivery += 1) {
+				outcome = await processSourceQueueJob(browserEnv as any, { runId, sourceId: String(source.id) }, 1);
+			}
+			expect(outcome).toBe('completed');
+			return runId;
+		};
+
+		const initialRunId = await runToCompletion('browser-initial');
+		const initialStates = await env.KEEPROOT_DB.prepare(
+			`SELECT state, COUNT(*) AS count FROM source_discoveries
+			WHERE source_id = ? GROUP BY state ORDER BY state`,
+		).bind(source.id).all<{ count: number; state: string }>();
+		expect(initialStates.results).toEqual([
+			{ count: 21, state: 'baselined' },
+			{ count: 5, state: 'imported' },
+		]);
+		const initialBookmarks = await env.KEEPROOT_DB.prepare(
+			'SELECT source_entry_id FROM bookmarks WHERE source_id = ? ORDER BY source_entry_id',
+		).bind(source.id).all<{ source_entry_id: string }>();
+		expect(initialBookmarks.results).toHaveLength(5);
+		expect(initialBookmarks.results.map((row) => row.source_entry_id)).toEqual([
+			'https://example.com/posts/22',
+			'https://example.com/posts/23',
+			'https://example.com/posts/24',
+			'https://example.com/posts/25',
+			'https://example.com/posts/26',
+		]);
+		const initialRun = await env.KEEPROOT_DB.prepare(
+			'SELECT status, examined_count, discovered_count, created_count, skipped_count FROM source_runs WHERE id = ?',
+		).bind(initialRunId).first<Record<string, number | string>>();
+		expect(initialRun).toMatchObject({
+			created_count: 5,
+			discovered_count: 26,
+			examined_count: 26,
+			skipped_count: 0,
+			status: 'success',
+		});
+
+		await runToCompletion('browser-new');
+		const unchangedRunId = await runToCompletion('browser-unchanged');
+		const finalBookmarks = await env.KEEPROOT_DB.prepare(
+			'SELECT source_entry_id FROM bookmarks WHERE source_id = ? ORDER BY source_entry_id',
+		).bind(source.id).all<{ source_entry_id: string }>();
+		expect(finalBookmarks.results).toHaveLength(6);
+		expect(finalBookmarks.results.filter((row) => row.source_entry_id === 'https://example.com/posts/27')).toHaveLength(1);
+		const latestRun = await env.KEEPROOT_DB.prepare(
+			'SELECT status, created_count, error_count FROM source_runs WHERE id = ?',
+		).bind(unchangedRunId).first<{ created_count: number; error_count: number; status: string }>();
+		expect(latestRun).toEqual({ created_count: 0, error_count: 0, status: 'success' });
+
+		expect(startBodies[0]).toMatchObject({
+			crawlPurposes: ['search', 'ai-input'],
+			depth: 5,
+			formats: ['html'],
+			limit: 100,
+			maxAge: 0,
+			rejectResourceTypes: ['image', 'media', 'font'],
+			render: true,
+			source: 'all',
+			url: 'https://example.com/blog',
+		});
+		expect(startBodies[0]).not.toHaveProperty('modifiedSince');
+		expect(startBodies[1]).toHaveProperty('modifiedSince');
+	});
+
+	it('fails an initial Browser Run crawl that recognises no posts', async () => {
+		const send = vi.fn().mockResolvedValue({});
+		const browserEnv = {
+			...env,
+			BROWSER_RUN_ACCOUNT_ID: 'browser-account',
+			BROWSER_RUN_API_TOKEN: 'browser-token',
+			SOURCE_QUEUE: { send },
+		};
+		const source = await addSource(browserEnv as any, {
+			identifier: 'https://empty.example/blog',
+			kind: 'browser',
+			name: 'Empty Blog',
+			userId: TEST_USER_ID,
+		});
+		vi.spyOn(globalThis, 'fetch').mockImplementation(async (input, init) => {
+			const url = new URL(typeof input === 'string' ? input : input instanceof URL ? input : input.url);
+			if (url.pathname.endsWith('/browser-rendering/crawl') && init?.method === 'POST') {
+				return Response.json({ success: true, result: 'crawl-empty' });
+			}
+			const pollOnly = url.searchParams.get('limit') === '1';
+			return Response.json({ success: true, result: {
+				cursor: null,
+				finished: 1,
+				id: 'crawl-empty',
+				records: pollOnly ? [] : [{
+					html: '<html><head><title>Blog home</title></head><body>No article metadata</body></html>',
+					status: 'completed',
+					url: 'https://empty.example/blog',
+				}],
+				status: 'completed',
+				total: 1,
+			} });
+		});
+		const runId = await enqueueSourceRun(browserEnv as any, String(source.id), 'browser-empty');
+
+		await expect(processSourceQueueJob(browserEnv as any, { runId, sourceId: String(source.id) }, 1)).resolves.toBe('continued');
+		await expect(processSourceQueueJob(browserEnv as any, { runId, sourceId: String(source.id) }, 1)).resolves.toBe('continued');
+		await expect(processSourceQueueJob(browserEnv as any, { runId, sourceId: String(source.id) }, 1)).resolves.toBe('completed');
+
+		const failedRun = await env.KEEPROOT_DB.prepare(
+			'SELECT status, error_text, examined_count, discovered_count FROM source_runs WHERE id = ?',
+		).bind(runId).first<{ discovered_count: number; error_text: string; examined_count: number; status: string }>();
+		expect(failedRun).toMatchObject({ discovered_count: 0, examined_count: 1, status: 'error' });
+		expect(failedRun?.error_text).toContain('found no blog posts with recognised article metadata');
 	});
 
 	it('acknowledges an inactive or missing source run message independently', async () => {

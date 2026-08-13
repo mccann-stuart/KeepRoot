@@ -33,6 +33,13 @@ const SOURCE_KIND_METADATA: Record<SourceKind, Omit<SourceKindOption, 'disabled'
 		label: 'RSS',
 		requiresBridgeUrl: false,
 	},
+	browser: {
+		description: 'Crawl a blog without RSS and import newly published posts.',
+		identifierHelp: 'Paste the public blog or archive URL you want KeepRoot to crawl.',
+		identifierLabel: 'Blog URL',
+		label: 'Agentic scraping',
+		requiresBridgeUrl: false,
+	},
 	x: {
 		description: 'Connect an X/Twitter source through an operator-managed RSS bridge URL.',
 		identifierHelp: 'Use the profile URL, handle, or source label you want to track.',
@@ -90,7 +97,7 @@ export function buildMcpPresets(origin: string): McpPreset[] {
 export function getSourceKindOptions(features: AccountFeatures | null): SourceKindOption[] {
 	return (Object.keys(SOURCE_KIND_METADATA) as SourceKind[]).map((kind) => ({
 		...SOURCE_KIND_METADATA[kind],
-		disabled: features ? features[kind] === false : false,
+		disabled: features ? features[kind] !== true : false,
 		kind,
 	}));
 }

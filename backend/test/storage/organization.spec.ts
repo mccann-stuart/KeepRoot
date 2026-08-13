@@ -109,6 +109,9 @@ describe('organization storage', () => {
 								{ name: 'attempt_count' }, { name: 'processed_count' }, { name: 'created_count' },
 								{ name: 'refreshed_count' }, { name: 'unchanged_count' }, { name: 'not_modified' },
 								{ name: 'saturated' }, { name: 'duration_ms' }, { name: 'queued_at' },
+								{ name: 'lease_expires_at' }, { name: 'examined_count' }, { name: 'skipped_count' },
+								{ name: 'upstream_error_count' }, { name: 'upstream_job_id' }, { name: 'upstream_phase' },
+								{ name: 'upstream_cursor' }, { name: 'upstream_started_at' }, { name: 'initial_crawl' },
                             ] })
                         })
                     } as any;
@@ -156,6 +159,9 @@ describe('organization storage', () => {
 								{ name: 'attempt_count' }, { name: 'processed_count' }, { name: 'created_count' },
 								{ name: 'refreshed_count' }, { name: 'unchanged_count' }, { name: 'not_modified' },
 								{ name: 'saturated' }, { name: 'duration_ms' }, { name: 'queued_at' },
+								{ name: 'lease_expires_at' }, { name: 'examined_count' }, { name: 'skipped_count' },
+								{ name: 'upstream_error_count' }, { name: 'upstream_job_id' }, { name: 'upstream_phase' },
+								{ name: 'upstream_cursor' }, { name: 'upstream_started_at' }, { name: 'initial_crawl' },
                             ] })
                         })
                     } as any;
@@ -202,6 +208,9 @@ describe('organization storage', () => {
 								{ name: 'attempt_count' }, { name: 'processed_count' }, { name: 'created_count' },
 								{ name: 'refreshed_count' }, { name: 'unchanged_count' }, { name: 'not_modified' },
 								{ name: 'saturated' }, { name: 'duration_ms' }, { name: 'queued_at' },
+								{ name: 'lease_expires_at' }, { name: 'examined_count' }, { name: 'skipped_count' },
+								{ name: 'upstream_error_count' }, { name: 'upstream_job_id' }, { name: 'upstream_phase' },
+								{ name: 'upstream_cursor' }, { name: 'upstream_started_at' }, { name: 'initial_crawl' },
                             ] })
                         })
                     } as any;

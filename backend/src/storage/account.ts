@@ -48,6 +48,7 @@ function parseJsonObject(value: string | null, fallback: Record<string, unknown>
 
 function getDefaultFeatures(env: StorageEnv): Record<string, unknown> {
 	return {
+		browser: Boolean(env.BROWSER_RUN_ACCOUNT_ID && env.BROWSER_RUN_API_TOKEN && env.SOURCE_QUEUE),
 		email: Boolean(env.MCP_EMAIL_DOMAIN || env.EMAIL_SOURCE_DOMAIN),
 		rss: true,
 		x: env.ENABLE_X_SOURCES === '1' || Boolean(env.X_SOURCE_BRIDGE_BASE_URL),
@@ -179,7 +180,11 @@ export async function getWhoAmI(
 
 	const settings = selectResult.results[0] as AccountSettingsRow | undefined;
 
-	const features = settings ? parseJsonObject(settings.features_json, getDefaultFeatures(env)) : getDefaultFeatures(env);
+	const defaultFeatures = getDefaultFeatures(env);
+	const storedFeatures = settings ? parseJsonObject(settings.features_json, {}) : {};
+	const features = settings
+		? { ...defaultFeatures, ...storedFeatures, browser: defaultFeatures.browser }
+		: defaultFeatures;
 	const limits = settings ? parseJsonObject(settings.limits_json, getDefaultLimits()) : getDefaultLimits();
 
 	return compactObject({
@@ -247,6 +252,7 @@ export async function clearUserData(env: StorageEnv, userId: string): Promise<vo
 		env.KEEPROOT_DB.prepare('DELETE FROM item_search_fts WHERE user_id = ?').bind(userId),
 		env.KEEPROOT_DB.prepare('DELETE FROM tool_events WHERE user_id = ?').bind(userId),
 		env.KEEPROOT_DB.prepare('DELETE FROM inbox_entries WHERE user_id = ?').bind(userId),
+		env.KEEPROOT_DB.prepare('DELETE FROM source_discoveries WHERE source_id IN (SELECT id FROM sources WHERE user_id = ?)').bind(userId),
 		env.KEEPROOT_DB.prepare('DELETE FROM source_runs WHERE source_id IN (SELECT id FROM sources WHERE user_id = ?)').bind(userId),
 		env.KEEPROOT_DB.prepare('DELETE FROM api_keys WHERE user_id = ?').bind(userId),
 		env.KEEPROOT_DB.prepare('DELETE FROM account_settings WHERE user_id = ?').bind(userId),

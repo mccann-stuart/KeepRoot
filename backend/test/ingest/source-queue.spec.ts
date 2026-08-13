@@ -1,6 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { syncSource, type SourceSyncResult } from '../../src/ingest/source-sync';
 import { processSourceQueueJob, sourceRetryDelaySeconds, type SourceQueueJob } from '../../src/ingest/source-queue';
+import { BrowserRunCrawlError } from '../../src/ingest/browser-run';
 
 vi.mock('../../src/ingest/source-sync', () => ({ syncSource: vi.fn() }));
 
@@ -154,5 +155,18 @@ describe('source queue processing', () => {
 
 	it('uses bounded exponential retry delays', () => {
 		expect([1, 2, 3, 4, 5, 6].map(sourceRetryDelaySeconds)).toEqual([15, 30, 60, 120, 240, 480]);
+	});
+
+	it('honours a bounded Browser Run Retry-After delay', () => {
+		expect(sourceRetryDelaySeconds(1, new BrowserRunCrawlError('Rate limited', {
+			retryAfterSeconds: 75,
+			retryable: true,
+			statusCode: 429,
+		}))).toBe(75);
+		expect(sourceRetryDelaySeconds(1, new BrowserRunCrawlError('Rate limited', {
+			retryAfterSeconds: 99_999,
+			retryable: true,
+			statusCode: 429,
+		}))).toBe(12 * 60 * 60);
 	});
 });

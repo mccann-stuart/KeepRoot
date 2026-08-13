@@ -93,8 +93,6 @@ CREATE TABLE IF NOT EXISTS tool_usage_events (
 	FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
 );
 
-CREATE INDEX IF NOT EXISTS idx_bookmarks_source_id ON bookmarks(source_id);
-CREATE INDEX IF NOT EXISTS idx_bookmarks_processing_state ON bookmarks(processing_state);
 CREATE INDEX IF NOT EXISTS idx_account_settings_user_id ON account_settings(user_id);
 CREATE INDEX IF NOT EXISTS idx_sources_user_kind_status ON sources(user_id, kind, status);
 CREATE INDEX IF NOT EXISTS idx_source_runs_source_id_started_at ON source_runs(source_id, started_at DESC);

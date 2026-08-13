@@ -112,6 +112,8 @@ flowchart LR
     Email["Email Routing -> email()"] --> Queue
     Queue --> Consumer["Queues consumer"]
     Consumer --> Ingest["Extraction, sync, indexing"]
+    Consumer --> BrowserRun["Browser Run /crawl REST API"]
+    BrowserRun --> Consumer
     Ingest --> D1
     Ingest --> R2
     Ingest --> AI
@@ -133,7 +135,7 @@ flowchart LR
 | Workers AI | `AI` binding | Query and item embeddings, and optional later reranking |
 | Vectorize | `KEEPROOT_VECTOR_INDEX` binding | Semantic retrieval over canonical records or chunks |
 | Email Routing and Email Workers | Worker `email()` plus email routes | Inbound newsletter and email-forwarding ingestion |
-| Browser Rendering | `BROWSER` binding, optional | Fallback for JavaScript-heavy pages that need a rendered DOM |
+| Browser Run | asynchronous `/crawl` REST API, optional | Rendered, same-origin public-blog discovery when RSS is unavailable |
 | Observability | Workers observability features | Logging, traces, and failure diagnosis |
 | Workers Analytics Engine | optional dataset binding | Recommended only if telemetry volume grows beyond simple D1-backed stats |
 
@@ -158,7 +160,8 @@ Escalation path:
 | `INGEST_QUEUE` | Queues | Optional asynchronous URL ingestion |
 | `SOURCE_QUEUE` | Queues | One minimal `{ sourceId, runId }` source-crawl message per delivery |
 | `SOURCE_DLQ` | Queues | Terminal source-crawl failures and health metrics |
-| `BROWSER` | Browser Rendering, optional | Rendered-page extraction fallback |
+| `BROWSER_RUN_ACCOUNT_ID` | environment variable, optional | Cloudflare account whose Browser Run API is used |
+| `BROWSER_RUN_API_TOKEN` | secret, optional | Scoped token with `Browser Rendering - Edit`; never stored or logged |
 | `MCP_EMAIL_DOMAIN` | environment variable | Stable inbound alias generation for email sources |
 | `USAGE_ANALYTICS` | Workers Analytics Engine, optional | High-volume telemetry if needed later |
 
@@ -184,6 +187,7 @@ backend/
       save-url.ts
       source-sync.ts
       source-queue.ts
+      browser-run.ts
       email.ts
       jobs.ts
     storage/
@@ -220,7 +224,7 @@ The model should be understood in two ways:
 | --- | --- |
 | items | `bookmarks` plus `bookmark_contents` |
 | tags | `tags` plus `bookmark_tags` |
-| sources | `sources` plus `source_runs` |
+| sources | `sources`, `source_runs`, and Browser Run URL state in `source_discoveries` |
 | inbox | `inbox_entries` |
 | account | `account_settings` |
 | keyword search | `item_search_documents` plus `item_search_fts` |
@@ -463,7 +467,17 @@ The higher-level tools should compose the same canonical and retrieval layers in
 6. At most 200 new or changed entries are handled per delivery, with four expensive writes in flight. A continuation requeues the same run until caught up.
 7. Successful writes remain idempotent, source tags remain append-only, and refreshed records do not re-enter the inbox.
 8. Successful `200` responses calculate a per-feed interval from recent publication gaps, bounded to 10-360 minutes with a 60-minute default. `304` responses retain the learned cadence, while failures advance the due time to prevent hot loops.
-9. D1 records queued, running, retrying, success, partial and error lifecycle data. Queue bindings provide realtime backlog and DLQ metrics, with D1 state as the `/stats` fallback.
+9. D1 records queued, running, waiting, retrying, success, partial and error lifecycle data. Queue bindings provide realtime backlog and DLQ metrics, with D1 state as the `/stats` fallback.
+
+### Agentic scraping source sync
+1. A `browser` source is available only when the source queue, Browser Run account ID, and scoped API token are configured. The token remains an operator secret and is never placed in source configuration.
+2. The Worker starts an asynchronous Browser Run `/crawl` job with rendered HTML, sitemap plus link discovery, same-origin traversal, depth five, a 100-page cap, fresh origin content, blocked images/media/fonts, and `search` plus `ai-input` crawl purposes. After the baseline run, `modifiedSince` uses the last successful crawl time.
+3. `source_runs` persists the upstream job ID, phase, result cursor, start time, counters, and initial-crawl flag. Each Queue delivery renews the source lease and either polls status after 30 seconds or advances one result page before requeueing.
+4. A crawl still running after 30 minutes is cancelled and failed. HTTP 429 honours `Retry-After`, transient 5xx failures retry, and 401/403 responses fail as non-retryable operator configuration errors.
+5. Completed result pages stage a canonical URL only when the same-origin page has a title and publication timestamp from JSON-LD `BlogPosting`/`Article`/`NewsArticle`, Open Graph article metadata, or one page-level `<article>` with `<time datetime>`.
+6. `source_discoveries` keys each canonical URL by source and SHA-256 hash. On the first successful crawl, the newest five recognised posts remain pending and older URLs become `baselined`; later runs leave existing rows unchanged and import only first-seen URLs.
+7. Selected HTML uses the same Readability and Turndown extraction path as manual URL saves. The canonical URL becomes `sourceEntryId`, source tags are appended, and existing bookmarks do not re-enter the inbox.
+8. A baseline crawl with no recognised posts fails with metadata guidance. A later crawl with zero new URLs succeeds. Partial blocked or errored pages are amber, and reaching the 100-page cap marks the run saturated.
 
 ### Email ingestion
 1. Email Routing forwards inbound mail to the Worker `email()` handler.
@@ -496,6 +510,7 @@ All Worker-initiated outbound fetches should pass through the shared safe-URL po
 - manual `save_item` URL fetches
 - redirect targets during URL extraction
 - RSS, YouTube, and X bridge feed polling
+- Agentic scraping start URLs and same-origin canonical URLs
 - dashboard or extension bookmark payload URLs
 - auto-hydrated image URLs discovered in saved Markdown or HTML
 

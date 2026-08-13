@@ -1,6 +1,6 @@
 import { compactObject, fetchWithRedirects, validateSafeUrl, type SourceKind, type SourceListOptions, type StorageEnv } from './shared';
 import { fetchFeed } from '../ingest/feed';
-import { clampPollIntervalMinutes } from '../ingest/feed-schedule';
+import { BROWSER_POLL_INTERVAL_MINUTES, clampSourcePollIntervalMinutes, DEFAULT_POLL_INTERVAL_MINUTES } from '../ingest/feed-schedule';
 
 interface SourceRow {
 	config_json: string;
@@ -27,6 +27,7 @@ interface SourceRunRow {
 	attempt_count?: number;
 	created_count?: number;
 	discovered_count: number;
+	examined_count?: number;
 	error_count: number;
 	error_text: string | null;
 	finished_at: string | null;
@@ -36,10 +37,14 @@ interface SourceRunRow {
 	run_type: string;
 	saved_count: number;
 	saturated?: number;
+	skipped_count?: number;
 	started_at: string;
 	status: string;
 	unchanged_count?: number;
+	upstream_error_count?: number;
 }
+
+const SOURCE_KINDS = new Set<SourceKind>(['browser', 'rss', 'youtube', 'x', 'email']);
 
 function decodeCursor(cursor?: string | null): number {
 	if (!cursor) {
@@ -190,6 +195,19 @@ async function normalizeSourceInput(
 	identifier: string,
 	config: Record<string, unknown>,
 ): Promise<{ emailAlias: string | null; normalizedIdentifier: string; pollUrl: string | null; storedConfig: Record<string, unknown> }> {
+	if (kind === 'browser') {
+		if (!env.BROWSER_RUN_ACCOUNT_ID || !env.BROWSER_RUN_API_TOKEN || !env.SOURCE_QUEUE) {
+			throw validationError('Agentic scraping requires Browser Run account credentials and SOURCE_QUEUE');
+		}
+		const pollUrl = await ensureSafeHttpUrl(identifier.trim());
+		return {
+			emailAlias: null,
+			normalizedIdentifier: pollUrl,
+			pollUrl,
+			storedConfig: config,
+		};
+	}
+
 	if (kind === 'rss') {
 		const pollUrl = await ensureSafeHttpUrl(identifier.trim());
 		return {
@@ -285,7 +303,7 @@ export async function listSources(env: StorageEnv, userId: string, options: Sour
 			name: row.name,
 			nextPollAt: row.next_poll_at,
 			normalizedIdentifier: row.normalized_identifier,
-			pollIntervalMinutes: clampPollIntervalMinutes(row.poll_interval_minutes),
+			pollIntervalMinutes: clampSourcePollIntervalMinutes(row.kind, row.poll_interval_minutes),
 			pollUrl: row.poll_url,
 			status: row.status,
 			updatedAt: row.updated_at,
@@ -303,9 +321,12 @@ export async function addSource(
 		userId: string;
 	},
 ): Promise<Record<string, unknown>> {
+	if (!SOURCE_KINDS.has(input.kind)) {
+		throw validationError('Unsupported source kind');
+	}
 	const config = input.config ?? {};
 	const normalized = await normalizeSourceInput(env, input.kind, input.identifier, config);
-	if (normalized.pollUrl) {
+	if (normalized.pollUrl && input.kind !== 'browser') {
 		await ensureReadableFeed(normalized.pollUrl);
 	}
 	const existing = await env.KEEPROOT_DB.prepare(
@@ -325,7 +346,7 @@ export async function addSource(
 
 	await env.KEEPROOT_DB.prepare(
 		`INSERT INTO sources
-		(id, user_id, kind, name, normalized_identifier, poll_url, email_alias, status, config_json, last_polled_at, last_success_at, last_error, created_at, updated_at)
+		(id, user_id, kind, name, normalized_identifier, poll_url, email_alias, status, config_json, last_polled_at, last_success_at, last_error, poll_interval_minutes, created_at, updated_at)
 		VALUES (
 			?,
 			?,
@@ -339,6 +360,7 @@ export async function addSource(
 			NULL,
 			NULL,
 			NULL,
+			?,
 			?,
 			?
 		)
@@ -360,6 +382,7 @@ export async function addSource(
 			normalized.pollUrl,
 			emailAlias,
 			JSON.stringify(normalized.storedConfig),
+			input.kind === 'browser' ? BROWSER_POLL_INTERVAL_MINUTES : DEFAULT_POLL_INTERVAL_MINUTES,
 			now,
 			now,
 		)
@@ -385,8 +408,9 @@ export async function getSourceById(env: StorageEnv, userId: string, sourceId: s
 			LIMIT 1`,
 		).bind(sourceId, userId),
 		env.KEEPROOT_DB.prepare(
-			`SELECT id, run_type, status, attempt_count, discovered_count, processed_count, saved_count,
-				created_count, refreshed_count, unchanged_count, error_count, saturated, started_at, finished_at, error_text
+			`SELECT id, run_type, status, attempt_count, discovered_count, examined_count, processed_count, saved_count,
+				created_count, refreshed_count, unchanged_count, error_count, upstream_error_count, saturated, skipped_count,
+				started_at, finished_at, error_text
 			FROM source_runs
 			WHERE source_id = ?
 			ORDER BY started_at DESC
@@ -413,12 +437,13 @@ export async function getSourceById(env: StorageEnv, userId: string, sourceId: s
 		name: source.name,
 		nextPollAt: source.next_poll_at,
 		normalizedIdentifier: source.normalized_identifier,
-		pollIntervalMinutes: clampPollIntervalMinutes(source.poll_interval_minutes),
+		pollIntervalMinutes: clampSourcePollIntervalMinutes(source.kind, source.poll_interval_minutes),
 		pollUrl: source.poll_url,
 		recentRuns: recentRuns.results.map((run) => compactObject({
 			attempts: run.attempt_count,
 			createdCount: run.created_count,
 			discoveredCount: run.discovered_count,
+			examinedCount: run.examined_count,
 			errorCount: run.error_count,
 			errorText: run.error_text,
 			finishedAt: run.finished_at,
@@ -428,9 +453,11 @@ export async function getSourceById(env: StorageEnv, userId: string, sourceId: s
 			runType: run.run_type,
 			savedCount: run.saved_count,
 			saturated: Boolean(run.saturated),
+			skippedCount: run.skipped_count,
 			startedAt: run.started_at,
 			status: run.status,
 			unchangedCount: run.unchanged_count,
+			upstreamErrorCount: run.upstream_error_count,
 		})),
 		status: source.status,
 		updatedAt: source.updated_at,
@@ -500,7 +527,7 @@ function mapPollableSource(row: PollableSourceRow): PollableSource {
 		lastPolledAt: row.last_polled_at,
 		name: row.name,
 		nextPollAt: row.next_poll_at ?? null,
-		pollIntervalMinutes: clampPollIntervalMinutes(row.poll_interval_minutes),
+		pollIntervalMinutes: clampSourcePollIntervalMinutes(row.kind, row.poll_interval_minutes),
 		pollUrl: row.poll_url,
 		userId: row.user_id,
 		validatorUrl: row.validator_url ?? null,
@@ -526,9 +553,10 @@ export async function listDuePollableSources(env: StorageEnv, dueAt: string): Pr
 		FROM sources
 		WHERE status = 'active' AND poll_url IS NOT NULL
 			AND (next_poll_at IS NULL OR next_poll_at <= ?)
+			AND (active_run_id IS NULL OR lease_expires_at IS NULL OR lease_expires_at <= ?)
 		ORDER BY next_poll_at ASC, created_at ASC`,
 	)
-		.bind(dueAt)
+		.bind(dueAt, dueAt)
 		.all<PollableSourceRow>();
 
 	return result.results.map(mapPollableSource);

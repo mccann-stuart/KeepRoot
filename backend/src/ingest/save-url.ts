@@ -4,7 +4,7 @@ import TurndownService from 'turndown';
 import { saveItemContent } from '../storage/items';
 import { fetchWithRedirects, validateSafeUrl, type AuthenticatedUser, type BookmarkPayload, type StorageEnv } from '../storage/shared';
 
-interface ExtractedContent {
+export interface ExtractedContent {
 	htmlData?: string;
 	lang?: string | null;
 	markdownData: string;
@@ -31,7 +31,7 @@ function titleFromUrl(url: string): string {
 	}
 }
 
-async function extractHtmlContent(url: string, html: string): Promise<ExtractedContent> {
+export async function extractHtmlContent(url: string, html: string): Promise<ExtractedContent> {
 	const document = new DOMParser().parseFromString(html, 'text/html');
 	const reader = new Readability(document);
 	const article = reader.parse();

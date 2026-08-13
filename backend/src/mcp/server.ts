@@ -182,7 +182,7 @@ function registerSourceTools(registerTool: RegisterToolFn, env: StorageEnv, user
 		'List configured content sources and subscriptions.',
 		z.object({
 			cursor: z.string().nullable().optional(),
-			kind: z.enum(['rss', 'youtube', 'x', 'email']).optional(),
+			kind: z.enum(['browser', 'rss', 'youtube', 'x', 'email']).optional(),
 			limit: z.number().int().min(1).max(100).default(20).optional(),
 			status: z.string().optional(),
 		}),
@@ -191,11 +191,11 @@ function registerSourceTools(registerTool: RegisterToolFn, env: StorageEnv, user
 
 	registerTool(
 		'add_source',
-		'Add a content source like RSS, YouTube, X, or email.',
+		'Add an RSS, YouTube, X, email, or Agentic scraping source.',
 		z.object({
 			config: z.record(z.string(), z.unknown()).optional(),
 			identifier: z.string().min(1),
-			kind: z.enum(['rss', 'youtube', 'x', 'email']),
+			kind: z.enum(['browser', 'rss', 'youtube', 'x', 'email']),
 			name: z.string().optional(),
 			syncNow: z.boolean().default(true).optional(),
 		}),

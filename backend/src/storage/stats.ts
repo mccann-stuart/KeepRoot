@@ -30,14 +30,17 @@ interface SourceHealthRow {
 interface SourceRunHealthRow {
 	created_count: number;
 	discovered_count: number;
+	examined_count: number;
 	error_count: number;
 	processed_count: number;
 	refreshed_count: number;
 	rank: number;
 	saturated: number;
+	skipped_count: number;
 	source_id: string;
 	status: string;
 	unchanged_count: number;
+	upstream_error_count: number;
 }
 
 export type IngestionHealthState = 'green' | 'amber' | 'red';
@@ -48,18 +51,27 @@ export function classifySourceHealth(input: {
 	dailyRefreshes: number;
 	latestDiscovered: number;
 	latestSaturated: boolean;
+	kind?: string;
 	processingErrors: number;
+	upstreamErrors?: number;
 	lastError: string | null;
 	lastSuccessAt: string | null;
 	now?: number;
 }): IngestionHealthState {
+	const amberStaleHours = input.kind === 'browser' ? 30 : 4;
+	const redStaleHours = input.kind === 'browser' ? 48 : 12;
 	const staleHours = input.lastSuccessAt
 		? ((input.now ?? Date.now()) - Date.parse(input.lastSuccessAt)) / 3_600_000
-		: 4;
-	if (staleHours > 12 || input.consecutiveFailures >= 2 || input.consecutiveSaturated >= 2 || input.processingErrors > 0) {
+		: amberStaleHours;
+	if (staleHours > redStaleHours || input.consecutiveFailures >= 2 || input.consecutiveSaturated >= 2 || input.processingErrors > 0) {
 		return 'red';
 	}
-	if (staleHours >= 4 || input.latestDiscovered >= 20 || input.latestSaturated || input.dailyRefreshes > 2_000 || input.lastError) {
+	if (staleHours >= amberStaleHours
+		|| (input.kind !== 'browser' && input.latestDiscovered >= 20)
+		|| input.latestSaturated
+		|| (input.upstreamErrors ?? 0) > 0
+		|| input.dailyRefreshes > 2_000
+		|| input.lastError) {
 		return 'amber';
 	}
 	return 'green';
@@ -164,8 +176,9 @@ export async function getUsageStats(env: StorageEnv, userId: string): Promise<Re
 		).bind(userId),
 		env.KEEPROOT_DB.prepare(
 			`WITH ranked AS (
-				SELECT r.source_id, r.status, r.discovered_count, r.processed_count,
+				SELECT r.source_id, r.status, r.discovered_count, r.examined_count, r.processed_count,
 					r.created_count, r.refreshed_count, r.unchanged_count, r.error_count, r.saturated,
+					r.skipped_count, r.upstream_error_count,
 					ROW_NUMBER() OVER (PARTITION BY r.source_id ORDER BY r.started_at DESC) AS rank
 				FROM source_runs r JOIN sources s ON s.id = r.source_id
 				WHERE s.user_id = ?
@@ -174,8 +187,8 @@ export async function getUsageStats(env: StorageEnv, userId: string): Promise<Re
 		).bind(userId),
 		env.KEEPROOT_DB.prepare(
 			`SELECT
-				SUM(CASE WHEN r.status IN ('queued', 'running', 'retrying', 'partial') AND r.finished_at IS NULL THEN 1 ELSE 0 END) AS count,
-				MIN(CASE WHEN r.status IN ('queued', 'running', 'retrying', 'partial') AND r.finished_at IS NULL THEN r.queued_at END) AS oldest_queued_at,
+				SUM(CASE WHEN r.status IN ('queued', 'running', 'waiting', 'retrying', 'partial') AND r.finished_at IS NULL THEN 1 ELSE 0 END) AS count,
+				MIN(CASE WHEN r.status IN ('queued', 'running', 'waiting', 'retrying', 'partial') AND r.finished_at IS NULL THEN r.queued_at END) AS oldest_queued_at,
 				SUM(CASE WHEN r.status = 'error' AND r.attempt_count >= 6 THEN 1 ELSE 0 END) AS dlq_count
 			FROM source_runs r JOIN sources s ON s.id = r.source_id
 			WHERE s.user_id = ?`,
@@ -222,22 +235,27 @@ export async function getUsageStats(env: StorageEnv, userId: string): Promise<Re
 		const latest = runs.find((run) => run.rank === 1);
 		const consecutiveFailures = runs.filter((run) => run.status === 'error').length;
 		const consecutiveSaturated = runs.filter((run) => Boolean(run.saturated)).length;
+		const upstreamErrors = latest?.upstream_error_count ?? 0;
+		const processingErrorCount = Math.max(0, (latest?.error_count ?? 0) - upstreamErrors);
 		const health = classifySourceHealth({
 			consecutiveFailures,
 			consecutiveSaturated,
 			dailyRefreshes,
 			latestDiscovered: latest?.discovered_count ?? 0,
 			latestSaturated: Boolean(latest?.saturated),
-			processingErrors: latest?.error_count ?? 0,
+			kind: row.kind,
+			processingErrors: processingErrorCount,
+			upstreamErrors,
 			lastError: row.last_error,
 			lastSuccessAt: row.last_success_at,
 		});
 		if (latest?.saturated) saturatedSources += 1;
 		if (consecutiveFailures >= 2) failedSources += 1;
-		processingErrors += latest?.error_count ?? 0;
+		processingErrors += processingErrorCount;
 		return compactObject({
 			createdCount: latest?.created_count ?? 0,
 			discoveredCount: latest?.discovered_count ?? 0,
+			examinedCount: latest?.examined_count ?? 0,
 			errorCount: latest?.error_count ?? 0,
 			health,
 			id: row.id,
@@ -251,8 +269,10 @@ export async function getUsageStats(env: StorageEnv, userId: string): Promise<Re
 			processedCount: latest?.processed_count ?? 0,
 			refreshedCount: latest?.refreshed_count ?? 0,
 			saturated: Boolean(latest?.saturated),
+			skippedCount: latest?.skipped_count ?? 0,
 			status: latest?.status ?? row.status,
 			unchangedCount: latest?.unchanged_count ?? 0,
+			upstreamErrorCount: latest?.upstream_error_count ?? 0,
 		});
 	});
 	const overallHealth: IngestionHealthState = dlq.backlog > 0 || processingErrors > 0 || sourceHealth.some((source) => source.health === 'red')
@@ -269,10 +289,10 @@ export async function getUsageStats(env: StorageEnv, userId: string): Promise<Re
 			failedSources,
 			health: overallHealth,
 			interpretation: overallHealth === 'green'
-				? 'Feeds are current and processing normally.'
+				? 'Sources are current and processing normally.'
 				: overallHealth === 'amber'
-					? 'Feed ingestion needs attention but is still progressing.'
-					: 'Feed ingestion is stale or has work that needs intervention.',
+					? 'Source ingestion needs attention but is still progressing.'
+					: 'Source ingestion is stale or has work that needs intervention.',
 			processingErrors,
 			queue,
 			queueBacklog: queue.backlog,
