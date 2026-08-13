@@ -132,7 +132,12 @@ describe('sources storage', () => {
 		it('rejects Agentic scraping when operator credentials are incomplete', async () => {
 			const prepareSpy = vi.spyOn(env.KEEPROOT_DB, 'prepare');
 
-			await expect(addSource({ ...env, SOURCE_QUEUE: { send: vi.fn() } } as any, {
+			await expect(addSource({
+				...env,
+				BROWSER_RUN_ACCOUNT_ID: undefined,
+				BROWSER_RUN_API_TOKEN: undefined,
+				SOURCE_QUEUE: { send: vi.fn() },
+			} as any, {
 				identifier: 'https://example.com/blog',
 				kind: 'browser',
 				userId: 'test-user-id',

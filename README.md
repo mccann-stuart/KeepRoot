@@ -107,7 +107,7 @@ URL saves use the existing static fetch, redirect validation, Readability, and T
 
 Rendered HTML goes through the same Readability and Turndown path. A requested screenshot uses Browser Run's `snapshot` Quick Action and is stored through the existing R2 image pipeline as the `screenshot` variant. Browser failures fail open to the successful static extraction and return an `extraction` status to the caller. Structured `browser_render_extraction` logs include the reason, engine, text lengths, screenshot outcome, and `X-Browser-Ms-Used` value without logging the URL or credentials.
 
-The checked-in `BROWSER` binding uses the credential-free Worker Quick Action API, whose current binding contract renders with Chromium. To opt into the Kitesurf beta today, add these non-secret values to `vars` in `backend/wrangler.jsonc` and store the token as a Wrangler secret:
+The checked-in `BROWSER` binding uses the credential-free Worker Quick Action API, whose current binding contract renders with Chromium. REST-only Browser Run operations use the account-level `accountkey` secret through a Secrets Store binding; KeepRoot resolves its value only inside the Worker. To opt into the Kitesurf beta, set `BROWSER_RUN_ENGINE` to `kitesurf` alongside the existing account ID.
 
 ```jsonc
 "vars": {
@@ -117,12 +117,7 @@ The checked-in `BROWSER` binding uses the credential-free Worker Quick Action AP
 }
 ```
 
-```bash
-cd backend
-npx wrangler secret put BROWSER_RUN_API_TOKEN
-```
-
-The token needs only `Browser Rendering - Edit`. Kitesurf requests use the documented Browser Run REST Quick Action with `browser=kitesurf`; the secret is never returned or logged. Remove `BROWSER_RUN_ENGINE` to return to the binding-backed Chromium path. This REST bridge is isolated in `backend/src/ingest/browser.ts` so it can be removed when the Worker binding exposes an engine selector.
+The account token needs `Browser Rendering - Edit`. Kitesurf requests use the documented Browser Run REST Quick Action with `browser=kitesurf`; the secret is never returned or logged. Remove `BROWSER_RUN_ENGINE` to return to the binding-backed Chromium path. This REST bridge is isolated in `backend/src/ingest/browser.ts` so it can be removed when the Worker binding exposes an engine selector.
 
 ---
 
@@ -196,7 +191,7 @@ What they do:
 
 ### Optional Browser Run credentials
 
-Agentic scraping is enabled only when `SOURCE_QUEUE`, `BROWSER_RUN_ACCOUNT_ID`, and `BROWSER_RUN_API_TOKEN` are all configured. Put the Cloudflare account ID in Worker configuration and keep the token in a Wrangler secret:
+Agentic scraping is enabled only when `SOURCE_QUEUE`, `BROWSER_RUN_ACCOUNT_ID`, and `BROWSER_RUN_API_TOKEN` are all configured. Put the Cloudflare account ID in Worker configuration and bind an account token from Secrets Store without exposing its value:
 
 ```json
 {
@@ -206,12 +201,17 @@ Agentic scraping is enabled only when `SOURCE_QUEUE`, `BROWSER_RUN_ACCOUNT_ID`, 
 }
 ```
 
-```bash
-cd backend
-npx wrangler secret put BROWSER_RUN_API_TOKEN
+```jsonc
+"secrets_store_secrets": [
+  {
+    "binding": "BROWSER_RUN_API_TOKEN",
+    "store_id": "<secrets-store-id>",
+    "secret_name": "<secret-name>"
+  }
+]
 ```
 
-Create a scoped custom API token with only **Browser Rendering - Edit** for the target account. Do not put the token in `wrangler.jsonc`, source records, logs, or dashboard requests.
+Create a scoped custom API token with **Browser Rendering - Edit** for the target account and `workers` scope on its Secrets Store entry. Do not put the token in `wrangler.jsonc`, source records, logs, or dashboard requests.
 
 ### Provision resources and apply schema
 

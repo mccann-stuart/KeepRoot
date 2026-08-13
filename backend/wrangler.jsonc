@@ -53,6 +53,13 @@
 	"browser": {
 		"binding": "BROWSER"
 	},
+	"secrets_store_secrets": [
+		{
+			"binding": "BROWSER_RUN_API_TOKEN",
+			"store_id": "fdfe90262239479a8209ce7ceef6103d",
+			"secret_name": "accountkey"
+		}
+	],
 	/**
 	 * Environment Variables
 	 * https://developers.cloudflare.com/workers/wrangler/configuration/#environment-variables
@@ -65,7 +72,9 @@
 		// Registration is deliberately opt-in. Set to "1" only while adding an account.
 		"ALLOW_REGISTRATION": "1",
 		// Passkeys stay on this stable origin; preview URLs receive origin-scoped sessions after authentication.
-		"AUTH_ORIGIN": "https://keeproot.booms-17-brooms.workers.dev"
+		"AUTH_ORIGIN": "https://keeproot.booms-17-brooms.workers.dev",
+		// Required by Browser Run's REST-only asynchronous crawl endpoint.
+		"BROWSER_RUN_ACCOUNT_ID": "2e3895c5eec3a37afbe1e4df68e4be28"
 	},
 	"ratelimits": [
 		{
