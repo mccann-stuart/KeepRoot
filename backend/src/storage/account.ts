@@ -253,6 +253,7 @@ export async function clearUserData(env: StorageEnv, userId: string): Promise<vo
 		env.KEEPROOT_DB.prepare('DELETE FROM tool_events WHERE user_id = ?').bind(userId),
 		env.KEEPROOT_DB.prepare('DELETE FROM inbox_entries WHERE user_id = ?').bind(userId),
 		env.KEEPROOT_DB.prepare('DELETE FROM source_discoveries WHERE source_id IN (SELECT id FROM sources WHERE user_id = ?)').bind(userId),
+		env.KEEPROOT_DB.prepare('DELETE FROM source_sitemap_urls WHERE source_id IN (SELECT id FROM sources WHERE user_id = ?)').bind(userId),
 		env.KEEPROOT_DB.prepare('DELETE FROM source_runs WHERE source_id IN (SELECT id FROM sources WHERE user_id = ?)').bind(userId),
 		env.KEEPROOT_DB.prepare('DELETE FROM api_keys WHERE user_id = ?').bind(userId),
 		env.KEEPROOT_DB.prepare('DELETE FROM account_settings WHERE user_id = ?').bind(userId),
