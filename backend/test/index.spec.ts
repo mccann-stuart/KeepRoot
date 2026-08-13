@@ -435,7 +435,7 @@ describe('KeepRoot Worker', () => {
 		expect(sendBatch.mock.calls[1][0][0].body).toEqual(sent[0].body);
 	});
 
-	it('uses a sitemap shortlist, recovers an orphaned baselined source URL, and imports each URL once', async () => {
+	it('inspects 15 sitemap candidates, keeps five initial articles, and backfills an underfilled archive', async () => {
 		const send = vi.fn().mockResolvedValue({});
 		const browserEnv = {
 			...env,
@@ -472,18 +472,16 @@ describe('KeepRoot Worker', () => {
 		const initialRecords = Array.from({ length: 26 }, (_, index) =>
 			article(index + 1, new Date(Date.UTC(2026, 7, index + 1)).toISOString()));
 		const jobs = new Map([
-			['crawl-initial', initialRecords.slice(21)],
-			['crawl-new', [
-				article(27, '2026-08-27T12:00:00.000Z'),
-				article(26, '2026-08-26T00:00:00.000Z'),
-			]],
+			['crawl-initial', initialRecords.slice(11)],
+			['crawl-backfill', [article(22, '2026-08-22T00:00:00.000Z')]],
+			['crawl-new', [article(27, '2026-08-27T12:00:00.000Z')]],
 		]);
 		const jobIds = [...jobs.keys()];
 		const startBodies: Array<Record<string, unknown>> = [];
 		let sitemapRequestCount = 0;
 		const sitemap = (postCount: number) => `<?xml version="1.0" encoding="UTF-8"?>
 			<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">
-				<url><loc>https://example.com/blog</loc><lastmod>2026-08-01</lastmod></url>
+				<url><loc>https://example.com/analysis</loc><lastmod>2026-08-28</lastmod></url>
 				${Array.from({ length: postCount }, (_, index) => `<url>
 					<loc>https://example.com/posts/${index + 1}</loc>
 					<lastmod>${new Date(Date.UTC(2026, 7, index + 1)).toISOString()}</lastmod>
@@ -498,7 +496,7 @@ describe('KeepRoot Worker', () => {
 			}
 			if (url.origin === 'https://example.com' && url.pathname === '/sitemap.xml') {
 				sitemapRequestCount += 1;
-				return new Response(sitemap(sitemapRequestCount === 1 ? 26 : 27), {
+				return new Response(sitemap(sitemapRequestCount <= 2 ? 26 : 27), {
 					headers: { 'Content-Type': 'application/xml' },
 				});
 			}
@@ -539,14 +537,17 @@ describe('KeepRoot Worker', () => {
 			`SELECT state, COUNT(*) AS count FROM source_discoveries
 			WHERE source_id = ? GROUP BY state ORDER BY state`,
 		).bind(source.id).all<{ count: number; state: string }>();
-		expect(initialStates.results).toEqual([{ count: 5, state: 'imported' }]);
+		expect(initialStates.results).toEqual([
+			{ count: 10, state: 'baselined' },
+			{ count: 5, state: 'imported' },
+		]);
 		const initialSitemapStates = await env.KEEPROOT_DB.prepare(
 			`SELECT state, COUNT(*) AS count FROM source_sitemap_urls
 			WHERE source_id = ? GROUP BY state ORDER BY state`,
 		).bind(source.id).all<{ count: number; state: string }>();
 		expect(initialSitemapStates.results).toEqual([
-			{ count: 22, state: 'baselined' },
-			{ count: 5, state: 'processed' },
+			{ count: 12, state: 'baselined' },
+			{ count: 15, state: 'processed' },
 		]);
 		const initialBookmarks = await env.KEEPROOT_DB.prepare(
 			'SELECT source_entry_id FROM bookmarks WHERE source_id = ? ORDER BY source_entry_id',
@@ -564,25 +565,26 @@ describe('KeepRoot Worker', () => {
 		).bind(initialRunId).first<Record<string, number | string>>();
 		expect(initialRun).toMatchObject({
 			created_count: 5,
-			discovered_count: 5,
-			examined_count: 5,
+			discovered_count: 15,
+			examined_count: 15,
 			skipped_count: 0,
 			status: 'success',
 		});
 		await env.KEEPROOT_DB.batch([
 			env.KEEPROOT_DB.prepare(
 				'DELETE FROM bookmarks WHERE source_id = ? AND source_entry_id = ?',
-			).bind(source.id, 'https://example.com/posts/26'),
+			).bind(source.id, 'https://example.com/posts/22'),
 			env.KEEPROOT_DB.prepare(
 				'DELETE FROM source_discoveries WHERE source_id = ? AND canonical_url = ?',
-			).bind(source.id, 'https://example.com/posts/26'),
+			).bind(source.id, 'https://example.com/posts/22'),
 			env.KEEPROOT_DB.prepare(
 				`UPDATE source_sitemap_urls
 				SET state = 'baselined', selected_run_id = NULL, processed_at = NULL
 				WHERE source_id = ? AND canonical_url = ?`,
-			).bind(source.id, 'https://example.com/posts/26'),
+			).bind(source.id, 'https://example.com/posts/22'),
 		]);
 
+		await runToCompletion('browser-backfill');
 		await runToCompletion('browser-new');
 		const unchangedRunId = await runToCompletion('browser-unchanged');
 		const finalBookmarks = await env.KEEPROOT_DB.prepare(
@@ -590,7 +592,7 @@ describe('KeepRoot Worker', () => {
 		).bind(source.id).all<{ source_entry_id: string }>();
 		expect(finalBookmarks.results).toHaveLength(6);
 		expect(finalBookmarks.results.filter((row) => row.source_entry_id === 'https://example.com/posts/27')).toHaveLength(1);
-		expect(finalBookmarks.results.filter((row) => row.source_entry_id === 'https://example.com/posts/26')).toHaveLength(1);
+		expect(finalBookmarks.results.filter((row) => row.source_entry_id === 'https://example.com/posts/22')).toHaveLength(1);
 		const latestRun = await env.KEEPROOT_DB.prepare(
 			'SELECT status, created_count, error_count FROM source_runs WHERE id = ?',
 		).bind(unchangedRunId).first<{ created_count: number; error_count: number; status: string }>();
@@ -600,7 +602,7 @@ describe('KeepRoot Worker', () => {
 			crawlPurposes: ['search', 'ai-input'],
 			depth: 5,
 			formats: ['html'],
-			limit: 5,
+			limit: 15,
 			maxAge: 0,
 			options: {
 				includeExternalLinks: false,
@@ -610,6 +612,16 @@ describe('KeepRoot Worker', () => {
 					'https://example.com/posts/24',
 					'https://example.com/posts/23',
 					'https://example.com/posts/22',
+					'https://example.com/posts/21',
+					'https://example.com/posts/20',
+					'https://example.com/posts/19',
+					'https://example.com/posts/18',
+					'https://example.com/posts/17',
+					'https://example.com/posts/16',
+					'https://example.com/posts/15',
+					'https://example.com/posts/14',
+					'https://example.com/posts/13',
+					'https://example.com/posts/12',
 				],
 				includeSubdomains: false,
 			},
@@ -620,15 +632,19 @@ describe('KeepRoot Worker', () => {
 		expect(startBodies[0]).not.toHaveProperty('rejectResourceTypes');
 		expect(startBodies[0]).not.toHaveProperty('modifiedSince');
 		expect(startBodies[1]).toMatchObject({
-			limit: 2,
-			options: { includePatterns: [
-				'https://example.com/posts/27',
-				'https://example.com/posts/26',
-			] },
+			limit: 1,
+			options: { includePatterns: ['https://example.com/posts/22'] },
 			source: 'sitemaps',
+			url: 'https://example.com/posts/22',
 		});
-		expect(startBodies[1]).not.toHaveProperty('modifiedSince');
-		expect(startBodies).toHaveLength(2);
+		expect(startBodies[2]).toMatchObject({
+			limit: 1,
+			options: { includePatterns: ['https://example.com/posts/27'] },
+			source: 'sitemaps',
+			url: 'https://example.com/posts/27',
+		});
+		expect(startBodies[2]).not.toHaveProperty('modifiedSince');
+		expect(startBodies).toHaveLength(3);
 	});
 
 	it('coalesces Browser Run refreshes, cancels orphaned runs, and clears a stale source error', async () => {

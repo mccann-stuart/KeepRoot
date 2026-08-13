@@ -7,6 +7,7 @@ const MAX_SITEMAP_FILES = 10;
 const MAX_SITEMAP_URLS = 10_000;
 const REDIRECT_STATUSES = new Set([301, 302, 303, 307, 308]);
 const COLLECTION_SEGMENTS = new Set([
+	'analysis',
 	'archive',
 	'archives',
 	'author',

@@ -45,6 +45,7 @@ describe('Browser source sitemap discovery', () => {
 	it('ranks article-like leaves by last modification date as a candidate hint', () => {
 		const entries: BrowserSitemapEntry[] = [
 			{ lastModifiedAt: '2026-08-13', url: 'https://example.com/' },
+			{ lastModifiedAt: '2026-08-15', url: 'https://example.com/analysis' },
 			{ lastModifiedAt: '2026-08-13', url: 'https://example.com/essays' },
 			{ lastModifiedAt: '2026-08-11', url: 'https://example.com/essays/older' },
 			{ lastModifiedAt: '2026-08-13', url: 'https://example.com/essays/newer' },
@@ -59,5 +60,8 @@ describe('Browser source sitemap discovery', () => {
 			'https://example.com/essays/middle',
 			'https://example.com/essays/older',
 		]);
+		expect(shortlistBrowserSitemapEntries('https://example.com/analysis', entries).map((entry) => entry.url)).not.toContain(
+		'https://example.com/analysis',
+	);
 	});
 });
