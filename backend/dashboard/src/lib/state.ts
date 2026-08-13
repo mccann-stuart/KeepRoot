@@ -112,6 +112,10 @@ export interface SourceHealthRecord {
 	status: string;
 	unchangedCount?: number;
 	upstreamErrorCount?: number;
+	upstreamBrowserSeconds?: number;
+	upstreamFinishedCount?: number;
+	upstreamStartedAt?: string;
+	upstreamTotalCount?: number;
 }
 
 export interface IngestionHealth {

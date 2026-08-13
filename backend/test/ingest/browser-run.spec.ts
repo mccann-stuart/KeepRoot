@@ -204,4 +204,45 @@ describe('Browser Run post recognition', () => {
 			expect.objectContaining({ method: 'DELETE' }),
 		);
 	});
+
+	it('polls a running crawl after ten seconds and persists upstream progress', async () => {
+		vi.spyOn(globalThis, 'fetch').mockResolvedValue(Response.json({
+			success: true,
+			result: {
+				browserSecondsUsed: 3.55,
+				cursor: null,
+				finished: 2,
+				id: 'crawl-id',
+				records: [],
+				status: 'running',
+				total: 5,
+			},
+		}));
+		const run = vi.fn().mockResolvedValue({});
+		const bind = vi.fn().mockReturnValue({ run });
+		const prepare = vi.fn().mockReturnValue({ bind });
+
+		await expect(advanceBrowserSourceRun({
+			BROWSER_RUN_ACCOUNT_ID: 'account-id',
+			BROWSER_RUN_API_TOKEN: 'secret-token',
+			KEEPROOT_DB: { prepare },
+		} as any, {
+			id: 'source-id',
+			lastSuccessAt: null,
+			name: 'Blog',
+			pollUrl: 'https://example.com/blog',
+			userId: 'user-id',
+		}, {
+			initialCrawl: true,
+			runId: 'run-id',
+			upstreamCursor: null,
+			upstreamJobId: 'crawl-id',
+			upstreamPhase: 'waiting',
+			upstreamStartedAt: new Date().toISOString(),
+		})).resolves.toEqual({ delaySeconds: 10, status: 'waiting' });
+
+		expect(prepare).toHaveBeenCalledWith(expect.stringContaining('upstream_finished_count = ?'));
+		expect(bind).toHaveBeenCalledWith(2, 5, 3.55, 'run-id', 'source-id');
+		expect(run).toHaveBeenCalledOnce();
+	});
 });

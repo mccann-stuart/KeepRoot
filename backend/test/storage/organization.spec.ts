@@ -111,7 +111,9 @@ describe('organization storage', () => {
 								{ name: 'saturated' }, { name: 'duration_ms' }, { name: 'queued_at' },
 								{ name: 'lease_expires_at' }, { name: 'examined_count' }, { name: 'skipped_count' },
 								{ name: 'upstream_error_count' }, { name: 'upstream_job_id' }, { name: 'upstream_phase' },
-								{ name: 'upstream_cursor' }, { name: 'upstream_started_at' }, { name: 'initial_crawl' },
+								{ name: 'upstream_cursor' }, { name: 'upstream_started_at' },
+								{ name: 'upstream_finished_count' }, { name: 'upstream_total_count' },
+								{ name: 'upstream_browser_seconds' }, { name: 'initial_crawl' },
                             ] })
                         })
                     } as any;
@@ -161,7 +163,9 @@ describe('organization storage', () => {
 								{ name: 'saturated' }, { name: 'duration_ms' }, { name: 'queued_at' },
 								{ name: 'lease_expires_at' }, { name: 'examined_count' }, { name: 'skipped_count' },
 								{ name: 'upstream_error_count' }, { name: 'upstream_job_id' }, { name: 'upstream_phase' },
-								{ name: 'upstream_cursor' }, { name: 'upstream_started_at' }, { name: 'initial_crawl' },
+								{ name: 'upstream_cursor' }, { name: 'upstream_started_at' },
+								{ name: 'upstream_finished_count' }, { name: 'upstream_total_count' },
+								{ name: 'upstream_browser_seconds' }, { name: 'initial_crawl' },
                             ] })
                         })
                     } as any;
@@ -210,7 +214,9 @@ describe('organization storage', () => {
 								{ name: 'saturated' }, { name: 'duration_ms' }, { name: 'queued_at' },
 								{ name: 'lease_expires_at' }, { name: 'examined_count' }, { name: 'skipped_count' },
 								{ name: 'upstream_error_count' }, { name: 'upstream_job_id' }, { name: 'upstream_phase' },
-								{ name: 'upstream_cursor' }, { name: 'upstream_started_at' }, { name: 'initial_crawl' },
+								{ name: 'upstream_cursor' }, { name: 'upstream_started_at' },
+								{ name: 'upstream_finished_count' }, { name: 'upstream_total_count' },
+								{ name: 'upstream_browser_seconds' }, { name: 'initial_crawl' },
                             ] })
                         })
                     } as any;

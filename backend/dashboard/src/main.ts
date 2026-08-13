@@ -783,6 +783,31 @@ function renderToolUsage(entries: ToolUsageRecord[]) {
 	}
 }
 
+function formatLikelyBrowserWait(entry: SourceHealthRecord): string | null {
+	if (entry.kind !== 'browser' || entry.status !== 'waiting') return null;
+	const finished = Math.max(0, entry.upstreamFinishedCount ?? 0);
+	const total = Math.max(finished, entry.upstreamTotalCount ?? 0);
+	if (total === 0) return 'Upstream crawl starting…';
+	if (finished >= total) return `Upstream ${finished}/${total} · Finishing import…`;
+	if (!entry.upstreamStartedAt || finished === 0) {
+		return `Upstream ${finished}/${total} · Estimating likely wait…`;
+	}
+
+	const startedAt = Date.parse(entry.upstreamStartedAt);
+	if (!Number.isFinite(startedAt)) return `Upstream ${finished}/${total}`;
+	const elapsedSeconds = Math.max(5, (Date.now() - startedAt) / 1_000);
+	const estimatedSeconds = elapsedSeconds * (total - finished) / finished;
+	const timeoutSeconds = Math.max(0, 2 * 60 * 60 - elapsedSeconds);
+	if (timeoutSeconds === 0) return `Upstream ${finished}/${total} · Timeout imminent`;
+	const likelySeconds = Math.min(estimatedSeconds, timeoutSeconds);
+	if (likelySeconds < 60) {
+		return `Upstream ${finished}/${total} · Likely wait under 1 min${estimatedSeconds > timeoutSeconds ? ' before timeout' : ''}`;
+	}
+	const likelyMinutes = Math.max(1, Math.round(likelySeconds / 60));
+	const suffix = estimatedSeconds > timeoutSeconds ? ' before timeout' : '';
+	return `Upstream ${finished}/${total} · Likely wait ~${likelyMinutes} min${suffix}`;
+}
+
 function renderSourceHealth(entries: SourceHealthRecord[], ingestion?: UsageStats['ingestion']) {
 	dom.mcpSourceHealthList.innerHTML = '';
 	if (ingestion) {
@@ -815,11 +840,13 @@ function renderSourceHealth(entries: SourceHealthRecord[], ingestion?: UsageStat
 		const activityLine = entry.kind === 'browser'
 			? `Pages ${entry.examinedCount ?? 0} · Posts ${entry.discoveredCount ?? 0} · New ${entry.createdCount ?? 0} · Skipped ${entry.skippedCount ?? 0} · Upstream errors ${entry.upstreamErrorCount ?? 0}`
 			: `Discovered ${entry.discoveredCount ?? 0} · New ${entry.createdCount ?? 0} · Refreshed ${entry.refreshedCount ?? 0} · Errors ${entry.errorCount ?? 0}`;
+		const upstreamProgress = formatLikelyBrowserWait(entry);
 		item.innerHTML = `
 			<div>
 				<h3>${escapeHtml(entry.name)}</h3>
 				<p class="muted-copy">${escapeHtml(entry.kind)}${entry.status === 'waiting' ? ' · waiting' : ''} · Last success ${escapeHtml(formatTimestamp(entry.lastSuccessAt))}</p>
 				${entry.pollIntervalMinutes || entry.nextPollAt ? `<p class="muted-copy">Every ${escapeHtml(String(entry.pollIntervalMinutes ?? '—'))} min · Next ${escapeHtml(formatTimestamp(entry.nextPollAt))}</p>` : ''}
+				${upstreamProgress ? `<p class="muted-copy">${escapeHtml(upstreamProgress)}</p>` : ''}
 				<p class="muted-copy">${escapeHtml(activityLine)}</p>
 				${entry.lastError ? `<p class="muted-copy">${escapeHtml(entry.lastError)}</p>` : ''}
 			</div>
@@ -1192,7 +1219,13 @@ function startPolling() {
 		}
 
 		silentRefreshInFlight = true;
-		void refreshData(true).finally(() => {
+		const sourceHealthRefresh = state.currentView === 'sources' || state.currentView === 'mcp'
+			? fetchStats().then(() => renderMcpStatus()).catch((error) => {
+				if (error instanceof ApiError && error.status === 401) clearLoginState('Session expired');
+				// Preserve the last visible health snapshot across transient polling failures.
+			})
+			: Promise.resolve();
+		void Promise.all([refreshData(true), sourceHealthRefresh]).finally(() => {
 			silentRefreshInFlight = false;
 		});
 	}, 5000);

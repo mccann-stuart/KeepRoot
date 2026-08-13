@@ -70,18 +70,18 @@ describe('stats storage', () => {
                     { kind: 'archived', count: 2 }
                 ] },
                 { results: [ // sourcesByKindResult
-                    { kind: 'rss', count: 3 },
-                    { kind: 'newsletter', count: 2 }
+					{ kind: 'browser', count: 3 },
+					{ kind: 'newsletter', count: 2 }
                 ] },
                 { results: [ // toolUsageResult
                     { tool_name: 'parser', status: 'success', count: 10 },
                     { tool_name: 'summarizer', status: 'error', count: 1 }
                 ] },
                 { results: [ // sourceHealthResult
-                    { id: 'src-1', kind: 'rss', name: 'Blog', status: 'active', last_polled_at: '2023-01-01', last_success_at: '2023-01-01', last_error: null, next_poll_at: '2026-08-06T14:00:00.000Z', poll_interval_minutes: 120 }
+					{ id: 'src-1', kind: 'browser', name: 'Blog', status: 'active', last_polled_at: '2023-01-01', last_success_at: '2023-01-01', last_error: null, next_poll_at: '2026-08-06T14:00:00.000Z', poll_interval_minutes: 120 }
                 ] },
 				{ results: [{ count: 4 }] },
-				{ results: [{ source_id: 'src-1', rank: 1, status: 'success', discovered_count: 10, processed_count: 10, created_count: 6, refreshed_count: 4, unchanged_count: 0, error_count: 0, examined_count: 0, skipped_count: 0, upstream_error_count: 0, saturated: 0 }] },
+				{ results: [{ source_id: 'src-1', rank: 1, status: 'waiting', discovered_count: 10, processed_count: 10, created_count: 6, refreshed_count: 4, unchanged_count: 0, error_count: 0, examined_count: 0, skipped_count: 0, upstream_error_count: 0, upstream_browser_seconds: 3.55, upstream_finished_count: 2, upstream_started_at: '2026-08-13T21:00:00.000Z', upstream_total_count: 5, saturated: 0 }] },
 				{ results: [{ count: 0, oldest_queued_at: null }] },
             ] as any);
 
@@ -111,7 +111,7 @@ describe('stats storage', () => {
 						errorCount: 0,
 						examinedCount: 0,
 						health: 'red',
-                        kind: 'rss',
+                        kind: 'browser',
                         lastPolledAt: '2023-01-01',
                         lastSuccessAt: '2023-01-01',
                         name: 'Blog',
@@ -121,13 +121,17 @@ describe('stats storage', () => {
 						refreshedCount: 4,
 						saturated: false,
 						skippedCount: 0,
-						status: 'success',
+						status: 'waiting',
 						unchangedCount: 0,
+						upstreamBrowserSeconds: 3.55,
 						upstreamErrorCount: 0,
+						upstreamFinishedCount: 2,
+						upstreamStartedAt: '2026-08-13T21:00:00.000Z',
+						upstreamTotalCount: 5,
                     }
                 ],
                 sources: {
-                    byKind: { rss: 3, newsletter: 2 },
+					byKind: { browser: 3, newsletter: 2 },
                     total: 5
                 }
 			}));

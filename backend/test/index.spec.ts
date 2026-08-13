@@ -13,6 +13,7 @@ import queueFirstFeedCrawlingSchemaSql from '../migrations/0007_queue_first_feed
 import adaptiveFeedSchedulingSchemaSql from '../migrations/0008_adaptive_feed_scheduling.sql?raw';
 import browserRunSourcesSchemaSql from '../migrations/0009_browser_run_sources.sql?raw';
 import browserSitemapShortlistSchemaSql from '../migrations/0010_browser_sitemap_shortlist.sql?raw';
+import browserRunProgressSchemaSql from '../migrations/0011_browser_run_progress.sql?raw';
 
 const API_KEY = 'test-api-key-12345';
 const TEST_USER_ID = 'test-user-id';
@@ -127,6 +128,7 @@ async function resetDatabase(): Promise<void> {
 	await execStatements(adaptiveFeedSchedulingSchemaSql, true);
 	await execStatements(browserRunSourcesSchemaSql, true);
 	await execStatements(browserSitemapShortlistSchemaSql, true);
+	await execStatements(browserRunProgressSchemaSql, true);
 	await execStatements(`
 		DELETE FROM bookmark_tags;
 		DELETE FROM bookmark_images;
@@ -594,11 +596,11 @@ describe('KeepRoot Worker', () => {
 				],
 				includeSubdomains: false,
 			},
-			rejectResourceTypes: ['image', 'media', 'font'],
-			render: true,
+			render: false,
 			source: 'sitemaps',
 			url: 'https://example.com/blog',
 		});
+		expect(startBodies[0]).not.toHaveProperty('rejectResourceTypes');
 		expect(startBodies[0]).not.toHaveProperty('modifiedSince');
 		expect(startBodies[1]).toMatchObject({
 			limit: 1,
@@ -635,10 +637,14 @@ describe('KeepRoot Worker', () => {
 			).bind(source.id, now, now),
 		]);
 		const logSpy = vi.spyOn(console, 'log').mockImplementation(() => {});
-		vi.spyOn(globalThis, 'fetch').mockResolvedValue(Response.json({
-			success: true,
-			result: 'accepted-crawl-id',
-		}));
+		vi.spyOn(globalThis, 'fetch').mockImplementation(async (input, init) => {
+			const url = new URL(typeof input === 'string' ? input : input instanceof URL ? input : input.url);
+			if (url.origin === 'https://example.com') return new Response(null, { status: 404 });
+			if (url.pathname.endsWith('/browser-rendering/crawl') && init?.method === 'POST') {
+				return Response.json({ success: true, result: 'accepted-crawl-id' });
+			}
+			throw new Error(`Unexpected fetch in lifecycle test: ${init?.method ?? 'GET'} ${url}`);
+		});
 
 		const first = await enqueueSourceRun(browserEnv as any, String(source.id), 'manual');
 		const duplicate = await enqueueSourceRun(browserEnv as any, String(source.id), 'manual');
