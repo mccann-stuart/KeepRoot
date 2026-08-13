@@ -56,7 +56,7 @@ describe('account storage', () => {
                     username: 'testuser',
                 },
                 features: {
-					browser: false,
+					browser: true,
                     email: false,
                     rss: true,
                     x: false,
@@ -108,7 +108,7 @@ describe('account storage', () => {
                     username: 'testuser',
                 },
                 features: {
-					browser: false,
+					browser: true,
 					customFeature: true,
 					email: false,
 					rss: true,
@@ -148,7 +148,7 @@ describe('account storage', () => {
             const result = await getWhoAmI(env as any, user);
 
             expect(result.features).toEqual({
-				browser: false,
+				browser: true,
                 email: false,
                 rss: true,
                 x: false,
@@ -178,7 +178,7 @@ describe('account storage', () => {
 			const result = await getWhoAmI({
 				...env,
 				BROWSER_RUN_ACCOUNT_ID: 'account-id',
-				BROWSER_RUN_API_TOKEN: 'api-token',
+				BROWSER_RUN_API_TOKEN: { get: vi.fn().mockResolvedValue('api-token') },
 				SOURCE_QUEUE: { send: vi.fn() },
 			} as any, {
 				roles: [],

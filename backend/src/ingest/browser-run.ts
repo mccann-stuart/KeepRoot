@@ -4,6 +4,7 @@ import type { SourceSyncResult } from './source-sync';
 import { saveItemContent } from '../storage/items';
 import {
 	normalizeCanonicalUrl,
+	resolveSecretText,
 	sha256Hex,
 	validateSafeUrl,
 	type StorageEnv,
@@ -169,13 +170,22 @@ async function browserRunRequest(
 	if (!env.BROWSER_RUN_ACCOUNT_ID || !env.BROWSER_RUN_API_TOKEN) {
 		throw new BrowserRunCrawlError('Browser Run account credentials are not configured');
 	}
+	let apiToken: string | undefined;
+	try {
+		apiToken = await resolveSecretText(env.BROWSER_RUN_API_TOKEN);
+	} catch {
+		throw new BrowserRunCrawlError('Browser Run API token could not be read from Secrets Store');
+	}
+	if (!apiToken) {
+		throw new BrowserRunCrawlError('Browser Run API token is empty');
+	}
 
 	const response = await fetch(
 		`${API_ROOT}/${encodeURIComponent(env.BROWSER_RUN_ACCOUNT_ID)}/browser-rendering/crawl${path}`,
 		{
 			...init,
 			headers: {
-				Authorization: `Bearer ${env.BROWSER_RUN_API_TOKEN}`,
+				Authorization: `Bearer ${apiToken}`,
 				'Content-Type': 'application/json',
 				...init.headers,
 			},

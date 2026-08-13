@@ -163,7 +163,7 @@ Escalation path:
 | `BROWSER` | Browser Run | Credential-free Chromium Quick Actions for rendered-page extraction and screenshots |
 | `BROWSER_RUN_ENGINE` | environment variable, optional | Set to `kitesurf` to select the beta engine through the REST bridge |
 | `BROWSER_RUN_ACCOUNT_ID` | environment variable, optional | Cloudflare account used by asynchronous crawls and the Kitesurf REST bridge |
-| `BROWSER_RUN_API_TOKEN` | Worker secret, optional | Scoped `Browser Rendering - Edit` token for crawls and Kitesurf Quick Actions; never store, log, or commit it |
+| `BROWSER_RUN_API_TOKEN` | Secrets Store binding, optional | Account token for REST crawls and Kitesurf Quick Actions; resolved asynchronously inside the Worker and never logged or committed |
 | `MCP_EMAIL_DOMAIN` | environment variable | Stable inbound alias generation for email sources |
 | `USAGE_ANALYTICS` | Workers Analytics Engine, optional | High-volume telemetry if needed later |
 

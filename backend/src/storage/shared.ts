@@ -15,6 +15,15 @@ export const API_KEY_TTL_SECONDS = 60 * 60 * 24 * 365;
 export const MAX_AUTO_FETCH_IMAGES = 12;
 export const encoder = new TextEncoder();
 
+export type SecretText = string | Pick<SecretsStoreSecret, 'get'>;
+
+export async function resolveSecretText(secret: SecretText | undefined): Promise<string | undefined> {
+	if (typeof secret === 'string') {
+		return secret || undefined;
+	}
+	return secret ? await secret.get() : undefined;
+}
+
 export interface StorageEnv {
 	ALLOW_REGISTRATION?: string;
 	ASSETS?: Fetcher;
@@ -24,7 +33,7 @@ export interface StorageEnv {
 	AUTH_RATE_LIMITER: RateLimit;
 	BROWSER?: BrowserRun;
 	BROWSER_RUN_ACCOUNT_ID?: string;
-	BROWSER_RUN_API_TOKEN?: string;
+	BROWSER_RUN_API_TOKEN?: SecretText;
 	BROWSER_RUN_ENGINE?: string;
 	EMAIL_SOURCE_DOMAIN?: string;
 	ENABLE_X_SOURCES?: string;

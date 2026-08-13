@@ -1,6 +1,6 @@
 import { extractBookmarkPayloadFromUrl } from './extract-url';
 import { saveItemContent } from '../storage/items';
-import type { AuthenticatedUser, BookmarkPayload, StorageEnv } from '../storage/shared';
+import { resolveSecretText, type AuthenticatedUser, type BookmarkPayload, type StorageEnv } from '../storage/shared';
 
 export async function saveItemFromUrl(
 	env: StorageEnv,
@@ -15,10 +15,13 @@ export async function saveItemFromUrl(
 		url: string;
 	},
 ): Promise<Record<string, unknown>> {
+	const browserRunApiToken = env.BROWSER_RUN_ENGINE?.trim().toLowerCase() === 'kitesurf'
+		? await resolveSecretText(env.BROWSER_RUN_API_TOKEN)
+		: undefined;
 	const extracted = await extractBookmarkPayloadFromUrl({
 		browser: env.BROWSER,
 		browserRunAccountId: env.BROWSER_RUN_ACCOUNT_ID,
-		browserRunApiToken: env.BROWSER_RUN_API_TOKEN,
+		browserRunApiToken,
 		browserRunEngine: env.BROWSER_RUN_ENGINE,
 		captureScreenshot: input.captureScreenshot,
 		fallbackTitle: input.title,

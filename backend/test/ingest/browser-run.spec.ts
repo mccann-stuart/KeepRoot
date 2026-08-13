@@ -134,6 +134,45 @@ describe('Browser Run post recognition', () => {
 		expect(error.message).not.toContain('secret-token');
 	});
 
+	it('reads the API token from a Secrets Store binding', async () => {
+		const get = vi.fn().mockResolvedValue('secret-token');
+		const fetchSpy = vi.spyOn(globalThis, 'fetch').mockResolvedValue(Response.json({
+			errors: [{ message: 'Upstream rejected request' }],
+			success: false,
+		}, { status: 401 }));
+		const statement = {
+			bind: vi.fn().mockReturnThis(),
+			first: vi.fn().mockResolvedValue({ count: 0 }),
+		};
+
+		await expect(advanceBrowserSourceRun({
+			BROWSER_RUN_ACCOUNT_ID: 'account-id',
+			BROWSER_RUN_API_TOKEN: { get },
+			KEEPROOT_DB: { prepare: vi.fn().mockReturnValue(statement) },
+		} as any, {
+			id: 'source-id',
+			lastSuccessAt: null,
+			name: 'Blog',
+			pollUrl: 'https://example.com/blog',
+			userId: 'user-id',
+		}, {
+			initialCrawl: false,
+			runId: 'run-id',
+			upstreamCursor: null,
+			upstreamJobId: null,
+			upstreamPhase: null,
+			upstreamStartedAt: null,
+		})).rejects.toMatchObject({ statusCode: 401 });
+
+		expect(get).toHaveBeenCalledOnce();
+		expect(fetchSpy).toHaveBeenCalledWith(
+			expect.stringContaining('/browser-rendering/crawl'),
+			expect.objectContaining({
+				headers: expect.objectContaining({ Authorization: 'Bearer secret-token' }),
+			}),
+		);
+	});
+
 	it('cancels and fails an upstream crawl after KeepRoot\'s 30-minute timeout', async () => {
 		const fetchSpy = vi.spyOn(globalThis, 'fetch').mockResolvedValue(Response.json({ success: true, result: {} }));
 		const crawl = advanceBrowserSourceRun({
