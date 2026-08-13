@@ -65,6 +65,39 @@ describe('source-sync', () => {
         expect(items.saveItemContent).toHaveBeenCalledTimes(1);
 	});
 
+	it('rejects a successful HTML response instead of recording an empty feed success', async () => {
+		vi.stubGlobal('fetch', vi.fn().mockResolvedValue(new Response(
+			'<!doctype html><html><head><title>Website</title></head><body>No feed here</body></html>',
+			{ headers: { 'Content-Type': 'text/html; charset=utf-8' }, status: 200 },
+		)));
+
+		await expect(syncSource(env as any, {
+			id: 'source-html',
+			kind: 'rss',
+			pollUrl: 'https://example.com/',
+			userId: 'user-1',
+		})).rejects.toThrow('Source URL did not return an RSS or Atom feed');
+
+		expect(items.saveItemContent).not.toHaveBeenCalled();
+		expect(env.KEEPROOT_DB.batch).toHaveBeenCalledTimes(1);
+	});
+
+	it('rejects feeds whose declared entries cannot be imported', async () => {
+		vi.stubGlobal('fetch', vi.fn().mockResolvedValue(new Response(
+			'<rss><channel><item><title>Missing URL</title></item></channel></rss>',
+			{ status: 200 },
+		)));
+
+		await expect(syncSource(env as any, {
+			id: 'source-unusable',
+			kind: 'rss',
+			pollUrl: 'https://example.com/feed.xml',
+			userId: 'user-1',
+		})).rejects.toThrow('Source feed contains entries but none have a usable URL');
+
+		expect(items.saveItemContent).not.toHaveBeenCalled();
+	});
+
 	it('decodes HTML character references nested inside RSS titles', async () => {
 		vi.stubGlobal('fetch', vi.fn().mockResolvedValue(new Response(`
 			<rss><channel><item>
@@ -82,6 +115,40 @@ describe('source-sync', () => {
 
 		const payload = vi.mocked(items.saveItemContent).mock.calls[0][2];
 		expect(payload.title).toBe("Tim Cook's & Apple’s");
+	});
+
+	it('continues to parse Atom entries through the shared feed validator', async () => {
+		vi.stubGlobal('fetch', vi.fn().mockResolvedValue(new Response(`
+			<feed xmlns="http://www.w3.org/2005/Atom">
+				<title>Example Atom Feed</title>
+				<entry>
+					<id>atom-entry-1</id>
+					<title>Atom story</title>
+					<link rel="alternate" href="https://example.com/atom-story" />
+					<updated>2026-08-13T12:00:00Z</updated>
+				</entry>
+			</feed>
+		`, { status: 200 })));
+
+		const result = await syncSource(env as any, {
+			id: 'source-atom',
+			kind: 'rss',
+			pollUrl: 'https://example.com/atom.xml',
+			userId: 'user-1',
+		});
+
+		expect(result).toEqual(expect.objectContaining({ discoveredCount: 1, savedCount: 1 }));
+		expect(items.saveItemContent).toHaveBeenCalledWith(
+			expect.anything(),
+			expect.anything(),
+			expect.objectContaining({
+				sourceEntryId: 'atom-entry-1',
+				title: 'Atom story',
+				url: 'https://example.com/atom-story',
+			}),
+			'source_sync',
+			expect.anything(),
+		);
 	});
 
 	it('treats a conditional 304 response as a successful no-work poll', async () => {

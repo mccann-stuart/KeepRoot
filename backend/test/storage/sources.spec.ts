@@ -6,6 +6,9 @@ describe('sources storage', () => {
     describe('addSource', () => {
         beforeEach(() => {
             vi.restoreAllMocks();
+			vi.spyOn(globalThis, 'fetch').mockResolvedValue(new Response('<rss><channel></channel></rss>', {
+				headers: { 'Content-Type': 'application/rss+xml' },
+			}));
         });
 
         it('reactivates duplicate sources without replacing their stored row', async () => {
@@ -65,6 +68,25 @@ describe('sources storage', () => {
 
             expect(batchSpy).toHaveBeenCalledTimes(1);
         });
+
+		it('rejects a non-feed response before writing a source row', async () => {
+			vi.mocked(globalThis.fetch).mockResolvedValue(new Response(
+				'<!doctype html><html><body>Ordinary website</body></html>',
+				{ headers: { 'Content-Type': 'text/html' } },
+			));
+			const prepareSpy = vi.spyOn(env.KEEPROOT_DB, 'prepare');
+
+			await expect(addSource(env as any, {
+				identifier: 'https://example.com/',
+				kind: 'rss',
+				userId: 'test-user-id',
+			})).rejects.toMatchObject({
+				message: 'Source URL did not return an RSS or Atom feed',
+				name: 'ValidationError',
+			});
+
+			expect(prepareSpy).not.toHaveBeenCalled();
+		});
     });
 
     describe('listActivePollableSources', () => {

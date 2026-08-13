@@ -347,6 +347,7 @@ describe('KeepRoot Worker', () => {
 
 	it('persists and returns a feed article publication timestamp', async () => {
 		const publishedAt = '2026-08-06T09:30:00.000Z';
+		vi.spyOn(globalThis, 'fetch').mockResolvedValue(new Response('<rss><channel></channel></rss>'));
 		const source = await addSource(env, {
 			identifier: 'https://example.com/publication-feed.xml',
 			kind: 'rss',
@@ -1761,6 +1762,36 @@ describe('KeepRoot Worker', () => {
 		expect(await privateRssResponse.json()).toEqual({
 			error: 'Source URL must not point to local, private, or reserved network addresses',
 		});
+
+		const nonFeedFetch = mockTextFetch({
+			'https://insideorchard.com/': {
+				body: '<!doctype html><html><body>Ordinary website</body></html>',
+				contentType: 'text/html; charset=utf-8',
+			},
+		});
+		const nonFeedCtx = createExecutionContext();
+		const nonFeedResponse = await worker.fetch(new Request('http://example.com/sources', {
+			method: 'POST',
+			headers: {
+				Authorization: `Bearer ${API_KEY}`,
+				'Content-Type': 'application/json',
+			},
+			body: JSON.stringify({
+				identifier: 'https://insideorchard.com/',
+				kind: 'rss',
+			}),
+		}), env, nonFeedCtx);
+		await waitOnExecutionContext(nonFeedCtx);
+		nonFeedFetch.mockRestore();
+
+		expect(nonFeedResponse.status).toBe(400);
+		expect(await nonFeedResponse.json()).toEqual({
+			error: 'Source URL did not return an RSS or Atom feed',
+		});
+		const sourceCount = await env.KEEPROOT_DB.prepare(
+			'SELECT COUNT(*) AS count FROM sources WHERE user_id = ?',
+		).bind(TEST_USER_ID).first<{ count: number }>();
+		expect(sourceCount?.count).toBe(0);
 	});
 
 	it('responds with 400 Bad Request if bookmark content is missing', async () => {
@@ -2281,6 +2312,7 @@ describe('KeepRoot Worker', () => {
 			username: TEST_USERNAME,
 		});
 		const list = await createList(env, TEST_USER_ID, { name: 'Reading Queue' });
+		vi.spyOn(globalThis, 'fetch').mockResolvedValue(new Response('<rss><channel></channel></rss>'));
 		const source = await addSource(env, {
 			identifier: 'https://example.com/feed.xml',
 			kind: 'rss',

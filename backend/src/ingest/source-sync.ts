@@ -1,18 +1,11 @@
 import { XMLParser } from 'fast-xml-parser';
 import { DOMParser } from 'linkedom';
 import TurndownService from 'turndown';
+import { fetchFeed, type FeedEntry } from './feed';
 import { calculateAdaptivePollIntervalMinutes, normalizePublishedAt } from './feed-schedule';
 import { saveItemContent } from '../storage/items';
 import { listActivePollableSources, markSourcePollingResult } from '../storage/sources';
-import { fetchWithRedirects, sha256Hex, validateSafeUrl, type SourceKind, type StorageEnv } from '../storage/shared';
-
-interface FeedEntry {
-	content?: string;
-	id: string;
-	publishedAt?: string;
-	title: string;
-	url: string;
-}
+import { sha256Hex, validateSafeUrl, type SourceKind, type StorageEnv } from '../storage/shared';
 
 interface FingerprintedFeedEntry extends FeedEntry {
 	fingerprint: string;
@@ -25,7 +18,6 @@ interface ExistingSourceEntryRow {
 	source_entry_id: string;
 }
 
-const MAX_FEED_BYTES = 8 * 1024 * 1024;
 const MAX_VISIBLE_ENTRIES = 2_000;
 const MAX_CHANGED_ENTRIES_PER_ATTEMPT = 200;
 const MAX_ENTRY_WRITE_CONCURRENCY = 4;
@@ -58,69 +50,11 @@ async function mapSettledWithConcurrency<T>(
 	return results;
 }
 
-async function readBoundedFeedText(response: Response): Promise<string> {
-	const declaredLength = Number.parseInt(response.headers.get('content-length') ?? '', 10);
-	if (Number.isFinite(declaredLength) && declaredLength > MAX_FEED_BYTES) {
-		await response.body?.cancel().catch(() => {});
-		throw new Error('Source feed exceeds the 8 MiB limit');
-	}
-	if (!response.body) {
-		return '';
-	}
-
-	const reader = response.body.getReader();
-	const chunks: Uint8Array[] = [];
-	let totalLength = 0;
-	while (true) {
-		const { done, value } = await reader.read();
-		if (done) {
-			break;
-		}
-		totalLength += value.byteLength;
-		if (totalLength > MAX_FEED_BYTES) {
-			await reader.cancel().catch(() => {});
-			throw new Error('Source feed exceeds the 8 MiB limit');
-		}
-		chunks.push(value);
-	}
-
-	const bytes = new Uint8Array(totalLength);
-	let offset = 0;
-	for (const chunk of chunks) {
-		bytes.set(chunk, offset);
-		offset += chunk.byteLength;
-	}
-	return new TextDecoder().decode(bytes);
-}
-
 function stripHtml(value: string): string {
 	return value
 		.replace(/<[^>]+>/g, ' ')
 		.replace(/\s+/g, ' ')
 		.trim();
-}
-
-function ensureArray<T>(value: T | T[] | undefined): T[] {
-	if (value === undefined) {
-		return [];
-	}
-
-	return Array.isArray(value) ? value : [value];
-}
-
-function firstDefinedString(...values: Array<unknown>): string | undefined {
-	for (const value of values) {
-		const text = typeof value === 'string'
-			? value
-			: value && typeof value === 'object'
-				? (value as Record<string, unknown>)['#text']
-				: undefined;
-		if (typeof text === 'string' && text.trim()) {
-			return text.trim();
-		}
-	}
-
-	return undefined;
 }
 
 function decodeHtmlCharacterReferences(value: string): string {
@@ -185,73 +119,6 @@ function getSourceLabel(source: { kind: SourceKind; name?: string; pollUrl: stri
 	} catch {
 		return source.kind.toUpperCase();
 	}
-}
-
-function extractAtomLink(entry: Record<string, unknown>): string | undefined {
-	const linkValue = entry.link;
-	for (const link of ensureArray(linkValue as Record<string, unknown> | Array<Record<string, unknown>> | undefined)) {
-		if (!link || typeof link !== 'object') {
-			continue;
-		}
-		const href = typeof link.href === 'string' ? link.href.trim() : '';
-		const rel = typeof link.rel === 'string' ? link.rel.trim() : '';
-		if (href && (!rel || rel === 'alternate')) {
-			return href;
-		}
-	}
-
-	return undefined;
-}
-
-function parseFeedEntries(xml: string): FeedEntry[] {
-	const parser = new XMLParser({
-		attributeNamePrefix: '',
-		ignoreAttributes: false,
-	});
-	const parsed = parser.parse(xml) as Record<string, unknown>;
-
-	if (parsed.rss && typeof parsed.rss === 'object') {
-		const channel = (parsed.rss as Record<string, unknown>).channel as Record<string, unknown> | undefined;
-		const entries: FeedEntry[] = [];
-		for (const item of ensureArray(channel?.item as Record<string, unknown> | Array<Record<string, unknown>> | undefined)) {
-			const link = firstDefinedString(item.link, item.guid);
-			if (!link) {
-				continue;
-			}
-			const id = firstDefinedString(item.guid, item.link) ?? link;
-
-			entries.push({
-				content: firstDefinedString(item['content:encoded'], item.description),
-				id,
-				publishedAt: firstDefinedString(item.pubDate, item.isoDate),
-				title: decodeHtmlCharacterReferences(firstDefinedString(item.title) ?? link),
-				url: link,
-			});
-		}
-		return entries;
-	}
-
-	if (parsed.feed && typeof parsed.feed === 'object') {
-		const feed = parsed.feed as Record<string, unknown>;
-		const entries: FeedEntry[] = [];
-		for (const entry of ensureArray(feed.entry as Record<string, unknown> | Array<Record<string, unknown>> | undefined)) {
-			const link = extractAtomLink(entry);
-			if (!link) {
-				continue;
-			}
-
-			entries.push({
-				content: firstDefinedString(entry.content, entry.summary),
-				id: firstDefinedString(entry.id, link) ?? link,
-				publishedAt: firstDefinedString(entry.updated, entry.published),
-				title: decodeHtmlCharacterReferences(firstDefinedString(entry.title) ?? link),
-				url: link,
-			});
-		}
-		return entries;
-	}
-
-	return [];
 }
 
 async function fingerprintFeedEntries(entries: FeedEntry[]): Promise<FingerprintedFeedEntry[]> {
@@ -402,30 +269,24 @@ export async function syncSource(
 		await handleSourceSyncError(env, source.id, 'Unsafe source URL', options);
 	}
 
-	let { response, currentUrl, errorText } = await fetchWithRedirects(
-		source.pollUrl,
-		(requestUrl) => {
-			const headers = new Headers({
-				Accept: 'application/rss+xml, application/atom+xml, application/xml, text/xml;q=0.9, */*;q=0.5',
-				'User-Agent': 'KeepRoot/1.0 (+https://keeproot.local)',
-			});
-			if (source.validatorUrl === requestUrl) {
-				if (source.httpEtag) {
-					headers.set('If-None-Match', source.httpEtag);
-				}
-				if (source.httpLastModified) {
-					headers.set('If-Modified-Since', source.httpLastModified);
-				}
-			}
-			return { headers };
-		}
-	);
-
-	if (errorText) {
-		await handleSourceSyncError(env, source.id, errorText, options);
+	let feed;
+	try {
+		feed = await fetchFeed(source.pollUrl, {
+			httpEtag: source.httpEtag,
+			httpLastModified: source.httpLastModified,
+			validatorUrl: source.validatorUrl,
+		});
+	} catch (error) {
+		await handleSourceSyncError(
+			env,
+			source.id,
+			error instanceof Error ? error.message : 'Unknown source sync error',
+			options,
+		);
+		throw error;
 	}
 
-	if (response?.status === 304) {
+	if (feed.notModified) {
 		if (options.recordStandaloneRun !== false) await markSourcePollingResult(env, {
 			discoveredCount: 0,
 			id: source.id,
@@ -451,13 +312,10 @@ export async function syncSource(
 		};
 	}
 
-	if (!response || !response.ok) {
-		await handleSourceSyncError(env, source.id, `Failed to fetch source feed (${response?.status ?? 'Unknown'})`, options);
-		throw new Error('Unreachable');
-	}
-
-	const xml = await readBoundedFeedText(response);
-	const entries = parseFeedEntries(xml);
+	const entries = feed.entries.map((entry) => ({
+		...entry,
+		title: decodeHtmlCharacterReferences(entry.title),
+	}));
 	const username = await getUsername(env, source.userId);
 	const visibleEntries = entries.slice(0, MAX_VISIBLE_ENTRIES);
 	const fingerprintedEntries = await fingerprintFeedEntries(visibleEntries);
@@ -535,8 +393,8 @@ export async function syncSource(
 		createdCount,
 		discoveredCount: entries.length,
 		errorCount,
-		httpEtag: response.headers.get('etag'),
-		httpLastModified: response.headers.get('last-modified'),
+		httpEtag: feed.httpEtag,
+		httpLastModified: feed.httpLastModified,
 		needsContinuation: changedEntries.length > entriesToProcess.length,
 		notModified: false,
 		processedCount: unchangedCount + entriesToProcess.length,
@@ -545,7 +403,7 @@ export async function syncSource(
 		saturated: entries.length > MAX_VISIBLE_ENTRIES,
 		savedCount,
 		unchangedCount,
-		validatorUrl: currentUrl,
+		validatorUrl: feed.currentUrl,
 	};
 }
 
