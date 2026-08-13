@@ -1,5 +1,6 @@
 import { syncSource, type SourceSyncResult } from './source-sync';
-import { calculateNextPollAt, clampPollIntervalMinutes, DEFAULT_POLL_INTERVAL_MINUTES } from './feed-schedule';
+import { advanceBrowserSourceRun, BrowserRunCrawlError } from './browser-run';
+import { calculateNextPollAt, clampSourcePollIntervalMinutes, DEFAULT_POLL_INTERVAL_MINUTES } from './feed-schedule';
 import { listDuePollableSources } from '../storage/sources';
 import type { SourceKind, StorageEnv } from '../storage/shared';
 
@@ -15,13 +16,19 @@ interface PollableSourceRunRow {
 	attempt_count: number;
 	http_etag: string | null;
 	http_last_modified: string | null;
+	initial_crawl: number;
 	kind: SourceKind;
+	last_success_at: string | null;
 	name: string;
 	poll_interval_minutes: number;
 	finished_at: string | null;
 	poll_url: string | null;
 	run_status: string;
 	source_status: string;
+	upstream_cursor: string | null;
+	upstream_job_id: string | null;
+	upstream_phase: string | null;
+	upstream_started_at: string | null;
 	user_id: string;
 	validator_url: string | null;
 }
@@ -34,6 +41,9 @@ export class SourceLeaseBusyError extends Error {
 }
 
 function retryableSourceError(error: unknown): boolean {
+	if (error instanceof BrowserRunCrawlError) {
+		return error.retryable;
+	}
 	if (error instanceof SourceLeaseBusyError || error instanceof TypeError) {
 		return true;
 	}
@@ -125,7 +135,9 @@ async function loadSourceRun(env: StorageEnv, job: SourceQueueJob): Promise<Poll
 	return env.KEEPROOT_DB.prepare(
 		`SELECT s.user_id, s.kind, s.name, s.poll_url, s.status AS source_status,
 			s.validator_url, s.http_etag, s.http_last_modified, s.poll_interval_minutes,
-			r.status AS run_status, r.attempt_count, r.finished_at
+			s.last_success_at, r.status AS run_status, r.attempt_count, r.finished_at,
+			r.upstream_job_id, r.upstream_phase, r.upstream_cursor, r.upstream_started_at,
+			r.initial_crawl
 		FROM source_runs r
 		JOIN sources s ON s.id = r.source_id
 		WHERE r.id = ? AND r.source_id = ?
@@ -172,16 +184,29 @@ async function recordResult(
 	job: SourceQueueJob,
 	result: SourceSyncResult,
 	storedIntervalMinutes: number,
+	sourceKind: SourceKind,
 	attempts: number,
 	durationMs: number,
 ): Promise<void> {
 	const now = new Date().toISOString();
 	const intervalMinutes = result.recommendedIntervalMinutes === null
-		? clampPollIntervalMinutes(storedIntervalMinutes)
-		: clampPollIntervalMinutes(result.recommendedIntervalMinutes);
+		? clampSourcePollIntervalMinutes(sourceKind, storedIntervalMinutes)
+		: clampSourcePollIntervalMinutes(sourceKind, result.recommendedIntervalMinutes);
 	const nextPollAt = calculateNextPollAt(new Date(now), intervalMinutes);
 	const status = result.needsContinuation ? 'partial' : result.errorCount > 0 ? 'partial' : 'success';
-	const runUpdate = result.needsContinuation
+	const runUpdate = result.countsPersisted
+		? env.KEEPROOT_DB.prepare(
+			`UPDATE source_runs SET status = ?, discovered_count = ?, examined_count = ?,
+				processed_count = ?, saved_count = ?, created_count = ?, refreshed_count = ?,
+				unchanged_count = ?, skipped_count = ?, error_count = ?,
+				saturated = ?, not_modified = ?, upstream_phase = 'completed', upstream_cursor = NULL, finished_at = ?,
+				duration_ms = CAST((julianday(?) - julianday(started_at)) * 86400000 AS INTEGER), lease_expires_at = NULL
+			WHERE id = ? AND source_id = ?`,
+		).bind(status, result.discoveredCount, result.examinedCount ?? 0, result.processedCount,
+			result.savedCount, result.createdCount, result.refreshedCount, result.unchangedCount,
+			result.skippedCount ?? 0, result.errorCount, result.saturated ? 1 : 0,
+			result.notModified ? 1 : 0, now, now, job.runId, job.sourceId)
+		: result.needsContinuation
 		? env.KEEPROOT_DB.prepare(
 			`UPDATE source_runs SET status = ?, discovered_count = ?,
 				processed_count = processed_count + ?, saved_count = saved_count + ?,
@@ -217,7 +242,7 @@ async function recordResult(
 				poll_interval_minutes = ?, next_poll_at = ?, active_run_id = NULL,
 				lease_expires_at = NULL, updated_at = ?
 			WHERE id = ? AND active_run_id = ?`,
-		).bind(now, now, result.errorCount ? `${result.errorCount} entry processing error(s)` : null,
+		).bind(now, now, result.errorCount ? `${result.errorCount} source processing error(s)` : null,
 			result.validatorUrl, result.httpEtag, result.httpLastModified, intervalMinutes, nextPollAt, now,
 			job.sourceId, job.runId);
 	await env.KEEPROOT_DB.batch([runUpdate, sourceUpdate]);
@@ -246,6 +271,7 @@ async function recordFailure(
 	job: SourceQueueJob,
 	error: unknown,
 	storedIntervalMinutes: number,
+	sourceKind: SourceKind,
 	attempts: number,
 	retryable: boolean,
 ): Promise<void> {
@@ -254,7 +280,7 @@ async function recordFailure(
 	const errorText = error instanceof Error ? error.message.slice(0, 500) : 'Unknown source sync error';
 	const nextPollAt = calculateNextPollAt(
 		new Date(now),
-		Math.max(DEFAULT_POLL_INTERVAL_MINUTES, clampPollIntervalMinutes(storedIntervalMinutes)),
+		Math.max(DEFAULT_POLL_INTERVAL_MINUTES, clampSourcePollIntervalMinutes(sourceKind, storedIntervalMinutes)),
 	);
 	await env.KEEPROOT_DB.batch([
 		env.KEEPROOT_DB.prepare(
@@ -293,6 +319,51 @@ export async function processSourceQueueJob(
 			`UPDATE source_runs SET status = 'running', attempt_count = attempt_count + 1, lease_expires_at = ?
 			WHERE id = ? AND source_id = ?`,
 		).bind(leaseExpiresAt, job.runId, job.sourceId).run();
+		if (source.kind === 'browser') {
+			const step = await advanceBrowserSourceRun(
+				env,
+				{
+					id: job.sourceId,
+					lastSuccessAt: source.last_success_at,
+					name: source.name,
+					pollUrl: source.poll_url,
+					userId: source.user_id,
+				},
+				{
+					initialCrawl: Boolean(source.initial_crawl),
+					runId: job.runId,
+					upstreamCursor: source.upstream_cursor,
+					upstreamJobId: source.upstream_job_id,
+					upstreamPhase: source.upstream_phase,
+					upstreamStartedAt: source.upstream_started_at,
+				},
+			);
+			if (step.status === 'waiting') {
+				await env.KEEPROOT_DB.batch([
+					env.KEEPROOT_DB.prepare(
+						`UPDATE source_runs SET status = 'waiting', lease_expires_at = ?
+						WHERE id = ? AND source_id = ?`,
+					).bind(leaseExpiresAt, job.runId, job.sourceId),
+					env.KEEPROOT_DB.prepare(
+						`UPDATE sources SET lease_expires_at = ?
+						WHERE id = ? AND active_run_id = ?`,
+					).bind(leaseExpiresAt, job.sourceId, job.runId),
+				]);
+				await env.SOURCE_QUEUE?.send(job, { delaySeconds: step.delaySeconds });
+				return 'continued';
+			}
+			await recordResult(
+				env,
+				job,
+				step.result,
+				source.poll_interval_minutes,
+				source.kind,
+				attempts,
+				Date.now() - startedAt,
+			);
+			return 'completed';
+		}
+
 		const result = await syncSource(env, {
 			httpEtag: source.http_etag,
 			httpLastModified: source.http_last_modified,
@@ -303,7 +374,7 @@ export async function processSourceQueueJob(
 			userId: source.user_id,
 			validatorUrl: source.validator_url,
 		}, { recordStandaloneRun: false });
-		await recordResult(env, job, result, source.poll_interval_minutes, attempts, Date.now() - startedAt);
+		await recordResult(env, job, result, source.poll_interval_minutes, source.kind, attempts, Date.now() - startedAt);
 		return result.needsContinuation ? 'continued' : 'completed';
 	} catch (error) {
 		if (error instanceof SourceLeaseBusyError) {
@@ -327,7 +398,7 @@ export async function processSourceQueueJob(
 			throw error;
 		}
 		const retryable = retryableSourceError(error);
-		await recordFailure(env, job, error, source.poll_interval_minutes, attempts, retryable);
+		await recordFailure(env, job, error, source.poll_interval_minutes, source.kind, attempts, retryable);
 		await releaseLease(env, job.sourceId, job.runId);
 		sourceRunLog('source_run_summary', {
 			attempts,
@@ -349,6 +420,9 @@ export async function processSourceQueueJob(
 	}
 }
 
-export function sourceRetryDelaySeconds(attempts: number): number {
+export function sourceRetryDelaySeconds(attempts: number, error?: unknown): number {
+	if (error instanceof BrowserRunCrawlError && error.retryAfterSeconds !== null) {
+		return Math.min(Math.max(1, error.retryAfterSeconds), 12 * 60 * 60);
+	}
 	return Math.min(15 * (2 ** Math.max(0, attempts - 1)), 15 * 60);
 }

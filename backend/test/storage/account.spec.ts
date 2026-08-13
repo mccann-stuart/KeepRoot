@@ -3,7 +3,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { clearUserData, ensureAccountSettings, getWhoAmI } from '../../src/storage/account';
 import type { AuthenticatedUser } from '../../src/storage/shared';
 
-function createAccountSettingsEnv(overrides: Record<string, string> = {}) {
+function createAccountSettingsEnv(overrides: Record<string, unknown> = {}) {
     const run = vi.fn().mockResolvedValue({});
     const bind = vi.fn().mockReturnValue({ run });
     const prepare = vi.fn().mockReturnValue({ bind });
@@ -56,6 +56,7 @@ describe('account storage', () => {
                     username: 'testuser',
                 },
                 features: {
+					browser: false,
                     email: false,
                     rss: true,
                     x: false,
@@ -106,7 +107,14 @@ describe('account storage', () => {
                     userId: 'test-user-id',
                     username: 'testuser',
                 },
-                features: { customFeature: true },
+                features: {
+					browser: false,
+					customFeature: true,
+					email: false,
+					rss: true,
+					x: false,
+					youtube: true,
+				},
                 limits: { maxItems: 100 },
                 tokenType: 'webauthn',
             });
@@ -140,6 +148,7 @@ describe('account storage', () => {
             const result = await getWhoAmI(env as any, user);
 
             expect(result.features).toEqual({
+				browser: false,
                 email: false,
                 rss: true,
                 x: false,
@@ -151,6 +160,35 @@ describe('account storage', () => {
                 maxToolCallsPerDay: null,
             });
         });
+
+		it('refreshes saved Browser Run capability from the current operator environment', async () => {
+			vi.spyOn(env.KEEPROOT_DB, 'batch').mockResolvedValue([
+				{ results: [] },
+				{ results: [{
+					created_at: '2023-01-01T00:00:00Z',
+					display_name: 'Custom Name',
+					features_json: JSON.stringify({ browser: false, customFeature: true }),
+					limits_json: '{}',
+					plan_code: 'pro',
+					updated_at: '2023-01-02T00:00:00Z',
+					user_id: 'test-user-id',
+				}] },
+			] as any);
+
+			const result = await getWhoAmI({
+				...env,
+				BROWSER_RUN_ACCOUNT_ID: 'account-id',
+				BROWSER_RUN_API_TOKEN: 'api-token',
+				SOURCE_QUEUE: { send: vi.fn() },
+			} as any, {
+				roles: [],
+				tokenType: 'webauthn',
+				userId: 'test-user-id',
+				username: 'testuser',
+			});
+
+			expect(result.features).toMatchObject({ browser: true, customFeature: true });
+		});
     });
 
     describe('clearUserData', () => {
@@ -177,12 +215,13 @@ describe('account storage', () => {
             // The method should call batch 1 time for reads, 1 time for data deletes,
             // and 3 times for unreferenced bucket objects cleanup in deleteUnreferencedBucketObjects
             expect(batchSpy).toHaveBeenCalledTimes(5);
-            expect(batchSpy.mock.calls[1][0].length).toBe(13); // the main deletion queries
+            expect(batchSpy.mock.calls[1][0].length).toBe(14); // the main deletion queries
 
             expect(prepareSpy).toHaveBeenCalledWith(expect.stringContaining('DELETE FROM item_search_fts WHERE user_id = ?'));
             expect(prepareSpy).toHaveBeenCalledWith(expect.stringContaining('DELETE FROM tool_events WHERE user_id = ?'));
             expect(prepareSpy).toHaveBeenCalledWith(expect.stringContaining('DELETE FROM inbox_entries WHERE user_id = ?'));
             expect(prepareSpy).toHaveBeenCalledWith(expect.stringContaining('DELETE FROM source_runs WHERE source_id IN (SELECT id FROM sources WHERE user_id = ?)'));
+			expect(prepareSpy).toHaveBeenCalledWith(expect.stringContaining('DELETE FROM source_discoveries WHERE source_id IN (SELECT id FROM sources WHERE user_id = ?)'));
             expect(prepareSpy).toHaveBeenCalledWith(expect.stringContaining('DELETE FROM api_keys WHERE user_id = ?'));
             expect(prepareSpy).toHaveBeenCalledWith(expect.stringContaining('DELETE FROM account_settings WHERE user_id = ?'));
             expect(prepareSpy).toHaveBeenCalledWith(expect.stringContaining('DELETE FROM sources WHERE user_id = ?'));
@@ -216,7 +255,7 @@ describe('account storage', () => {
 
             // Only 2 batches called since deleteUnreferencedBucketObjects returns early
             expect(batchSpy).toHaveBeenCalledTimes(2);
-            expect(batchSpy.mock.calls[1][0].length).toBe(13); // the main deletion queries
+            expect(batchSpy.mock.calls[1][0].length).toBe(14); // the main deletion queries
 
             if (deleteIndexSpy) {
                 expect(deleteIndexSpy).not.toHaveBeenCalled();
@@ -239,7 +278,7 @@ describe('account storage', () => {
                 'user-123',
                 'testuser',
                 JSON.stringify({ maxItems: null, maxSources: null, maxToolCallsPerDay: null }),
-                JSON.stringify({ email: false, rss: true, x: false, youtube: true }),
+                JSON.stringify({ browser: false, email: false, rss: true, x: false, youtube: true }),
                 expect.any(String),
                 expect.any(String),
             );
@@ -255,7 +294,7 @@ describe('account storage', () => {
                 'user-123',
                 'testuser',
                 expect.any(String),
-                JSON.stringify({ email: true, rss: true, x: false, youtube: true }),
+                JSON.stringify({ browser: false, email: true, rss: true, x: false, youtube: true }),
                 expect.any(String),
                 expect.any(String),
             );
@@ -270,10 +309,29 @@ describe('account storage', () => {
                 'user-123',
                 'testuser',
                 expect.any(String),
-                JSON.stringify({ email: false, rss: true, x: true, youtube: true }),
+                JSON.stringify({ browser: false, email: false, rss: true, x: true, youtube: true }),
                 expect.any(String),
                 expect.any(String),
             );
         });
+
+		it('enables Agentic scraping only when Browser Run credentials and the source queue are configured', async () => {
+			const { bind, storageEnv } = createAccountSettingsEnv({
+				BROWSER_RUN_ACCOUNT_ID: 'account-id',
+				BROWSER_RUN_API_TOKEN: 'api-token',
+				SOURCE_QUEUE: { send: vi.fn() },
+			});
+
+			await ensureAccountSettings(storageEnv as any, { userId: 'user-123', username: 'testuser' });
+
+			expect(bind).toHaveBeenCalledWith(
+				'user-123',
+				'testuser',
+				expect.any(String),
+				JSON.stringify({ browser: true, email: false, rss: true, x: false, youtube: true }),
+				expect.any(String),
+				expect.any(String),
+			);
+		});
     });
 });

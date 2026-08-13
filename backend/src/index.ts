@@ -246,8 +246,8 @@ export default {
 					await processIngestJob(env, job as IngestJob);
 				}
 				message.ack();
-			} catch {
-				message.retry({ delaySeconds: sourceRetryDelaySeconds(message.attempts) });
+			} catch (error) {
+				message.retry({ delaySeconds: sourceRetryDelaySeconds(message.attempts, error) });
 			}
 		}
 	},

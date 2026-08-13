@@ -26,7 +26,7 @@ Current MCP implementation:
 Current limitations:
 - MCP auth is bearer-token based today; OAuth-style MCP auth is planned, not shipped
 - search is currently keyword-backed over the indexed content store
-- email routing requires additional deployment configuration; a ten-minute scheduler dispatches due RSS, YouTube and bridge-feed sources through a dedicated Cloudflare Queue
+- email routing and Agentic scraping require additional deployment configuration; a ten-minute scheduler dispatches due sources through a dedicated Cloudflare Queue
 
 See [PRD.md](PRD.md) and [TECHNICAL_ARCHITECTURE.md](TECHNICAL_ARCHITECTURE.md) for the broader product and platform design.
 
@@ -51,6 +51,7 @@ Main components:
   - **R2 (`KEEPROOT_CONTENT`):** extracted content blobs in `content/*.json`, optional `html/*.html`, and image objects
   - **Queues (`SOURCE_QUEUE`, `SOURCE_DLQ`):** durable per-source crawl fan-out, retries, continuations, and dead-letter visibility
   - **Browser Run (`BROWSER`):** rendered-DOM and screenshot fallback for JavaScript-heavy saves
+  - **Browser Run `/crawl` REST API:** optional daily, rendered same-origin discovery for public blogs without RSS
 
 Authentication modes:
 - **WebAuthn + seven-day sessions** for dashboard sign-up/sign-in
@@ -79,6 +80,7 @@ Security notes:
 - Canonical URL normalization and per-user deduplication
 - Notes, tags, lists, pinned state, and read state on saved items
 - Inbox workflow for newly saved or source-linked items
+- Agentic scraping for public blogs that expose recognised article metadata but no RSS feed
 - Remote MCP server for agent access
 - User-owned storage in Cloudflare D1 + R2
 
@@ -93,7 +95,7 @@ Security notes:
 | `update_item` | Update title, notes, tags, or status |
 | `whoami` | Return account identity, feature flags, and limits |
 | `list_sources` | List configured source records |
-| `add_source` | Add an RSS, YouTube, X, or email source record |
+| `add_source` | Add an Agentic scraping, RSS, YouTube, X, or email source record |
 | `remove_source` | Disable a configured source record |
 | `get_stats` | Return item, inbox, source, and tool-usage stats |
 | `list_inbox` | List pending inbox entries and their linked items |
@@ -192,6 +194,25 @@ What they do:
 - `ENABLE_X_SOURCES`: enables X source records when set to `"1"`
 - `X_SOURCE_BRIDGE_BASE_URL`: lets handle-based X sources resolve through a bridge feed
 
+### Optional Browser Run credentials
+
+Agentic scraping is enabled only when `SOURCE_QUEUE`, `BROWSER_RUN_ACCOUNT_ID`, and `BROWSER_RUN_API_TOKEN` are all configured. Put the Cloudflare account ID in Worker configuration and keep the token in a Wrangler secret:
+
+```json
+{
+  "vars": {
+    "BROWSER_RUN_ACCOUNT_ID": "your-cloudflare-account-id"
+  }
+}
+```
+
+```bash
+cd backend
+npx wrangler secret put BROWSER_RUN_API_TOKEN
+```
+
+Create a scoped custom API token with only **Browser Rendering - Edit** for the target account. Do not put the token in `wrangler.jsonc`, source records, logs, or dashboard requests.
+
 ### Provision resources and apply schema
 
 ```bash
@@ -203,7 +224,11 @@ This command:
 - applies remote D1 migrations in `backend/migrations/`
 - regenerates Worker types
 
-Source crawling uses a ten-minute Cron heartbeat that creates idempotent runs only for feeds whose persisted `next_poll_at` is due, then publishes `{ sourceId, runId }`; the Queue consumer reloads current source configuration from D1. New pollable sources are fetched and verified as RSS or Atom before they are stored, so ordinary web pages cannot become silently empty sources. Each feed learns a 10-360 minute cadence from its recent publication gaps, with a 60-minute default when history is insufficient. Feed downloads are capped at 8 MiB and 2,000 visible entries. HTTP validators make unchanged polls return at `304`, while changed work is fingerprinted and processed in groups of 200 with four concurrent item writes until caught up. RSS and Atom publication timestamps are preserved so the dashboard shows when an article was published rather than when it was imported.
+Source crawling uses a ten-minute Cron heartbeat that creates idempotent runs only for sources whose persisted `next_poll_at` is due, then publishes `{ sourceId, runId }`; the Queue consumer reloads current source configuration from D1. New feed sources are fetched and verified as RSS or Atom before they are stored, so ordinary web pages cannot become silently empty RSS sources. Each feed learns a 10-360 minute cadence from its recent publication gaps, with a 60-minute default when history is insufficient. Feed downloads are capped at 8 MiB and 2,000 visible entries. HTTP validators make unchanged polls return at `304`, while changed work is fingerprinted and processed in groups of 200 with four concurrent item writes until caught up. RSS and Atom publication timestamps are preserved so the dashboard shows when an article was published rather than when it was imported.
+
+Agentic scraping uses Browser Run's asynchronous [`/crawl` REST API](https://developers.cloudflare.com/browser-run/quick-actions/crawl-endpoint/) because site-wide crawl is not exposed through the Worker binding. It runs daily, renders at most 100 same-origin pages to depth five, uses both sitemap and page-link discovery, blocks images/media/fonts, declares the `search` and `ai-input` Content Signals purposes, and honours site-owner directives. Queue deliveries poll lightweight job status every 30 seconds and persist the upstream job, phase, cursor and lease in D1; a crawl still running after 30 minutes is cancelled. Results are recognised only from JSON-LD article types, Open Graph article publication metadata, or a dated page-level `<article>`. The first successful crawl imports the newest five recognised URLs and baselines older ones; later crawls import only first-seen canonical URLs. A first crawl with no recognised posts is an error, while a later unchanged crawl is a valid zero-import success.
+
+On the Workers Free plan, Cloudflare's current [Browser Run limits](https://developers.cloudflare.com/browser-run/limits/) permit five crawl jobs per day and 100 pages per crawl. The daily default leaves quota headroom for manual Refresh. Large or JavaScript-heavy sites can also consume Browser Run time, and sites that disallow the declared crawl purposes will fail rather than being bypassed.
 
 ### Deploy
 

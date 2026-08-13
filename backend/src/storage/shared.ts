@@ -136,7 +136,7 @@ export interface BookmarkPatchPayload {
 	title?: string;
 }
 
-export type SourceKind = 'rss' | 'youtube' | 'x' | 'email';
+export type SourceKind = 'browser' | 'rss' | 'youtube' | 'x' | 'email';
 
 export interface PaginationInput {
 	cursor?: string | null;

@@ -199,6 +199,7 @@ async function bootDashboard(options?: {
 					username: 'tester',
 				},
 				features: {
+					browser: false,
 					email: true,
 					rss: true,
 					x: true,
@@ -216,7 +217,7 @@ async function bootDashboard(options?: {
 					dlq: { backlog: 0, oldestJobAgeSeconds: 0 },
 					failedSources: 0,
 					health: 'green',
-					interpretation: 'Feeds are current and processing normally.',
+					interpretation: 'Sources are current and processing normally.',
 					processingErrors: 0,
 					queue: { backlog: 3, oldestJobAgeSeconds: 42 },
 					saturatedSources: 0,
@@ -1234,11 +1235,62 @@ describe('dashboard MCP setup view', () => {
 		expect(document.querySelector('#sources-view #mcp-sources-list')).not.toBeNull();
 		const sourceHealthList = document.querySelector<HTMLElement>('#sources-view #mcp-source-health-list');
 		expect(sourceHealthList).not.toBeNull();
-		expect(sourceHealthList?.textContent ?? '').toContain('Feeds are current and processing normally.');
+		expect(sourceHealthList?.textContent ?? '').toContain('Source ingestion');
+		expect(sourceHealthList?.textContent ?? '').toContain('Sources are current and processing normally.');
 		expect(sourceHealthList?.textContent ?? '').toContain('Queue 3 · Oldest 42s · DLQ 0');
 		expect(document.querySelector('#mcp-view #mcp-source-form')).toBeNull();
 		expect(document.querySelector('#mcp-view #mcp-sources-list')).toBeNull();
 		expect(document.querySelector('#mcp-view #mcp-source-health-list')).toBeNull();
+	});
+
+	it('shows Browser Run page and recognition counters in Source Health', async () => {
+		await bootDashboard({
+			sources: [{
+				id: 'browser-source',
+				kind: 'browser',
+				name: 'Example Blog',
+				normalizedIdentifier: 'https://example.com/blog',
+				pollUrl: 'https://example.com/blog',
+				status: 'active',
+			}],
+			stats: {
+				ingestion: {
+					dailyRefreshes: 0,
+					dlq: { backlog: 0, oldestJobAgeSeconds: 0 },
+					failedSources: 0,
+					health: 'amber',
+					interpretation: 'Source ingestion needs attention but is still progressing.',
+					processingErrors: 0,
+					queue: { backlog: 1, oldestJobAgeSeconds: 30 },
+					saturatedSources: 0,
+				},
+				inbox: { pending: 0 },
+				items: { byStatus: {}, total: 0 },
+				recentToolUsage: [],
+				sourceHealth: [{
+					createdCount: 5,
+					discoveredCount: 8,
+					errorCount: 1,
+					examinedCount: 12,
+					health: 'amber',
+					id: 'browser-source',
+					kind: 'browser',
+					name: 'Example Blog',
+					skippedCount: 4,
+					status: 'waiting',
+					upstreamErrorCount: 1,
+				}],
+				sources: { byKind: { browser: 1 }, total: 1 },
+			},
+		});
+
+		(document.getElementById('nav-sources') as HTMLButtonElement).click();
+		await flush();
+		await flush();
+		const health = document.getElementById('mcp-source-health-list')?.textContent ?? '';
+		expect(health).toContain('Pages 12 · Posts 8 · New 5 · Skipped 4 · Upstream errors 1');
+		expect(health).toContain('Queue 1 · Oldest 30s · DLQ 0');
+		expect(health).toContain('browser · waiting · Last success');
 	});
 
 	it('queues a manual refresh from a pollable Source Health row', async () => {
@@ -1390,6 +1442,7 @@ describe('dashboard MCP setup view', () => {
 					username: 'tester',
 				},
 				features: {
+					browser: false,
 					email: false,
 					rss: true,
 					x: true,
@@ -1413,8 +1466,11 @@ describe('dashboard MCP setup view', () => {
 		await flush();
 
 		const sourceKind = document.getElementById('mcp-source-kind') as HTMLSelectElement;
+		const browserOption = [...sourceKind.options].find((option) => option.value === 'browser');
 		const emailOption = [...sourceKind.options].find((option) => option.value === 'email');
 		const xOption = [...sourceKind.options].find((option) => option.value === 'x');
+		expect(browserOption?.textContent).toContain('Agentic scraping');
+		expect(browserOption?.disabled).toBe(true);
 		expect(emailOption?.disabled).toBe(true);
 		expect(xOption?.disabled).toBe(false);
 
@@ -1428,6 +1484,64 @@ describe('dashboard MCP setup view', () => {
 		const sourceRow = document.querySelector<HTMLElement>('[data-source-id="source-1"]');
 		expect(sourceRow?.classList.contains('mcp-source-row')).toBe(true);
 		expect(sourceRow?.querySelector('.mcp-source-summary')?.textContent).toContain('long-source-identifier-without-breaks');
+	});
+
+	it('submits Agentic scraping sources with the Browser Run help text', async () => {
+		const { fetchSpy } = await bootDashboard({
+			account: {
+				account: {
+					displayName: 'Test User',
+					plan: 'self_hosted',
+					userId: 'user-1',
+					username: 'tester',
+				},
+				features: { browser: true, email: false, rss: true, x: false, youtube: true },
+				limits: {},
+				tokenType: 'api_key',
+			},
+			handleFetch: (url, method) => {
+				if (url.endsWith('/sources') && method === 'POST') {
+					return jsonResponse({ source: {
+						id: 'browser-source',
+						kind: 'browser',
+						name: 'Example Blog',
+						normalizedIdentifier: 'https://example.com/blog',
+						status: 'active',
+					} }, 201);
+				}
+				return undefined;
+			},
+		});
+
+		(document.getElementById('nav-sources') as HTMLButtonElement).click();
+		await flush();
+		await flush();
+
+		const sourceKind = document.getElementById('mcp-source-kind') as HTMLSelectElement;
+		const browserOption = [...sourceKind.options].find((option) => option.value === 'browser');
+		expect(browserOption?.textContent).toContain('Agentic scraping');
+		expect(browserOption?.disabled).toBe(false);
+		sourceKind.value = 'browser';
+		sourceKind.dispatchEvent(new Event('change', { bubbles: true }));
+
+		expect((document.getElementById('mcp-source-kind-help') as HTMLElement).textContent)
+			.toBe('Crawl a blog without RSS and import newly published posts.');
+		expect((document.getElementById('mcp-source-identifier-label') as HTMLElement).textContent).toBe('Blog URL');
+		expect((document.getElementById('mcp-source-identifier-help') as HTMLElement).textContent)
+			.toBe('Paste the public blog or archive URL you want KeepRoot to crawl.');
+
+		(document.getElementById('mcp-source-identifier') as HTMLInputElement).value = 'https://example.com/blog';
+		(document.getElementById('mcp-source-name') as HTMLInputElement).value = 'Example Blog';
+		(document.getElementById('mcp-source-form') as HTMLFormElement).dispatchEvent(new Event('submit', { bubbles: true, cancelable: true }));
+		await flush();
+		await flush();
+
+		const request = fetchSpy.mock.calls.find(([input, init]) => String(input).endsWith('/sources') && init?.method === 'POST');
+		expect(JSON.parse(String(request?.[1]?.body))).toEqual({
+			identifier: 'https://example.com/blog',
+			kind: 'browser',
+			name: 'Example Blog',
+		});
 	});
 
 	it('clears all data from settings after confirmation and preserves the session token', async () => {

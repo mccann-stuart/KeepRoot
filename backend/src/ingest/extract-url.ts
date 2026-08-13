@@ -328,6 +328,11 @@ function extractHtmlBookmark(html: string, url: string, fallbackTitle?: string):
 	}
 }
 
+export function extractHtmlContent(url: string, html: string, fallbackTitle?: string): ExtractedBookmarkPayload {
+	const { readabilitySucceeded: _readabilitySucceeded, ...payload } = extractHtmlBookmark(html, url, fallbackTitle);
+	return payload;
+}
+
 function extractPlainTextBookmark(text: string, url: string, fallbackTitle?: string): ExtractedBookmarkPayload {
 	const textContent = normalizeWhitespace(text);
 	return {

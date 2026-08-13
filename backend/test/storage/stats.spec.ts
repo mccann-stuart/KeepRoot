@@ -81,7 +81,7 @@ describe('stats storage', () => {
                     { id: 'src-1', kind: 'rss', name: 'Blog', status: 'active', last_polled_at: '2023-01-01', last_success_at: '2023-01-01', last_error: null, next_poll_at: '2026-08-06T14:00:00.000Z', poll_interval_minutes: 120 }
                 ] },
 				{ results: [{ count: 4 }] },
-				{ results: [{ source_id: 'src-1', rank: 1, status: 'success', discovered_count: 10, processed_count: 10, created_count: 6, refreshed_count: 4, unchanged_count: 0, error_count: 0, saturated: 0 }] },
+				{ results: [{ source_id: 'src-1', rank: 1, status: 'success', discovered_count: 10, processed_count: 10, created_count: 6, refreshed_count: 4, unchanged_count: 0, error_count: 0, examined_count: 0, skipped_count: 0, upstream_error_count: 0, saturated: 0 }] },
 				{ results: [{ count: 0, oldest_queued_at: null }] },
             ] as any);
 
@@ -105,10 +105,11 @@ describe('stats storage', () => {
                 ],
                 sourceHealth: [
                     {
-                        id: 'src-1',
+						id: 'src-1',
 						createdCount: 6,
 						discoveredCount: 10,
 						errorCount: 0,
+						examinedCount: 0,
 						health: 'red',
                         kind: 'rss',
                         lastPolledAt: '2023-01-01',
@@ -119,8 +120,10 @@ describe('stats storage', () => {
 						processedCount: 10,
 						refreshedCount: 4,
 						saturated: false,
+						skippedCount: 0,
 						status: 'success',
 						unchangedCount: 0,
+						upstreamErrorCount: 0,
                     }
                 ],
                 sources: {

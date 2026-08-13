@@ -87,6 +87,62 @@ describe('sources storage', () => {
 
 			expect(prepareSpy).not.toHaveBeenCalled();
 		});
+
+		it('stores a configured Browser Run source daily without RSS validation', async () => {
+			const bindCalls: unknown[][] = [];
+			const prepare = vi.fn((query: string) => ({
+				bind: (...args: unknown[]) => {
+					bindCalls.push(args);
+					return {
+						first: async () => null,
+						run: async () => ({ meta: { changes: 1 } }),
+					};
+				},
+			}));
+			const sourceRow = {
+				config_json: '{}', created_at: '2026-08-13T12:00:00.000Z', email_alias: null,
+				id: 'browser-source', kind: 'browser', last_error: null, last_polled_at: null,
+				last_success_at: null, name: 'Example Blog', next_poll_at: null,
+				normalized_identifier: 'https://example.com/blog', poll_interval_minutes: 1440,
+				poll_url: 'https://example.com/blog', status: 'active', updated_at: '2026-08-13T12:00:00.000Z',
+			};
+			const storageEnv = {
+				BROWSER_RUN_ACCOUNT_ID: 'account-id',
+				BROWSER_RUN_API_TOKEN: 'api-token',
+				KEEPROOT_DB: {
+					batch: vi.fn().mockResolvedValue([{ results: [sourceRow] }, { results: [] }]),
+					prepare,
+				},
+				SOURCE_QUEUE: { send: vi.fn() },
+			};
+
+			const source = await addSource(storageEnv as any, {
+				identifier: 'https://example.com/blog',
+				kind: 'browser',
+				name: 'Example Blog',
+				userId: 'test-user-id',
+			});
+
+			expect(globalThis.fetch).not.toHaveBeenCalled();
+			expect(prepare).toHaveBeenCalledWith(expect.stringContaining('INSERT INTO sources'));
+			expect(bindCalls.some((bindings) => bindings.includes(1440))).toBe(true);
+			expect(source).toMatchObject({ kind: 'browser', pollIntervalMinutes: 1440 });
+		});
+
+		it('rejects Agentic scraping when operator credentials are incomplete', async () => {
+			const prepareSpy = vi.spyOn(env.KEEPROOT_DB, 'prepare');
+
+			await expect(addSource({ ...env, SOURCE_QUEUE: { send: vi.fn() } } as any, {
+				identifier: 'https://example.com/blog',
+				kind: 'browser',
+				userId: 'test-user-id',
+			})).rejects.toMatchObject({
+				message: 'Agentic scraping requires Browser Run account credentials and SOURCE_QUEUE',
+				name: 'ValidationError',
+			});
+
+			expect(prepareSpy).not.toHaveBeenCalled();
+		});
     });
 
     describe('listActivePollableSources', () => {
@@ -185,6 +241,7 @@ describe('sources storage', () => {
 
 			expect(prepareSpy.mock.calls[0][0]).toContain("status = 'active' AND poll_url IS NOT NULL");
 			expect(prepareSpy.mock.calls[0][0]).toContain('next_poll_at IS NULL OR next_poll_at <= ?');
+			expect(prepareSpy.mock.calls[0][0]).toContain('active_run_id IS NULL OR lease_expires_at IS NULL OR lease_expires_at <= ?');
 			expect(sources).toEqual([{
 				config: {},
 				httpEtag: '"feed-v2"',

@@ -216,8 +216,10 @@ async function getUsername(env: StorageEnv, userId: string): Promise<string> {
 }
 
 export interface SourceSyncResult {
+	countsPersisted?: boolean;
 	createdCount: number;
 	discoveredCount: number;
+	examinedCount?: number;
 	errorCount: number;
 	httpEtag: string | null;
 	httpLastModified: string | null;
@@ -228,6 +230,7 @@ export interface SourceSyncResult {
 	refreshedCount: number;
 	saturated: boolean;
 	savedCount: number;
+	skippedCount?: number;
 	unchangedCount: number;
 	validatorUrl: string | null;
 }
@@ -265,6 +268,9 @@ export async function syncSource(
 	},
 	options: { recordStandaloneRun?: boolean } = {},
 ): Promise<SourceSyncResult> {
+	if (source.kind === 'browser') {
+		await handleSourceSyncError(env, source.id, 'Browser sources must be processed through SOURCE_QUEUE', options);
+	}
 	if (!(await validateSafeUrl(source.pollUrl))) {
 		await handleSourceSyncError(env, source.id, 'Unsafe source URL', options);
 	}

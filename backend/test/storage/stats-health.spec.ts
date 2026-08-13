@@ -42,4 +42,18 @@ describe('source ingestion health thresholds', () => {
 	])('is red for a failure threshold: %o', (override) => {
 		expect(health(override)).toBe('red');
 	});
+
+	it('does not treat a normal Browser Run page count as feed-entry pressure', () => {
+		expect(health({ kind: 'browser', latestDiscovered: 100 })).toBe('green');
+	});
+
+	it('uses a daily-aware staleness window for Browser Run sources', () => {
+		expect(health({ kind: 'browser', lastSuccessAt: '2026-08-05T12:00:00.000Z' })).toBe('green');
+		expect(health({ kind: 'browser', lastSuccessAt: '2026-08-05T05:00:00.000Z' })).toBe('amber');
+		expect(health({ kind: 'browser', lastSuccessAt: '2026-08-04T11:00:00.000Z' })).toBe('red');
+	});
+
+	it('treats partial Browser Run page errors as amber', () => {
+		expect(health({ kind: 'browser', upstreamErrors: 1 })).toBe('amber');
+	});
 });
