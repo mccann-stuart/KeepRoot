@@ -1,4 +1,5 @@
 import { compactObject, fetchWithRedirects, validateSafeUrl, type SourceKind, type SourceListOptions, type StorageEnv } from './shared';
+import { fetchFeed } from '../ingest/feed';
 import { clampPollIntervalMinutes } from '../ingest/feed-schedule';
 
 interface SourceRow {
@@ -80,6 +81,14 @@ function validationError(message: string): Error {
 	const error = new Error(message);
 	error.name = 'ValidationError';
 	return error;
+}
+
+async function ensureReadableFeed(url: string): Promise<void> {
+	try {
+		await fetchFeed(url);
+	} catch (error) {
+		throw validationError(error instanceof Error ? error.message : 'Source URL could not be verified as an RSS or Atom feed');
+	}
 }
 
 async function ensureSafeHttpUrl(value: string): Promise<string> {
@@ -296,6 +305,9 @@ export async function addSource(
 ): Promise<Record<string, unknown>> {
 	const config = input.config ?? {};
 	const normalized = await normalizeSourceInput(env, input.kind, input.identifier, config);
+	if (normalized.pollUrl) {
+		await ensureReadableFeed(normalized.pollUrl);
+	}
 	const existing = await env.KEEPROOT_DB.prepare(
 		`SELECT id, email_alias
 		FROM sources
