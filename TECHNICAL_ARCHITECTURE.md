@@ -474,17 +474,18 @@ The default browser transport is the `BROWSER.quickAction()` Worker binding. As 
 6. At most 200 new or changed entries are handled per delivery, with four expensive writes in flight. A continuation requeues the same run until caught up.
 7. Successful writes remain idempotent, source tags remain append-only, and refreshed records do not re-enter the inbox.
 8. Successful `200` responses calculate a per-feed interval from recent publication gaps, bounded to 10-360 minutes with a 60-minute default. `304` responses retain the learned cadence, while failures advance the due time to prevent hot loops.
-9. D1 records queued, running, waiting, retrying, success, partial and error lifecycle data. Queue bindings provide realtime backlog and DLQ metrics, with D1 state as the `/stats` fallback.
+9. D1 records queued, running, waiting, retrying, success, partial, cancelled and error lifecycle data. Queue bindings provide realtime backlog and DLQ metrics, with D1 state as the `/stats` fallback.
 
 ### Agentic scraping source sync
 1. A `browser` source is available only when the source queue, Browser Run account ID, and scoped API token are configured. The token remains an operator secret and is never placed in source configuration.
 2. The Worker starts an asynchronous Browser Run `/crawl` job with rendered HTML, sitemap plus link discovery, same-origin traversal, depth five, a 100-page cap, fresh origin content, blocked images/media/fonts, and `search` plus `ai-input` crawl purposes. After the baseline run, `modifiedSince` uses the last successful crawl time.
-3. `source_runs` persists the upstream job ID, phase, result cursor, start time, counters, and initial-crawl flag. Each Queue delivery renews the source lease and either polls status after 30 seconds or advances one result page before requeueing.
-4. A crawl still running after 30 minutes is cancelled and failed. HTTP 429 honours `Retry-After`, transient 5xx failures retry, and 401/403 responses fail as non-retryable operator configuration errors.
+3. `source_runs` persists the upstream job ID, phase, result cursor, start time, counters, and initial-crawl flag. Each Queue delivery renews the source lease and either polls status after 30 seconds or advances one result page before requeueing. Manual Refresh reserves this lease before publishing, so concurrent requests return the active run rather than creating more crawl jobs; a queued delivery that loses the lease race is terminalised as `cancelled`.
+4. A crawl still running after two hours is cancelled and failed. HTTP 429 honours `Retry-After`, transient 5xx failures retry, and 401/403 responses fail as non-retryable operator configuration errors. Once Browser Run accepts a replacement crawl, KeepRoot clears the source's stale error while the run remains visibly `waiting`.
 5. Completed result pages stage a canonical URL only when the same-origin page has a title and publication timestamp from JSON-LD `BlogPosting`/`Article`/`NewsArticle`, Open Graph article metadata, or one page-level `<article>` with `<time datetime>`.
 6. `source_discoveries` keys each canonical URL by source and SHA-256 hash. On the first successful crawl, the newest five recognised posts remain pending and older URLs become `baselined`; later runs leave existing rows unchanged and import only first-seen URLs.
 7. Selected HTML uses the same Readability and Turndown extraction path as manual URL saves. The canonical URL becomes `sourceEntryId`, source tags are appended, and existing bookmarks do not re-enter the inbox.
 8. A baseline crawl with no recognised posts fails with metadata guidance. A later crawl with zero new URLs succeeds. Partial blocked or errored pages are amber, and reaching the 100-page cap marks the run saturated.
+9. Structured logs mark queued, coalesced, accepted, status, result-page, completion and cancellation boundaries using source, run and upstream job IDs. They include progress counters but exclude crawl URLs and credentials.
 
 ### Email ingestion
 1. Email Routing forwards inbound mail to the Worker `email()` handler.

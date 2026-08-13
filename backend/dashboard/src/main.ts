@@ -1756,8 +1756,8 @@ function bindEvents() {
 
 		await runWithButtonBusy(button, 'Queueing…', async () => {
 			try {
-				await api.refreshSource(button.dataset.sourceId!);
-				showToast('Refresh queued', 'success');
+				const result = await api.refreshSource(button.dataset.sourceId!);
+				showToast(result.queued ? 'Refresh queued' : 'Refresh already running', 'success');
 			} catch (error) {
 				showToast(error instanceof Error ? error.message : 'Failed to queue refresh', 'error');
 			}

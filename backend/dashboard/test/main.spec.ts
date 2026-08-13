@@ -1339,6 +1339,36 @@ describe('dashboard MCP setup view', () => {
 		expect((document.getElementById('toast') as HTMLElement).textContent).toContain('Refresh queued');
 	});
 
+	it('reports when a manual refresh joins the active source run', async () => {
+		await bootDashboard({
+			sources: [{
+				id: 'source-1',
+				kind: 'browser',
+				name: 'Root Blog',
+				normalizedIdentifier: 'https://example.com/blog',
+				pollUrl: 'https://example.com/blog',
+				status: 'active',
+			}],
+			handleFetch: (url, method) => {
+				if (url.endsWith('/sources/source-1/refresh') && method === 'POST') {
+					return jsonResponse({ queued: false, runId: 'run-active' }, 202);
+				}
+				return undefined;
+			},
+		});
+
+		(document.getElementById('nav-sources') as HTMLButtonElement).click();
+		await flush();
+		await flush();
+		document.querySelector<HTMLButtonElement>(
+			'[data-action="refresh-source"][data-source-id="source-1"]',
+		)?.click();
+		await flush();
+		await flush();
+
+		expect((document.getElementById('toast') as HTMLElement).textContent).toContain('Refresh already running');
+	});
+
 	it('shows the publisher date on feed article cards and in the reader', async () => {
 		const createdAt = '2026-03-16T10:00:00.000Z';
 		const publishedAt = '2026-08-06T09:30:00.000Z';

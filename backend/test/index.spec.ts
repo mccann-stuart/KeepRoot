@@ -495,7 +495,7 @@ describe('KeepRoot Worker', () => {
 		});
 
 		const runToCompletion = async (runType: string) => {
-			const runId = await enqueueSourceRun(browserEnv as any, String(source.id), runType);
+			const { runId } = await enqueueSourceRun(browserEnv as any, String(source.id), runType);
 			let outcome: Awaited<ReturnType<typeof processSourceQueueJob>> = 'ignored';
 			for (let delivery = 0; delivery < 12 && outcome !== 'completed'; delivery += 1) {
 				outcome = await processSourceQueueJob(browserEnv as any, { runId, sourceId: String(source.id) }, 1);
@@ -562,6 +562,124 @@ describe('KeepRoot Worker', () => {
 		expect(startBodies[1]).toHaveProperty('modifiedSince');
 	});
 
+	it('coalesces Browser Run refreshes, cancels orphaned runs, and clears a stale source error', async () => {
+		const send = vi.fn().mockResolvedValue({});
+		const browserEnv = {
+			...env,
+			BROWSER_RUN_ACCOUNT_ID: 'browser-account',
+			BROWSER_RUN_API_TOKEN: 'browser-token',
+			SOURCE_QUEUE: { send },
+		};
+		const source = await addSource(browserEnv as any, {
+			identifier: 'https://example.com/blog',
+			kind: 'browser',
+			name: 'Example Blog',
+			userId: TEST_USER_ID,
+		});
+		const now = new Date().toISOString();
+		await env.KEEPROOT_DB.batch([
+			env.KEEPROOT_DB.prepare(
+				`UPDATE sources SET last_error = ? WHERE id = ?`,
+			).bind('Browser Run crawl failed (401): Authentication error', source.id),
+			env.KEEPROOT_DB.prepare(
+				`INSERT INTO source_runs
+				(id, source_id, run_type, status, dispatch_key, queued_at, started_at)
+				VALUES ('orphan-run', ?, 'manual', 'retrying', 'manual:orphan-run', ?, ?)`,
+			).bind(source.id, now, now),
+		]);
+		const logSpy = vi.spyOn(console, 'log').mockImplementation(() => {});
+		vi.spyOn(globalThis, 'fetch').mockResolvedValue(Response.json({
+			success: true,
+			result: 'accepted-crawl-id',
+		}));
+
+		const first = await enqueueSourceRun(browserEnv as any, String(source.id), 'manual');
+		const duplicate = await enqueueSourceRun(browserEnv as any, String(source.id), 'manual');
+
+		expect(first).toMatchObject({ queued: true, runId: expect.any(String) });
+		expect(duplicate).toEqual({ queued: false, runId: first.runId });
+		expect(send).toHaveBeenCalledOnce();
+		await expect(processSourceQueueJob(browserEnv as any, {
+			runId: first.runId,
+			sourceId: String(source.id),
+		}, 1)).resolves.toBe('continued');
+
+		const sourceState = await env.KEEPROOT_DB.prepare(
+			'SELECT active_run_id, last_error FROM sources WHERE id = ?',
+		).bind(source.id).first<{ active_run_id: string | null; last_error: string | null }>();
+		const orphan = await env.KEEPROOT_DB.prepare(
+			'SELECT status, finished_at, error_text FROM source_runs WHERE id = ?',
+		).bind('orphan-run').first<{ error_text: string | null; finished_at: string | null; status: string }>();
+		const activeRun = await env.KEEPROOT_DB.prepare(
+			'SELECT status, upstream_job_id FROM source_runs WHERE id = ?',
+		).bind(first.runId).first<{ status: string; upstream_job_id: string | null }>();
+
+		expect(sourceState).toEqual({ active_run_id: first.runId, last_error: null });
+		expect(orphan).toMatchObject({
+			error_text: `Superseded by active source run ${first.runId}`,
+			status: 'cancelled',
+		});
+		expect(orphan?.finished_at).toBeTruthy();
+		expect(activeRun).toEqual({ status: 'waiting', upstream_job_id: 'accepted-crawl-id' });
+		const logs = logSpy.mock.calls.map(([line]) => String(line));
+		expect(logs.some((line) => line.includes('source_run_coalesced'))).toBe(true);
+		expect(logs.some((line) => line.includes('browser_crawl_started') && line.includes('accepted-crawl-id'))).toBe(true);
+		expect(logs.join('\n')).not.toContain('browser-token');
+		expect(logs.join('\n')).not.toContain('https://example.com/blog');
+	});
+
+	it('terminalises a queued run that loses the source lease race', async () => {
+		const browserEnv = {
+			...env,
+			BROWSER_RUN_ACCOUNT_ID: 'browser-account',
+			BROWSER_RUN_API_TOKEN: 'browser-token',
+			SOURCE_QUEUE: { send: vi.fn().mockResolvedValue({}) },
+		};
+		const source = await addSource(browserEnv as any, {
+			identifier: 'https://example.com/blog',
+			kind: 'browser',
+			name: 'Example Blog',
+			userId: TEST_USER_ID,
+		});
+		const now = new Date();
+		const queuedAt = now.toISOString();
+		const leaseExpiresAt = new Date(now.getTime() + 10 * 60 * 1_000).toISOString();
+		await env.KEEPROOT_DB.batch([
+			env.KEEPROOT_DB.prepare(
+				`INSERT INTO source_runs
+				(id, source_id, run_type, status, dispatch_key, queued_at, started_at, lease_expires_at)
+				VALUES ('active-run', ?, 'manual', 'waiting', 'manual:active-run', ?, ?, ?)`,
+			).bind(source.id, queuedAt, queuedAt, leaseExpiresAt),
+			env.KEEPROOT_DB.prepare(
+				`INSERT INTO source_runs
+				(id, source_id, run_type, status, dispatch_key, queued_at, started_at)
+				VALUES ('duplicate-run', ?, 'manual', 'queued', 'manual:duplicate-run', ?, ?)`,
+			).bind(source.id, queuedAt, queuedAt),
+			env.KEEPROOT_DB.prepare(
+				`UPDATE sources SET active_run_id = 'active-run', lease_expires_at = ? WHERE id = ?`,
+			).bind(leaseExpiresAt, source.id),
+		]);
+
+		await expect(processSourceQueueJob(browserEnv as any, {
+			runId: 'duplicate-run',
+			sourceId: String(source.id),
+		}, 1)).resolves.toBe('ignored');
+
+		const duplicate = await env.KEEPROOT_DB.prepare(
+			'SELECT status, finished_at, error_text FROM source_runs WHERE id = ?',
+		).bind('duplicate-run').first<{ error_text: string | null; finished_at: string | null; status: string }>();
+		const sourceState = await env.KEEPROOT_DB.prepare(
+			'SELECT active_run_id, lease_expires_at FROM sources WHERE id = ?',
+		).bind(source.id).first<{ active_run_id: string | null; lease_expires_at: string | null }>();
+
+		expect(duplicate).toMatchObject({
+			error_text: 'Superseded by another active source run',
+			status: 'cancelled',
+		});
+		expect(duplicate?.finished_at).toBeTruthy();
+		expect(sourceState).toEqual({ active_run_id: 'active-run', lease_expires_at: leaseExpiresAt });
+	});
+
 	it('fails an initial Browser Run crawl that recognises no posts', async () => {
 		const send = vi.fn().mockResolvedValue({});
 		const browserEnv = {
@@ -595,7 +713,7 @@ describe('KeepRoot Worker', () => {
 				total: 1,
 			} });
 		});
-		const runId = await enqueueSourceRun(browserEnv as any, String(source.id), 'browser-empty');
+		const { runId } = await enqueueSourceRun(browserEnv as any, String(source.id), 'browser-empty');
 
 		await expect(processSourceQueueJob(browserEnv as any, { runId, sourceId: String(source.id) }, 1)).resolves.toBe('continued');
 		await expect(processSourceQueueJob(browserEnv as any, { runId, sourceId: String(source.id) }, 1)).resolves.toBe('continued');

@@ -12,6 +12,11 @@ export interface SourceQueueJob {
 	sourceId: string;
 }
 
+export interface EnqueueSourceRunResult {
+	queued: boolean;
+	runId: string;
+}
+
 interface PollableSourceRunRow {
 	attempt_count: number;
 	http_etag: string | null;
@@ -44,7 +49,7 @@ function retryableSourceError(error: unknown): boolean {
 	if (error instanceof BrowserRunCrawlError) {
 		return error.retryable;
 	}
-	if (error instanceof SourceLeaseBusyError || error instanceof TypeError) {
+	if (error instanceof TypeError) {
 		return true;
 	}
 	const message = error instanceof Error ? error.message : String(error);
@@ -114,21 +119,61 @@ export async function enqueueSourceRun(
 	env: StorageEnv,
 	sourceId: string,
 	runType = 'manual',
-): Promise<string> {
+): Promise<EnqueueSourceRunResult> {
 	if (!env.SOURCE_QUEUE) {
 		throw new Error('SOURCE_QUEUE binding is required for source crawling');
 	}
 	const runId = crypto.randomUUID();
-	const now = new Date().toISOString();
-	await env.KEEPROOT_DB.prepare(
-		`INSERT INTO source_runs
-		(id, source_id, run_type, status, dispatch_key, queued_at, started_at)
-		VALUES (?, ?, ?, 'queued', ?, ?, ?)`,
-	)
-		.bind(runId, sourceId, runType, `${runType}:${runId}`, now, now)
-		.run();
-	await env.SOURCE_QUEUE.send({ runId, sourceId } satisfies SourceQueueJob);
-	return runId;
+	const now = new Date();
+	const queuedAt = now.toISOString();
+	const leaseExpiresAt = new Date(now.getTime() + SOURCE_LEASE_MS).toISOString();
+	const reservation = await env.KEEPROOT_DB.prepare(
+		`UPDATE sources SET active_run_id = ?, lease_expires_at = ?
+		WHERE id = ? AND (active_run_id IS NULL OR lease_expires_at IS NULL OR lease_expires_at <= ?)`,
+	).bind(runId, leaseExpiresAt, sourceId, queuedAt).run();
+	if (!reservation.meta.changes) {
+		const active = await env.KEEPROOT_DB.prepare(
+			`SELECT active_run_id FROM sources
+			WHERE id = ? AND active_run_id IS NOT NULL AND lease_expires_at > ?
+			LIMIT 1`,
+		).bind(sourceId, queuedAt).first<{ active_run_id: string }>();
+		if (!active?.active_run_id) {
+			throw new Error(`Source "${sourceId}" could not reserve a crawl run`);
+		}
+		sourceRunLog('source_run_coalesced', {
+			activeRunId: active.active_run_id,
+			requestedRunId: runId,
+			sourceId,
+		});
+		return { queued: false, runId: active.active_run_id };
+	}
+
+	try {
+		await env.KEEPROOT_DB.prepare(
+			`INSERT INTO source_runs
+			(id, source_id, run_type, status, dispatch_key, queued_at, started_at, lease_expires_at)
+			VALUES (?, ?, ?, 'queued', ?, ?, ?, ?)`,
+		)
+			.bind(runId, sourceId, runType, `${runType}:${runId}`, queuedAt, queuedAt, leaseExpiresAt)
+			.run();
+		await env.SOURCE_QUEUE.send({ runId, sourceId } satisfies SourceQueueJob);
+	} catch (error) {
+		const errorText = error instanceof Error ? error.message.slice(0, 500) : 'Unknown source queue error';
+		await env.KEEPROOT_DB.batch([
+			env.KEEPROOT_DB.prepare(
+				`UPDATE source_runs SET status = 'error', error_count = error_count + 1,
+					error_text = ?, finished_at = ?, lease_expires_at = NULL
+				WHERE id = ? AND source_id = ?`,
+			).bind(`Failed to enqueue source run: ${errorText}`, queuedAt, runId, sourceId),
+			env.KEEPROOT_DB.prepare(
+				`UPDATE sources SET active_run_id = NULL, lease_expires_at = NULL
+				WHERE id = ? AND active_run_id = ?`,
+			).bind(sourceId, runId),
+		]);
+		throw error;
+	}
+	sourceRunLog('source_run_queued', { runId, sourceId });
+	return { queued: true, runId };
 }
 
 async function loadSourceRun(env: StorageEnv, job: SourceQueueJob): Promise<PollableSourceRunRow | null> {
@@ -168,6 +213,27 @@ async function acquireLease(env: StorageEnv, sourceId: string, runId: string): P
 		throw new SourceLeaseBusyError();
 	}
 	return leaseExpiresAt;
+}
+
+async function cancelSupersededRuns(env: StorageEnv, sourceId: string, activeRunId: string): Promise<void> {
+	const now = new Date().toISOString();
+	await env.KEEPROOT_DB.prepare(
+		`UPDATE source_runs
+		SET status = 'cancelled', finished_at = ?, error_text = ?, lease_expires_at = NULL,
+			duration_ms = CAST((julianday(?) - julianday(started_at)) * 86400000 AS INTEGER)
+		WHERE source_id = ? AND id != ? AND finished_at IS NULL
+			AND status IN ('queued', 'running', 'waiting', 'retrying', 'partial')`,
+	).bind(now, `Superseded by active source run ${activeRunId}`, now, sourceId, activeRunId).run();
+}
+
+async function cancelLeaseCollision(env: StorageEnv, job: SourceQueueJob): Promise<void> {
+	const now = new Date().toISOString();
+	await env.KEEPROOT_DB.prepare(
+		`UPDATE source_runs
+		SET status = 'cancelled', finished_at = ?, error_text = ?, lease_expires_at = NULL,
+			duration_ms = CAST((julianday(?) - julianday(started_at)) * 86400000 AS INTEGER)
+		WHERE id = ? AND source_id = ? AND finished_at IS NULL`,
+	).bind(now, 'Superseded by another active source run', now, job.runId, job.sourceId).run();
 }
 
 async function finishWithoutFetch(env: StorageEnv, job: SourceQueueJob): Promise<void> {
@@ -315,6 +381,7 @@ export async function processSourceQueueJob(
 	const startedAt = Date.now();
 	try {
 		const leaseExpiresAt = await acquireLease(env, job.sourceId, job.runId);
+		await cancelSupersededRuns(env, job.sourceId, job.runId);
 		await env.KEEPROOT_DB.prepare(
 			`UPDATE source_runs SET status = 'running', attempt_count = attempt_count + 1, lease_expires_at = ?
 			WHERE id = ? AND source_id = ?`,
@@ -378,10 +445,7 @@ export async function processSourceQueueJob(
 		return result.needsContinuation ? 'continued' : 'completed';
 	} catch (error) {
 		if (error instanceof SourceLeaseBusyError) {
-			await env.KEEPROOT_DB.prepare(
-				`UPDATE source_runs SET status = 'retrying', lease_expires_at = NULL
-				WHERE id = ? AND source_id = ?`,
-			).bind(job.runId, job.sourceId).run();
+			await cancelLeaseCollision(env, job);
 			sourceRunLog('source_run_summary', {
 				attempts,
 				createdCount: 0,
@@ -392,10 +456,10 @@ export async function processSourceQueueJob(
 				refreshedCount: 0,
 				runId: job.runId,
 				sourceId: job.sourceId,
-				status: 'retrying',
+				status: 'cancelled',
 				unchangedCount: 0,
 			});
-			throw error;
+			return 'ignored';
 		}
 		const retryable = retryableSourceError(error);
 		await recordFailure(env, job, error, source.poll_interval_minutes, source.kind, attempts, retryable);
