@@ -63,6 +63,54 @@ describe('saveItemFromUrl', () => {
 		expect(result).toEqual({ id: 'item-1' });
 	});
 
+	it('passes rendered screenshots into the existing image storage payload', async () => {
+		const mockFetch = vi.fn().mockResolvedValue({
+			ok: true,
+			status: 200,
+			url: 'https://example.com/visual',
+			headers: new Headers({ 'content-type': 'text/html' }),
+			text: async () => '<html><head><title>Visual</title></head><body><p>Static content.</p></body></html>',
+		} as unknown as Response);
+		vi.stubGlobal('fetch', mockFetch);
+		const quickAction = vi.fn().mockResolvedValue(new Response(JSON.stringify({
+			meta: { status: 200, title: 'Visual' },
+			result: {
+				content: '<html><head><title>Visual</title></head><body><p>Rendered visual content.</p></body></html>',
+				screenshot: 'c2NyZWVuc2hvdA==',
+			},
+			success: true,
+		}), { status: 200 }));
+		const browserEnv = { BROWSER: { quickAction } } as unknown as StorageEnv;
+		vi.spyOn(console, 'info').mockImplementation(() => {});
+		vi.mocked(itemsModule.saveItemContent).mockResolvedValue({ id: 'item-visual' });
+
+		const result = await saveItemFromUrl(browserEnv, mockUser, {
+			captureScreenshot: true,
+			url: 'https://example.com/visual',
+		});
+
+		expect(itemsModule.saveItemContent).toHaveBeenCalledWith(
+			browserEnv,
+			mockUser,
+			expect.objectContaining({
+				images: [{
+					contentType: 'image/png',
+					dataBase64: 'c2NyZWVuc2hvdA==',
+					variant: 'screenshot',
+				}],
+			}),
+			'manual_save',
+		);
+		expect(result).toEqual(expect.objectContaining({
+			extraction: expect.objectContaining({
+				method: 'browser',
+				screenshotCaptured: true,
+				status: 'succeeded',
+			}),
+			id: 'item-visual',
+		}));
+	});
+
 	it('handles redirects successfully', async () => {
 		let callCount = 0;
 		const mockFetch = vi.fn().mockImplementation(async (url) => {

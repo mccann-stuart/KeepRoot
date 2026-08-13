@@ -30,13 +30,15 @@ describe('processIngestJob', () => {
         const mockJob: IngestJob = {
             kind: 'save_url',
             payload: {
+                captureScreenshot: true,
                 userId: 'user1',
                 username: 'johndoe',
                 url: 'https://example.com',
                 notes: 'test note',
                 status: 'unread',
                 tags: ['test'],
-                title: 'Test Title'
+                title: 'Test Title',
+                render: true
             }
         };
 
@@ -49,7 +51,9 @@ describe('processIngestJob', () => {
                 mockEnv,
                 { userId: 'user1', username: 'johndoe' },
                 {
+                    captureScreenshot: true,
                     notes: 'test note',
+                    render: true,
                     status: 'unread',
                     tags: ['test'],
                     title: 'Test Title',
