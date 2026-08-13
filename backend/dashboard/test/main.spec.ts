@@ -1244,6 +1244,7 @@ describe('dashboard MCP setup view', () => {
 	});
 
 	it('shows Browser Run page and recognition counters in Source Health', async () => {
+		vi.spyOn(Date, 'now').mockReturnValue(Date.parse('2026-08-13T21:10:00.000Z'));
 		await bootDashboard({
 			sources: [{
 				id: 'browser-source',
@@ -1278,7 +1279,11 @@ describe('dashboard MCP setup view', () => {
 					name: 'Example Blog',
 					skippedCount: 4,
 					status: 'waiting',
+					upstreamBrowserSeconds: 3.55,
 					upstreamErrorCount: 1,
+					upstreamFinishedCount: 2,
+					upstreamStartedAt: '2026-08-13T21:00:00.000Z',
+					upstreamTotalCount: 5,
 				}],
 				sources: { byKind: { browser: 1 }, total: 1 },
 			},
@@ -1291,6 +1296,35 @@ describe('dashboard MCP setup view', () => {
 		expect(health).toContain('Pages 12 · Posts 8 · New 5 · Skipped 4 · Upstream errors 1');
 		expect(health).toContain('Queue 1 · Oldest 30s · DLQ 0');
 		expect(health).toContain('browser · waiting · Last success');
+		expect(health).toContain('Upstream 2/5 · Likely wait ~15 min');
+	});
+
+	it('refreshes Source Health while its view remains open', async () => {
+		let pollingCallback: (() => void) | null = null;
+		let statsCalls = 0;
+		await bootDashboard({
+			beforeImport: () => {
+				vi.spyOn(window, 'setInterval').mockImplementation((callback: TimerHandler) => {
+					pollingCallback = callback as () => void;
+					return 1;
+				});
+				vi.spyOn(window, 'clearInterval').mockImplementation(() => {});
+			},
+			handleFetch: (url, method) => {
+				if (url.endsWith('/stats') && method === 'GET') statsCalls += 1;
+				return undefined;
+			},
+		});
+
+		(document.getElementById('nav-sources') as HTMLButtonElement).click();
+		await flush();
+		await flush();
+		expect(statsCalls).toBe(1);
+
+		pollingCallback?.();
+		await flush();
+		await flush();
+		expect(statsCalls).toBe(2);
 	});
 
 	it('queues a manual refresh from a pollable Source Health row', async () => {

@@ -41,6 +41,10 @@ interface SourceRunHealthRow {
 	status: string;
 	unchanged_count: number;
 	upstream_error_count: number;
+	upstream_browser_seconds: number;
+	upstream_finished_count: number;
+	upstream_started_at: string | null;
+	upstream_total_count: number;
 }
 
 export type IngestionHealthState = 'green' | 'amber' | 'red';
@@ -178,7 +182,8 @@ export async function getUsageStats(env: StorageEnv, userId: string): Promise<Re
 			`WITH ranked AS (
 				SELECT r.source_id, r.status, r.discovered_count, r.examined_count, r.processed_count,
 					r.created_count, r.refreshed_count, r.unchanged_count, r.error_count, r.saturated,
-					r.skipped_count, r.upstream_error_count,
+					r.skipped_count, r.upstream_error_count, r.upstream_browser_seconds,
+					r.upstream_finished_count, r.upstream_total_count, r.upstream_started_at,
 					ROW_NUMBER() OVER (PARTITION BY r.source_id ORDER BY r.started_at DESC) AS rank
 				FROM source_runs r JOIN sources s ON s.id = r.source_id
 				WHERE s.user_id = ?
@@ -273,6 +278,10 @@ export async function getUsageStats(env: StorageEnv, userId: string): Promise<Re
 			status: latest?.status ?? row.status,
 			unchangedCount: latest?.unchanged_count ?? 0,
 			upstreamErrorCount: latest?.upstream_error_count ?? 0,
+			upstreamBrowserSeconds: row.kind === 'browser' ? latest?.upstream_browser_seconds ?? 0 : undefined,
+			upstreamFinishedCount: row.kind === 'browser' ? latest?.upstream_finished_count ?? 0 : undefined,
+			upstreamStartedAt: row.kind === 'browser' ? latest?.upstream_started_at : undefined,
+			upstreamTotalCount: row.kind === 'browser' ? latest?.upstream_total_count ?? 0 : undefined,
 		});
 	});
 	const overallHealth: IngestionHealthState = dlq.backlog > 0 || processingErrors > 0 || sourceHealth.some((source) => source.health === 'red')

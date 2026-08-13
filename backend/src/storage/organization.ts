@@ -44,6 +44,9 @@ const REQUIRED_SOURCE_RUN_COLUMNS = [
 	'upstream_phase',
 	'upstream_cursor',
 	'upstream_started_at',
+	'upstream_finished_count',
+	'upstream_total_count',
+	'upstream_browser_seconds',
 	'initial_crawl',
 ] as const;
 
@@ -239,6 +242,9 @@ export async function ensureMcpSchema(env: StorageEnv): Promise<void> {
 		upstream_phase: 'TEXT',
 		upstream_cursor: 'TEXT',
 		upstream_started_at: 'TEXT',
+		upstream_finished_count: 'INTEGER NOT NULL DEFAULT 0',
+		upstream_total_count: 'INTEGER NOT NULL DEFAULT 0',
+		upstream_browser_seconds: 'REAL NOT NULL DEFAULT 0',
 		initial_crawl: 'INTEGER NOT NULL DEFAULT 0',
 		unchanged_count: 'INTEGER NOT NULL DEFAULT 0',
 	};

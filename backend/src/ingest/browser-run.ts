@@ -16,6 +16,8 @@ const MAX_API_RESPONSE_BYTES = 12 * 1024 * 1024;
 const CRAWL_PAGE_LIMIT = 100;
 const CRAWL_RESULT_PAGE_SIZE = 25;
 const CRAWL_TIMEOUT_MS = 30 * 60 * 1_000;
+// Workers Free permits one Quick Action request every 10 seconds, including status reads.
+const CRAWL_STATUS_POLL_SECONDS = 10;
 const INITIAL_IMPORT_LIMIT = 5;
 const ARTICLE_TYPES = new Set(['article', 'blogposting', 'newsarticle']);
 
@@ -54,6 +56,7 @@ export interface BrowserCrawlRecord {
 }
 
 interface BrowserCrawlResult {
+	browserSecondsUsed: number;
 	cursor: string | null;
 	finished: number;
 	id: string;
@@ -259,6 +262,7 @@ function parseCrawlResult(payload: JsonRecord): BrowserCrawlResult {
 		}
 	}
 	return {
+		browserSecondsUsed: numberValue(result.browserSecondsUsed),
 		cursor: result.cursor === undefined || result.cursor === null ? null : String(result.cursor),
 		finished: numberValue(result.finished),
 		id: stringValue(result.id) ?? '',
@@ -423,8 +427,9 @@ async function initiateCrawl(
 				includeSubdomains: false,
 				...(sitemap.found ? { includePatterns: sitemap.candidates } : {}),
 			},
-			rejectResourceTypes: ['image', 'media', 'font'],
-			render: true,
+			// Blog metadata and article HTML should be present in the origin response; avoiding
+			// a browser instance removes Browser Run's per-page rendering queue.
+			render: false,
 			source: sitemap.found ? 'sitemaps' : 'all',
 			url: source.pollUrl,
 		}),
@@ -730,7 +735,7 @@ export async function advanceBrowserSourceRun(
 				upstream_cursor = NULL, upstream_started_at = ?, initial_crawl = ?
 			WHERE id = ? AND source_id = ?`,
 		).bind(jobId, now, initialCrawl ? 1 : 0, run.runId, source.id).run();
-		return { delaySeconds: 30, status: 'waiting' };
+		return { delaySeconds: CRAWL_STATUS_POLL_SECONDS, status: 'waiting' };
 	}
 
 	const crawlStartedAt = run.upstreamStartedAt ? Date.parse(run.upstreamStartedAt) : Number.NaN;
@@ -752,18 +757,35 @@ export async function advanceBrowserSourceRun(
 		const crawl = await getCrawl(env, run.upstreamJobId, { limit: 1 });
 		if (crawl.status === 'running') {
 			await env.KEEPROOT_DB.prepare(
-				`UPDATE source_runs SET status = 'waiting' WHERE id = ? AND source_id = ?`,
-			).bind(run.runId, source.id).run();
-			return { delaySeconds: 30, status: 'waiting' };
+				`UPDATE source_runs
+				SET status = 'waiting', upstream_finished_count = ?, upstream_total_count = ?,
+					upstream_browser_seconds = ?
+				WHERE id = ? AND source_id = ?`,
+			).bind(
+				crawl.finished,
+				crawl.total,
+				crawl.browserSecondsUsed,
+				run.runId,
+				source.id,
+			).run();
+			return { delaySeconds: CRAWL_STATUS_POLL_SECONDS, status: 'waiting' };
 		}
 		if (crawl.status !== 'completed') {
 			throw new BrowserRunCrawlError(terminalStatusMessage(crawl));
 		}
 		await env.KEEPROOT_DB.prepare(
 			`UPDATE source_runs SET status = 'running', upstream_phase = 'scan', upstream_cursor = NULL,
-				saturated = MAX(saturated, ?)
+				saturated = MAX(saturated, ?), upstream_finished_count = ?, upstream_total_count = ?,
+				upstream_browser_seconds = ?
 			WHERE id = ? AND source_id = ?`,
-		).bind(crawl.total >= CRAWL_PAGE_LIMIT ? 1 : 0, run.runId, source.id).run();
+		).bind(
+			crawl.total >= CRAWL_PAGE_LIMIT ? 1 : 0,
+			crawl.finished,
+			crawl.total,
+			crawl.browserSecondsUsed,
+			run.runId,
+			source.id,
+		).run();
 		return { delaySeconds: 1, status: 'waiting' };
 	}
 
