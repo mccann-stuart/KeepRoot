@@ -54,7 +54,7 @@ describe('Browser source sitemap discovery', () => {
 			{ lastModifiedAt: '2026-08-14', url: 'https://example.com/essays/newer?preview=1' },
 		];
 
-		expect(shortlistBrowserSitemapEntries('https://example.com/', entries).map((entry) => entry.url)).toEqual([
+		expect(shortlistBrowserSitemapEntries('https://example.com/essays/newer', entries).map((entry) => entry.url)).toEqual([
 			'https://example.com/essays/newer',
 			'https://example.com/essays/middle',
 			'https://example.com/essays/older',

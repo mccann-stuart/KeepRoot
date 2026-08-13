@@ -282,9 +282,8 @@ export function shortlistBrowserSitemapEntries(
 			return [];
 		}
 	});
-	const sourceCanonical = normalizeCanonicalUrl(source.toString());
-	const candidates = parsedEntries.filter(({ entry, parsed }) => {
-		if (!sameOrigin(source, parsed) || normalizeCanonicalUrl(entry.url) === sourceCanonical) return false;
+	const candidates = parsedEntries.filter(({ parsed }) => {
+		if (!sameOrigin(source, parsed)) return false;
 		if (parsed.search || NON_HTML_EXTENSIONS.test(parsed.pathname)) return false;
 		const segments = parsed.pathname.toLowerCase().split('/').filter(Boolean);
 		if (segments.length === 0 || segments.some((segment) => COLLECTION_SEGMENTS.has(segment))) return false;
