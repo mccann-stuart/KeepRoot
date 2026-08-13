@@ -199,7 +199,7 @@ describe('handleSourceRoute', () => {
 				pollUrl: 'https://example.com/feed.xml',
 				status: 'active',
 			} as any);
-			vi.mocked(sourceQueue.enqueueSourceRun).mockResolvedValue('run-1');
+			vi.mocked(sourceQueue.enqueueSourceRun).mockResolvedValue({ queued: true, runId: 'run-1' });
 
 			const response = await handleSourceRoute(createMockContext('POST', '/sources/source-1/refresh'));
 
@@ -207,6 +207,20 @@ describe('handleSourceRoute', () => {
 			expect(await response?.json()).toEqual({ queued: true, runId: 'run-1' });
 			expect(storage.getSourceById).toHaveBeenCalledWith(mockEnv, 'user-123', 'source-1');
 			expect(sourceQueue.enqueueSourceRun).toHaveBeenCalledWith(mockEnv, 'source-1', 'manual');
+		});
+
+		it('returns the active run when a duplicate refresh is coalesced', async () => {
+			vi.mocked(storage.getSourceById).mockResolvedValue({
+				id: 'source-1',
+				pollUrl: 'https://example.com/feed.xml',
+				status: 'active',
+			} as any);
+			vi.mocked(sourceQueue.enqueueSourceRun).mockResolvedValue({ queued: false, runId: 'run-active' });
+
+			const response = await handleSourceRoute(createMockContext('POST', '/sources/source-1/refresh'));
+
+			expect(response?.status).toBe(202);
+			expect(await response?.json()).toEqual({ queued: false, runId: 'run-active' });
 		});
 
 		it('does not reveal a source that is not owned by the caller', async () => {

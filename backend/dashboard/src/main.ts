@@ -797,7 +797,7 @@ function formatLikelyBrowserWait(entry: SourceHealthRecord): string | null {
 	if (!Number.isFinite(startedAt)) return `Upstream ${finished}/${total}`;
 	const elapsedSeconds = Math.max(5, (Date.now() - startedAt) / 1_000);
 	const estimatedSeconds = elapsedSeconds * (total - finished) / finished;
-	const timeoutSeconds = Math.max(0, 30 * 60 - elapsedSeconds);
+	const timeoutSeconds = Math.max(0, 2 * 60 * 60 - elapsedSeconds);
 	if (timeoutSeconds === 0) return `Upstream ${finished}/${total} · Timeout imminent`;
 	const likelySeconds = Math.min(estimatedSeconds, timeoutSeconds);
 	if (likelySeconds < 60) {
@@ -1789,8 +1789,8 @@ function bindEvents() {
 
 		await runWithButtonBusy(button, 'Queueing…', async () => {
 			try {
-				await api.refreshSource(button.dataset.sourceId!);
-				showToast('Refresh queued', 'success');
+				const result = await api.refreshSource(button.dataset.sourceId!);
+				showToast(result.queued ? 'Refresh queued' : 'Refresh already running', 'success');
 			} catch (error) {
 				showToast(error instanceof Error ? error.message : 'Failed to queue refresh', 'error');
 			}

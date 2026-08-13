@@ -83,8 +83,8 @@ export async function handleSourceRoute(context: ProtectedRouteContext): Promise
 			return errorResponse('Source cannot be refreshed', 400);
 		}
 
-		const runId = await enqueueSourceRun(context.env, sourceId, 'manual');
-		return jsonResponse({ queued: true, runId }, 202);
+		const result = await enqueueSourceRun(context.env, sourceId, 'manual');
+		return jsonResponse(result, 202);
 	}
 
 	if (context.request.method === 'DELETE' && context.pathname.startsWith('/sources/')) {
