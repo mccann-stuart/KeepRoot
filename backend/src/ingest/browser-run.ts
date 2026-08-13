@@ -19,6 +19,9 @@ const CRAWL_TIMEOUT_MS = 2 * 60 * 60 * 1_000;
 // Workers Free permits one Quick Action request every 10 seconds, including status reads.
 const CRAWL_STATUS_POLL_SECONDS = 10;
 const INITIAL_IMPORT_LIMIT = 5;
+// Modification dates are only hints, so inspect a wider candidate set and retain
+// the five newest pages that actually expose recognised article metadata.
+const INITIAL_CRAWL_CANDIDATE_LIMIT = 15;
 const ARTICLE_TYPES = new Set(['article', 'blogposting', 'newsarticle']);
 
 type JsonRecord = Record<string, unknown>;
@@ -84,8 +87,14 @@ interface BrowserRunProgressRow {
 }
 
 interface BrowserSitemapStateRow {
+	has_discovery: number;
 	state: 'baselined' | 'pending' | 'processed';
 	url_hash: string;
+}
+
+interface BrowserSitemapState {
+	hasDiscovery: boolean;
+	state: BrowserSitemapStateRow['state'];
 }
 
 interface HashedSitemapEntry extends BrowserSitemapEntry {
@@ -300,13 +309,13 @@ async function loadSitemapStates(
 	sourceId: string,
 	sourceUrl: string,
 	entries: HashedSitemapEntry[],
-): Promise<Map<string, BrowserSitemapStateRow['state']>> {
-	const states = new Map<string, BrowserSitemapStateRow['state']>();
+): Promise<Map<string, BrowserSitemapState>> {
+	const states = new Map<string, BrowserSitemapState>();
 	const sourceCanonical = normalizeCanonicalUrl(sourceUrl);
 	for (let offset = 0; offset < entries.length; offset += 200) {
 		const hashes = entries.slice(offset, offset + 200).map((entry) => entry.urlHash);
 		const result = await env.KEEPROOT_DB.prepare(
-			`SELECT sitemap.url_hash,
+			`SELECT sitemap.url_hash, discovery.url_hash IS NOT NULL AS has_discovery,
 				CASE WHEN discovery.url_hash IS NULL
 						AND (sitemap.state = 'processed' OR sitemap.canonical_url = ?)
 					THEN 'pending' ELSE sitemap.state END AS state
@@ -315,7 +324,12 @@ async function loadSitemapStates(
 				ON discovery.source_id = sitemap.source_id AND discovery.url_hash = sitemap.url_hash
 			WHERE sitemap.source_id = ? AND sitemap.url_hash IN (SELECT value FROM json_each(?))`,
 		).bind(sourceCanonical, sourceId, JSON.stringify(hashes)).all<BrowserSitemapStateRow>();
-		for (const row of result.results) states.set(row.url_hash, row.state);
+		for (const row of result.results) {
+			states.set(row.url_hash, {
+				hasDiscovery: Boolean(row.has_discovery),
+				state: row.state,
+			});
+		}
 	}
 	return states;
 }
@@ -348,15 +362,33 @@ async function prepareSitemapCrawl(
 	const storedState = await env.KEEPROOT_DB.prepare(
 		'SELECT COUNT(*) AS count FROM source_sitemap_urls WHERE source_id = ?',
 	).bind(source.id).first<{ count: number }>();
+	const importedState = await env.KEEPROOT_DB.prepare(
+		`SELECT COUNT(*) AS count FROM source_discoveries
+		WHERE source_id = ? AND state = 'imported'`,
+	).bind(source.id).first<{ count: number }>();
 	// A source can have an old green run from the pre-sitemap crawler without ever
 	// establishing URL-level state. Its first sitemap snapshot is still a baseline.
 	const sitemapBaseline = initialCrawl || (storedState?.count ?? 0) === 0;
-	const selectable = shortlisted.filter((entry) => {
+	const normallySelectable = shortlisted.filter((entry) => {
 		const hash = hashByUrl.get(entry.url);
 		if (!hash) return false;
-		return !existingStates.has(hash) || existingStates.get(hash) === 'pending';
+		return !existingStates.has(hash) || existingStates.get(hash)?.state === 'pending';
 	});
-	const selected = selectable.slice(0, sitemapBaseline ? INITIAL_IMPORT_LIMIT : CRAWL_PAGE_LIMIT);
+	const missingInitialImports = Math.max(0, INITIAL_IMPORT_LIMIT - (importedState?.count ?? 0));
+	const backfillSlots = sitemapBaseline ? 0 : Math.max(0, missingInitialImports - normallySelectable.length);
+	const normallySelectableHashes = new Set(normallySelectable.map((entry) => hashByUrl.get(entry.url)));
+	const backfillHashes = new Set<string>();
+	for (const entry of shortlisted) {
+		if (backfillHashes.size >= backfillSlots) break;
+		const hash = hashByUrl.get(entry.url);
+		const existing = hash ? existingStates.get(hash) : undefined;
+		if (hash && existing?.state === 'baselined' && !existing.hasDiscovery) backfillHashes.add(hash);
+	}
+	const selectable = shortlisted.filter((entry) => {
+		const hash = hashByUrl.get(entry.url);
+		return Boolean(hash) && (normallySelectableHashes.has(hash) || backfillHashes.has(hash!));
+	});
+	const selected = selectable.slice(0, sitemapBaseline ? INITIAL_CRAWL_CANDIDATE_LIMIT : CRAWL_PAGE_LIMIT);
 	const selectedHashes = new Set(selected.map((entry) => hashByUrl.get(entry.url)).filter((hash): hash is string => Boolean(hash)));
 	const now = new Date().toISOString();
 	const inserts = hashedEntries.flatMap((entry) => {
@@ -375,17 +407,15 @@ async function prepareSitemapCrawl(
 	}
 	if (selectedHashes.size) {
 		const selectedJson = JSON.stringify([...selectedHashes]);
-		const sourceCanonical = normalizeCanonicalUrl(source.pollUrl);
 		await env.KEEPROOT_DB.prepare(
 			`UPDATE source_sitemap_urls SET state = 'pending', processed_at = NULL
 			WHERE source_id = ? AND state IN ('processed', 'baselined')
 				AND url_hash IN (SELECT value FROM json_each(?))
-				AND (state = 'processed' OR canonical_url = ?)
 				AND NOT EXISTS (
 					SELECT 1 FROM source_discoveries
 					WHERE source_id = ? AND url_hash = source_sitemap_urls.url_hash
 				)`,
-		).bind(source.id, selectedJson, sourceCanonical, source.id).run();
+		).bind(source.id, selectedJson, source.id).run();
 		await env.KEEPROOT_DB.prepare(
 			`UPDATE source_sitemap_urls SET selected_run_id = ?
 			WHERE source_id = ? AND state = 'pending'
@@ -460,7 +490,7 @@ async function initiateCrawl(
 			// a browser instance removes Browser Run's per-page rendering queue.
 			render: false,
 			source: sitemap.found ? 'sitemaps' : 'all',
-			url: source.pollUrl,
+			url: sitemap.found ? sitemap.candidates[0] : source.pollUrl,
 		}),
 		method: 'POST',
 	});
