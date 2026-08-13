@@ -22,8 +22,10 @@ export interface StorageEnv {
 	ALLOWED_EXTENSION_IDS?: string;
 	AUTH_ORIGIN?: string;
 	AUTH_RATE_LIMITER: RateLimit;
+	BROWSER?: BrowserRun;
 	BROWSER_RUN_ACCOUNT_ID?: string;
 	BROWSER_RUN_API_TOKEN?: string;
+	BROWSER_RUN_ENGINE?: string;
 	EMAIL_SOURCE_DOMAIN?: string;
 	ENABLE_X_SOURCES?: string;
 	INGEST_QUEUE?: Queue<unknown>;

@@ -6,7 +6,9 @@ export type IngestJob =
 	| {
 		kind: 'save_url';
 		payload: {
+			captureScreenshot?: boolean;
 			notes?: string;
+			render?: boolean;
 			status?: string;
 			tags?: string[];
 			title?: string;
@@ -36,7 +38,9 @@ export async function processIngestJob(env: StorageEnv, job: IngestJob): Promise
 					username: job.payload.username,
 				},
 				{
+					captureScreenshot: job.payload.captureScreenshot,
 					notes: job.payload.notes,
+					render: job.payload.render,
 					status: job.payload.status,
 					tags: job.payload.tags,
 					title: job.payload.title,

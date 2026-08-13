@@ -135,7 +135,7 @@ flowchart LR
 | Workers AI | `AI` binding | Query and item embeddings, and optional later reranking |
 | Vectorize | `KEEPROOT_VECTOR_INDEX` binding | Semantic retrieval over canonical records or chunks |
 | Email Routing and Email Workers | Worker `email()` plus email routes | Inbound newsletter and email-forwarding ingestion |
-| Browser Run | asynchronous `/crawl` REST API, optional | Rendered, same-origin public-blog discovery when RSS is unavailable |
+| Browser Run | `BROWSER` binding, asynchronous `/crawl` REST API, and optional Kitesurf REST transport | Rendered extraction for JavaScript-heavy saves and same-origin public-blog discovery when RSS is unavailable |
 | Observability | Workers observability features | Logging, traces, and failure diagnosis |
 | Workers Analytics Engine | optional dataset binding | Recommended only if telemetry volume grows beyond simple D1-backed stats |
 
@@ -160,8 +160,10 @@ Escalation path:
 | `INGEST_QUEUE` | Queues | Optional asynchronous URL ingestion |
 | `SOURCE_QUEUE` | Queues | One minimal `{ sourceId, runId }` source-crawl message per delivery |
 | `SOURCE_DLQ` | Queues | Terminal source-crawl failures and health metrics |
-| `BROWSER_RUN_ACCOUNT_ID` | environment variable, optional | Cloudflare account whose Browser Run API is used |
-| `BROWSER_RUN_API_TOKEN` | secret, optional | Scoped token with `Browser Rendering - Edit`; never stored or logged |
+| `BROWSER` | Browser Run | Credential-free Chromium Quick Actions for rendered-page extraction and screenshots |
+| `BROWSER_RUN_ENGINE` | environment variable, optional | Set to `kitesurf` to select the beta engine through the REST bridge |
+| `BROWSER_RUN_ACCOUNT_ID` | environment variable, optional | Cloudflare account used by asynchronous crawls and the Kitesurf REST bridge |
+| `BROWSER_RUN_API_TOKEN` | Worker secret, optional | Scoped `Browser Rendering - Edit` token for crawls and Kitesurf Quick Actions; never store, log, or commit it |
 | `MCP_EMAIL_DOMAIN` | environment variable | Stable inbound alias generation for email sources |
 | `USAGE_ANALYTICS` | Workers Analytics Engine, optional | High-volume telemetry if needed later |
 
@@ -184,6 +186,8 @@ backend/
     mcp/
       server.ts
     ingest/
+      browser.ts
+      extract-url.ts
       save-url.ts
       source-sync.ts
       source-queue.ts
@@ -451,12 +455,15 @@ The higher-level tools should compose the same canonical and retrieval layers in
 1. Validate URL and options in the MCP tool.
 2. Normalise the canonical URL.
 3. Dedupe on `(user, canonical_url_hash)`.
-4. Fetch HTML or PDF.
-5. Extract readable text and Markdown.
-6. Persist canonical metadata to D1.
-7. Persist payloads to R2.
-8. Update search documents and embeddings.
-9. Create or refresh an inbox entry.
+4. Fetch HTML, plain text, or PDF through the safe static path, validating every redirect.
+5. Extract readable text and Markdown with Readability and Turndown.
+6. For short JavaScript shells, `render: true`, or `captureScreenshot: true`, send the already-validated final URL to Browser Run and feed the rendered HTML through the same extractor. Browser errors retain the static result.
+7. Store an optional viewport screenshot through the existing image-object path with variant `screenshot`.
+8. Persist canonical metadata to D1 and payloads to R2.
+9. Update search documents and embeddings.
+10. Create or refresh an inbox entry.
+
+The default browser transport is the `BROWSER.quickAction()` Worker binding. As of August 2026 its generated contract does not expose an engine selector, so the optional Kitesurf beta path calls the Browser Run REST Quick Action with `browser=kitesurf`, a scoped token, and the account ID. Both transports are contained in `ingest/browser.ts`; tool handlers and storage remain engine-agnostic. `render: false` explicitly suppresses heuristic rendering, while screenshot capture always requires a browser attempt.
 
 ### Source sync
 1. A ten-minute Cron heartbeat queries the indexed `next_poll_at` field, creates one idempotent D1 run per due source, and publishes minimal jobs with `sendBatch`.
@@ -514,6 +521,8 @@ All Worker-initiated outbound fetches should pass through the shared safe-URL po
 - dashboard or extension bookmark payload URLs
 - auto-hydrated image URLs discovered in saved Markdown or HTML
 
+Browser-assisted saves perform the normal safe static fetch first and hand only its validated final URL to Browser Run. Neither MCP callers nor dashboard clients can supply Browser Run cookies, headers, selectors, or authentication options.
+
 The validator rejects non-HTTP(S) schemes, local hostnames, private IPv4 ranges, IPv4-mapped IPv6 private ranges, unique-local and link-local IPv6 ranges, multicast, and reserved network targets. Source sync also revalidates stored poll URLs so unsafe legacy source rows cannot be fetched by scheduled jobs.
 
 ### Dashboard cache controls
@@ -523,6 +532,7 @@ Authenticated API, auth, and MCP responses should be emitted with `Cache-Control
 For launch:
 - D1-backed counters and `tool_events` are sufficient.
 - `get_stats` should read from canonical tables.
+- Browser fallback logs should record the trigger reason, selected engine, static and rendered text lengths, screenshot outcome, and Browser Run milliseconds without recording the target URL or token.
 
 For scale:
 - move high-volume telemetry into Workers Analytics Engine

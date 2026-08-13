@@ -1,217 +1,33 @@
-import { Readability } from '@mozilla/readability';
-import { DOMParser } from 'linkedom';
-import TurndownService from 'turndown';
+import { extractBookmarkPayloadFromUrl } from './extract-url';
 import { saveItemContent } from '../storage/items';
-import { fetchWithRedirects, validateSafeUrl, type AuthenticatedUser, type BookmarkPayload, type StorageEnv } from '../storage/shared';
-
-export interface ExtractedContent {
-	htmlData?: string;
-	lang?: string | null;
-	markdownData: string;
-	siteName?: string | null;
-	textContent: string;
-	title: string;
-}
-
-function normalizeWhitespace(value: string): string {
-	return value.replace(/\s+/g, ' ').trim();
-}
-
-function buildExcerptMarkdown(text: string): string {
-	const normalized = normalizeWhitespace(text);
-	return normalized || '_No extractable text was found._';
-}
-
-function titleFromUrl(url: string): string {
-	try {
-		const parsed = new URL(url);
-		return parsed.hostname;
-	} catch {
-		return 'Untitled';
-	}
-}
-
-export async function extractHtmlContent(url: string, html: string): Promise<ExtractedContent> {
-	const document = new DOMParser().parseFromString(html, 'text/html');
-	const reader = new Readability(document);
-	const article = reader.parse();
-	const title = normalizeWhitespace(article?.title ?? document.querySelector('title')?.textContent ?? '') || titleFromUrl(url);
-	const siteName = normalizeWhitespace(
-		document.querySelector('meta[property="og:site_name"]')?.getAttribute('content')
-			?? document.querySelector('meta[name="application-name"]')?.getAttribute('content')
-			?? document.querySelector('meta[name="publisher"]')?.getAttribute('content')
-			?? '',
-	) || null;
-	const lang = document.documentElement.getAttribute('lang');
-
-	if (!article?.content) {
-		const textContent = normalizeWhitespace(document.documentElement.textContent ?? '');
-		return {
-			htmlData: html,
-			lang,
-			markdownData: buildExcerptMarkdown(textContent),
-			siteName,
-			textContent,
-			title,
-		};
-	}
-
-	const turndown = new TurndownService({
-		codeBlockStyle: 'fenced',
-		headingStyle: 'atx',
-	});
-	const articleRoot = new DOMParser()
-		.parseFromString(`<article>${article.content}</article>`, 'text/html')
-		.querySelector('article');
-	const markdownData = articleRoot
-		? turndown.turndown(articleRoot).trim() || buildExcerptMarkdown(article.textContent ?? '')
-		: buildExcerptMarkdown(article.textContent ?? '');
-	const textContent = normalizeWhitespace(article.textContent ?? markdownData);
-
-	return {
-		htmlData: html,
-		lang,
-		markdownData,
-		siteName,
-		textContent,
-		title,
-	};
-}
-
-async function extractPdfContent(url: string, bytes: ArrayBuffer, responseTitle?: string | null): Promise<ExtractedContent> {
-	const { VerbosityLevel, getDocument } = await import('pdfjs-dist/legacy/build/pdf.mjs');
-	const loadingTask = getDocument({
-		data: new Uint8Array(bytes),
-		disableFontFace: true,
-		isImageDecoderSupported: false,
-		isOffscreenCanvasSupported: false,
-		useWorkerFetch: false,
-		verbosity: VerbosityLevel.ERRORS,
-	});
-
-	try {
-		const document = await loadingTask.promise;
-
-		const pagePromises = Array.from({ length: document.numPages }, async (_, index) => {
-			const pageNumber = index + 1;
-			const page = await document.getPage(pageNumber);
-			try {
-				const textContent = await page.getTextContent();
-				let rawText = '';
-				for (const item of textContent.items ?? []) {
-					if ('str' in item) {
-						const val = String(item.str ?? '');
-						if (val) {
-							rawText += (rawText.length > 0 ? ' ' : '') + val;
-						}
-					}
-				}
-				return normalizeWhitespace(rawText);
-			} finally {
-				page.cleanup();
-			}
-		});
-
-		const pagesText = await Promise.all(pagePromises);
-
-		let textContent = '';
-		let markdownData = '';
-		let validPagesCount = 0;
-
-		for (let i = 0; i < pagesText.length; i++) {
-			const page = pagesText[i];
-			if (page) {
-				validPagesCount++;
-				if (textContent.length > 0) {
-					textContent += '\n\n';
-				}
-				textContent += page;
-
-				if (markdownData.length > 0) {
-					markdownData += '\n\n';
-				}
-				markdownData += `## Page ${validPagesCount}\n\n${page}`;
-			}
-		}
-
-		textContent = textContent.trim();
-		if (!textContent) {
-			markdownData = '_No extractable text was found in this PDF._';
-		} else if (validPagesCount === 1) {
-			markdownData = textContent;
-		}
-
-		return {
-			lang: null,
-			markdownData,
-			siteName: null,
-			textContent,
-			title: responseTitle?.trim() || titleFromUrl(url),
-		};
-	} finally {
-		await loadingTask.destroy();
-	}
-}
-
-async function extractContentFromResponse(url: string, response: Response): Promise<ExtractedContent> {
-	const contentType = response.headers.get('content-type')?.toLowerCase() ?? '';
-	const responseTitle = response.headers.get('content-disposition');
-
-	if (contentType.includes('application/pdf') || url.toLowerCase().endsWith('.pdf')) {
-		return extractPdfContent(url, await response.arrayBuffer(), responseTitle);
-	}
-
-	if (contentType.startsWith('text/plain')) {
-		const textContent = normalizeWhitespace(await response.text());
-		return {
-			lang: null,
-			markdownData: buildExcerptMarkdown(textContent),
-			siteName: null,
-			textContent,
-			title: titleFromUrl(url),
-		};
-	}
-
-	return extractHtmlContent(url, await response.text());
-}
+import type { AuthenticatedUser, BookmarkPayload, StorageEnv } from '../storage/shared';
 
 export async function saveItemFromUrl(
 	env: StorageEnv,
 	user: Pick<AuthenticatedUser, 'userId' | 'username'>,
 	input: {
+		captureScreenshot?: boolean;
 		notes?: string;
+		render?: boolean;
 		status?: string;
 		tags?: string[];
 		title?: string;
 		url: string;
 	},
 ): Promise<Record<string, unknown>> {
-	if (!await validateSafeUrl(input.url)) {
-		throw new Error('Unsafe initial URL');
-	}
-
-	let { response, currentUrl, errorText } = await fetchWithRedirects(
-		input.url,
-		{
-			headers: {
-				Accept: 'text/html,application/pdf,text/plain;q=0.9,*/*;q=0.8',
-				'User-Agent': 'KeepRoot/1.0 (+https://keeproot.local)',
-			},
-		}
-	);
-
-	if (errorText) {
-		throw new Error(errorText);
-	}
-
-	if (!response || !response.ok) {
-		throw new Error(`Failed to fetch URL (${response?.status ?? 'Unknown'})`);
-	}
-
-	const finalUrl = response.url || currentUrl;
-	const extracted = await extractContentFromResponse(finalUrl, response);
+	const extracted = await extractBookmarkPayloadFromUrl({
+		browser: env.BROWSER,
+		browserRunAccountId: env.BROWSER_RUN_ACCOUNT_ID,
+		browserRunApiToken: env.BROWSER_RUN_API_TOKEN,
+		browserRunEngine: env.BROWSER_RUN_ENGINE,
+		captureScreenshot: input.captureScreenshot,
+		fallbackTitle: input.title,
+		render: input.render,
+		url: input.url,
+	});
 	const payload: BookmarkPayload = {
 		htmlData: extracted.htmlData,
+		images: extracted.images,
 		lang: extracted.lang ?? undefined,
 		markdownData: extracted.markdownData,
 		notes: input.notes,
@@ -220,8 +36,11 @@ export async function saveItemFromUrl(
 		tags: input.tags,
 		textContent: extracted.textContent,
 		title: input.title?.trim() || extracted.title,
-		url: finalUrl,
+		url: extracted.url,
 	};
 
-	return saveItemContent(env, user, payload, 'manual_save');
+	const savedItem = await saveItemContent(env, user, payload, 'manual_save');
+	return extracted.browserExtraction
+		? { ...savedItem, extraction: extracted.browserExtraction }
+		: savedItem;
 }

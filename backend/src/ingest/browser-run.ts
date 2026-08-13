@@ -1,5 +1,5 @@
 import { DOMParser } from 'linkedom';
-import { extractHtmlContent } from './save-url';
+import { extractHtmlContent } from './extract-url';
 import type { SourceSyncResult } from './source-sync';
 import { saveItemContent } from '../storage/items';
 import {

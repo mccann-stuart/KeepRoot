@@ -6,7 +6,7 @@
 	"$schema": "node_modules/wrangler/config-schema.json",
 	"name": "keeproot",
 	"main": "src/index.ts",
-	"compatibility_date": "2026-03-10",
+	"compatibility_date": "2026-08-08",
 	"observability": {
 		"enabled": true
 	},
@@ -50,6 +50,9 @@
 			"bucket_name": "keeproot-content"
 		}
 	],
+	"browser": {
+		"binding": "BROWSER"
+	},
 	/**
 	 * Environment Variables
 	 * https://developers.cloudflare.com/workers/wrangler/configuration/#environment-variables
