@@ -109,31 +109,33 @@ export async function assertOrganizationSchemaReady(env: StorageEnv): Promise<vo
 
 export async function ensureMcpSchema(env: StorageEnv): Promise<void> {
 	const bookmarkColumns = await getTableColumnNames(env, 'bookmarks');
+	const bookmarkPromises: Promise<void>[] = [];
 
 	if (!bookmarkColumns.has('notes')) {
-		await runSchemaStatement(env, 'ALTER TABLE bookmarks ADD COLUMN notes TEXT');
+		bookmarkPromises.push(runSchemaStatement(env, 'ALTER TABLE bookmarks ADD COLUMN notes TEXT'));
 	}
 	if (!bookmarkColumns.has('source_id')) {
-		await runSchemaStatement(env, 'ALTER TABLE bookmarks ADD COLUMN source_id TEXT');
+		bookmarkPromises.push(runSchemaStatement(env, 'ALTER TABLE bookmarks ADD COLUMN source_id TEXT'));
 	}
 	if (!bookmarkColumns.has('source_entry_id')) {
-		await runSchemaStatement(env, 'ALTER TABLE bookmarks ADD COLUMN source_entry_id TEXT');
+		bookmarkPromises.push(runSchemaStatement(env, 'ALTER TABLE bookmarks ADD COLUMN source_entry_id TEXT'));
 	}
 	if (!bookmarkColumns.has('source_entry_fingerprint')) {
-		await runSchemaStatement(env, 'ALTER TABLE bookmarks ADD COLUMN source_entry_fingerprint TEXT');
+		bookmarkPromises.push(runSchemaStatement(env, 'ALTER TABLE bookmarks ADD COLUMN source_entry_fingerprint TEXT'));
 	}
 	if (!bookmarkColumns.has('published_at')) {
-		await runSchemaStatement(env, 'ALTER TABLE bookmarks ADD COLUMN published_at TEXT');
+		bookmarkPromises.push(runSchemaStatement(env, 'ALTER TABLE bookmarks ADD COLUMN published_at TEXT'));
 	}
 	if (!bookmarkColumns.has('processing_state')) {
-		await runSchemaStatement(env, "ALTER TABLE bookmarks ADD COLUMN processing_state TEXT NOT NULL DEFAULT 'ready'");
+		bookmarkPromises.push(runSchemaStatement(env, "ALTER TABLE bookmarks ADD COLUMN processing_state TEXT NOT NULL DEFAULT 'ready'"));
 	}
 	if (!bookmarkColumns.has('search_updated_at')) {
-		await runSchemaStatement(env, 'ALTER TABLE bookmarks ADD COLUMN search_updated_at TEXT');
+		bookmarkPromises.push(runSchemaStatement(env, 'ALTER TABLE bookmarks ADD COLUMN search_updated_at TEXT'));
 	}
 	if (!bookmarkColumns.has('embedding_updated_at')) {
-		await runSchemaStatement(env, 'ALTER TABLE bookmarks ADD COLUMN embedding_updated_at TEXT');
+		bookmarkPromises.push(runSchemaStatement(env, 'ALTER TABLE bookmarks ADD COLUMN embedding_updated_at TEXT'));
 	}
+	await Promise.all(bookmarkPromises);
 
 	await runSchemaStatement(
 		env,
@@ -183,11 +185,13 @@ export async function ensureMcpSchema(env: StorageEnv): Promise<void> {
 		poll_interval_minutes: 'INTEGER NOT NULL DEFAULT 60',
 		validator_url: 'TEXT',
 	};
+	const sourcePromises: Promise<void>[] = [];
 	for (const [column, definition] of Object.entries(sourceColumnDefinitions)) {
 		if (!sourceColumns.has(column)) {
-			await runSchemaStatement(env, `ALTER TABLE sources ADD COLUMN ${column} ${definition}`);
+			sourcePromises.push(runSchemaStatement(env, `ALTER TABLE sources ADD COLUMN ${column} ${definition}`));
 		}
 	}
+	await Promise.all(sourcePromises);
 
 	await runSchemaStatement(
 		env,
@@ -220,11 +224,13 @@ export async function ensureMcpSchema(env: StorageEnv): Promise<void> {
 		saturated: 'INTEGER NOT NULL DEFAULT 0',
 		unchanged_count: 'INTEGER NOT NULL DEFAULT 0',
 	};
+	const sourceRunPromises: Promise<void>[] = [];
 	for (const [column, definition] of Object.entries(sourceRunColumnDefinitions)) {
 		if (!sourceRunColumns.has(column)) {
-			await runSchemaStatement(env, `ALTER TABLE source_runs ADD COLUMN ${column} ${definition}`);
+			sourceRunPromises.push(runSchemaStatement(env, `ALTER TABLE source_runs ADD COLUMN ${column} ${definition}`));
 		}
 	}
+	await Promise.all(sourceRunPromises);
 
 	await runSchemaStatement(
 		env,
@@ -286,18 +292,20 @@ export async function ensureMcpSchema(env: StorageEnv): Promise<void> {
 		)`,
 	);
 
-	await runSchemaStatement(env, 'CREATE INDEX IF NOT EXISTS idx_bookmarks_source_id ON bookmarks(source_id)');
-	await runSchemaStatement(env, 'CREATE UNIQUE INDEX IF NOT EXISTS idx_bookmarks_source_entry_identity ON bookmarks(source_id, source_entry_id) WHERE source_id IS NOT NULL AND source_entry_id IS NOT NULL');
-	await runSchemaStatement(env, 'CREATE INDEX IF NOT EXISTS idx_bookmarks_source_fingerprint ON bookmarks(source_id, source_entry_id, source_entry_fingerprint) WHERE source_id IS NOT NULL AND source_entry_id IS NOT NULL');
-	await runSchemaStatement(env, 'CREATE INDEX IF NOT EXISTS idx_bookmarks_processing_state ON bookmarks(processing_state)');
-	await runSchemaStatement(env, 'CREATE INDEX IF NOT EXISTS idx_account_settings_user_id ON account_settings(user_id)');
-	await runSchemaStatement(env, 'CREATE INDEX IF NOT EXISTS idx_sources_user_kind_status ON sources(user_id, kind, status)');
-	await runSchemaStatement(env, "CREATE INDEX IF NOT EXISTS idx_sources_due_poll ON sources(status, next_poll_at) WHERE status = 'active' AND poll_url IS NOT NULL");
-	await runSchemaStatement(env, 'CREATE INDEX IF NOT EXISTS idx_source_runs_source_id_started_at ON source_runs(source_id, started_at DESC)');
-	await runSchemaStatement(env, 'CREATE UNIQUE INDEX IF NOT EXISTS idx_source_runs_dispatch_key ON source_runs(dispatch_key) WHERE dispatch_key IS NOT NULL');
-	await runSchemaStatement(env, 'CREATE INDEX IF NOT EXISTS idx_source_runs_status_queued_at ON source_runs(status, queued_at)');
-	await runSchemaStatement(env, 'CREATE INDEX IF NOT EXISTS idx_inbox_entries_user_state_created_at ON inbox_entries(user_id, state, created_at DESC)');
-	await runSchemaStatement(env, 'CREATE INDEX IF NOT EXISTS idx_inbox_entries_bookmark_id ON inbox_entries(bookmark_id)');
-	await runSchemaStatement(env, 'CREATE INDEX IF NOT EXISTS idx_item_search_documents_user_id_updated_at ON item_search_documents(user_id, updated_at DESC)');
-	await runSchemaStatement(env, 'CREATE INDEX IF NOT EXISTS idx_tool_usage_events_user_id_created_at ON tool_usage_events(user_id, created_at DESC)');
+	await Promise.all([
+		runSchemaStatement(env, 'CREATE INDEX IF NOT EXISTS idx_bookmarks_source_id ON bookmarks(source_id)'),
+		runSchemaStatement(env, 'CREATE UNIQUE INDEX IF NOT EXISTS idx_bookmarks_source_entry_identity ON bookmarks(source_id, source_entry_id) WHERE source_id IS NOT NULL AND source_entry_id IS NOT NULL'),
+		runSchemaStatement(env, 'CREATE INDEX IF NOT EXISTS idx_bookmarks_source_fingerprint ON bookmarks(source_id, source_entry_id, source_entry_fingerprint) WHERE source_id IS NOT NULL AND source_entry_id IS NOT NULL'),
+		runSchemaStatement(env, 'CREATE INDEX IF NOT EXISTS idx_bookmarks_processing_state ON bookmarks(processing_state)'),
+		runSchemaStatement(env, 'CREATE INDEX IF NOT EXISTS idx_account_settings_user_id ON account_settings(user_id)'),
+		runSchemaStatement(env, 'CREATE INDEX IF NOT EXISTS idx_sources_user_kind_status ON sources(user_id, kind, status)'),
+		runSchemaStatement(env, "CREATE INDEX IF NOT EXISTS idx_sources_due_poll ON sources(status, next_poll_at) WHERE status = 'active' AND poll_url IS NOT NULL"),
+		runSchemaStatement(env, 'CREATE INDEX IF NOT EXISTS idx_source_runs_source_id_started_at ON source_runs(source_id, started_at DESC)'),
+		runSchemaStatement(env, 'CREATE UNIQUE INDEX IF NOT EXISTS idx_source_runs_dispatch_key ON source_runs(dispatch_key) WHERE dispatch_key IS NOT NULL'),
+		runSchemaStatement(env, 'CREATE INDEX IF NOT EXISTS idx_source_runs_status_queued_at ON source_runs(status, queued_at)'),
+		runSchemaStatement(env, 'CREATE INDEX IF NOT EXISTS idx_inbox_entries_user_state_created_at ON inbox_entries(user_id, state, created_at DESC)'),
+		runSchemaStatement(env, 'CREATE INDEX IF NOT EXISTS idx_inbox_entries_bookmark_id ON inbox_entries(bookmark_id)'),
+		runSchemaStatement(env, 'CREATE INDEX IF NOT EXISTS idx_item_search_documents_user_id_updated_at ON item_search_documents(user_id, updated_at DESC)'),
+		runSchemaStatement(env, 'CREATE INDEX IF NOT EXISTS idx_tool_usage_events_user_id_created_at ON tool_usage_events(user_id, created_at DESC)'),
+	]);
 }

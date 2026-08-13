@@ -6,6 +6,7 @@ import {
 	createRouteContext,
 	errorResponse,
 	getRequestAuthToken,
+	isProtectedApiPath,
 	jsonResponse,
 	normalizePathname,
 	resolveCorsOrigin,
@@ -344,6 +345,70 @@ describe('http utilities', () => {
 			expect(response.headers.get('Access-Control-Allow-Origin')).toBe('https://example.com');
 			expect(response.headers.get('Vary')).toBe('Origin');
 			expect(await response.json()).toEqual(body);
+		});
+	});
+
+	describe('isProtectedApiPath', () => {
+		it('returns true for exact matches of protected paths', () => {
+			const exactPaths = [
+				'/auth/logout',
+				'/auth/logout-all',
+				'/auth/preview-session',
+				'/account',
+				'/account/data',
+				'/stats',
+				'/api-keys',
+				'/sources',
+				'/bookmarks',
+				'/lists',
+				'/smart-lists',
+			];
+			for (const path of exactPaths) {
+				expect(isProtectedApiPath(path)).toBe(true);
+			}
+		});
+
+		it('returns true for prefix matches of protected paths', () => {
+			const prefixPaths = [
+				'/images/123.jpg',
+				'/thumbs/456.png',
+				'/api-keys/key-id',
+				'/sources/source-id',
+				'/bookmarks/bookmark-id',
+				'/lists/list-id',
+				'/smart-lists/smart-list-id',
+			];
+			for (const path of prefixPaths) {
+				expect(isProtectedApiPath(path)).toBe(true);
+			}
+		});
+
+		it('returns false for unprotected paths', () => {
+			const unprotectedPaths = [
+				'/',
+				'/public',
+				'/auth/login',
+				'/auth/register',
+				'/about',
+			];
+			for (const path of unprotectedPaths) {
+				expect(isProtectedApiPath(path)).toBe(false);
+			}
+		});
+
+		it('returns false for partial prefix matches that lack the required trailing slash', () => {
+			const partialPrefixPaths = [
+				'/images-stuff',
+				'/thumbs-up',
+				'/api-keys-fake',
+				'/sources-list',
+				'/bookmarks-old',
+				'/lists-new',
+				'/smart-lists-all',
+			];
+			for (const path of partialPrefixPaths) {
+				expect(isProtectedApiPath(path)).toBe(false);
+			}
 		});
 	});
 });

@@ -41,7 +41,11 @@ function registerItemTools(registerTool: RegisterToolFn, env: StorageEnv, user: 
 		'save_item',
 		'Save a new item from a URL.',
 		z.object({
+			captureScreenshot: z.boolean().default(false).optional()
+				.describe('Capture a rendered viewport image and store it with the item. This also enables browser rendering.'),
 			notes: z.string().optional(),
+			render: z.boolean().optional()
+				.describe('Set true to force browser rendering or false to disable the automatic JavaScript-shell fallback.'),
 			status: z.string().optional(),
 			tags: z.array(z.string()).optional(),
 			title: z.string().optional(),
@@ -53,7 +57,9 @@ function registerItemTools(registerTool: RegisterToolFn, env: StorageEnv, user: 
 				const job: IngestJob = {
 					kind: 'save_url',
 					payload: {
+						captureScreenshot: args.captureScreenshot,
 						notes: args.notes,
+						render: args.render,
 						status: args.status,
 						tags: args.tags,
 						title: args.title,
@@ -70,7 +76,9 @@ function registerItemTools(registerTool: RegisterToolFn, env: StorageEnv, user: 
 			}
 
 			return saveItemFromUrl(env, user, {
+				captureScreenshot: args.captureScreenshot,
 				notes: args.notes,
+				render: args.render,
 				status: args.status,
 				tags: args.tags,
 				title: args.title,

@@ -365,6 +365,25 @@ export interface SourceSyncResult {
 	validatorUrl: string | null;
 }
 
+async function handleSourceSyncError(
+	env: StorageEnv,
+	sourceId: string,
+	errorText: string,
+	options: { recordStandaloneRun?: boolean },
+): Promise<never> {
+	if (options.recordStandaloneRun !== false) {
+		await markSourcePollingResult(env, {
+			discoveredCount: 0,
+			errorText,
+			id: sourceId,
+			runType: 'poll',
+			savedCount: 0,
+			status: 'error',
+		});
+	}
+	throw new Error(errorText);
+}
+
 export async function syncSource(
 	env: StorageEnv,
 	source: {
@@ -380,16 +399,7 @@ export async function syncSource(
 	options: { recordStandaloneRun?: boolean } = {},
 ): Promise<SourceSyncResult> {
 	if (!(await validateSafeUrl(source.pollUrl))) {
-		const errorText = 'Unsafe source URL';
-		if (options.recordStandaloneRun !== false) await markSourcePollingResult(env, {
-			discoveredCount: 0,
-			errorText,
-			id: source.id,
-			runType: 'poll',
-			savedCount: 0,
-			status: 'error',
-		});
-		throw new Error(errorText);
+		await handleSourceSyncError(env, source.id, 'Unsafe source URL', options);
 	}
 
 	let { response, currentUrl, errorText } = await fetchWithRedirects(
@@ -412,15 +422,7 @@ export async function syncSource(
 	);
 
 	if (errorText) {
-		if (options.recordStandaloneRun !== false) await markSourcePollingResult(env, {
-			discoveredCount: 0,
-			errorText,
-			id: source.id,
-			runType: 'poll',
-			savedCount: 0,
-			status: 'error',
-		});
-		throw new Error(errorText);
+		await handleSourceSyncError(env, source.id, errorText, options);
 	}
 
 	if (response?.status === 304) {
@@ -450,16 +452,8 @@ export async function syncSource(
 	}
 
 	if (!response || !response.ok) {
-		const errorText = `Failed to fetch source feed (${response?.status ?? 'Unknown'})`;
-		if (options.recordStandaloneRun !== false) await markSourcePollingResult(env, {
-			discoveredCount: 0,
-			errorText,
-			id: source.id,
-			runType: 'poll',
-			savedCount: 0,
-			status: 'error',
-		});
-		throw new Error(errorText);
+		await handleSourceSyncError(env, source.id, `Failed to fetch source feed (${response?.status ?? 'Unknown'})`, options);
+		throw new Error('Unreachable');
 	}
 
 	const xml = await readBoundedFeedText(response);
