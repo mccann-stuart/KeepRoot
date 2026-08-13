@@ -215,13 +215,14 @@ describe('account storage', () => {
             // The method should call batch 1 time for reads, 1 time for data deletes,
             // and 3 times for unreferenced bucket objects cleanup in deleteUnreferencedBucketObjects
             expect(batchSpy).toHaveBeenCalledTimes(5);
-            expect(batchSpy.mock.calls[1][0].length).toBe(14); // the main deletion queries
+            expect(batchSpy.mock.calls[1][0].length).toBe(15); // the main deletion queries
 
             expect(prepareSpy).toHaveBeenCalledWith(expect.stringContaining('DELETE FROM item_search_fts WHERE user_id = ?'));
             expect(prepareSpy).toHaveBeenCalledWith(expect.stringContaining('DELETE FROM tool_events WHERE user_id = ?'));
             expect(prepareSpy).toHaveBeenCalledWith(expect.stringContaining('DELETE FROM inbox_entries WHERE user_id = ?'));
             expect(prepareSpy).toHaveBeenCalledWith(expect.stringContaining('DELETE FROM source_runs WHERE source_id IN (SELECT id FROM sources WHERE user_id = ?)'));
 			expect(prepareSpy).toHaveBeenCalledWith(expect.stringContaining('DELETE FROM source_discoveries WHERE source_id IN (SELECT id FROM sources WHERE user_id = ?)'));
+			expect(prepareSpy).toHaveBeenCalledWith(expect.stringContaining('DELETE FROM source_sitemap_urls WHERE source_id IN (SELECT id FROM sources WHERE user_id = ?)'));
             expect(prepareSpy).toHaveBeenCalledWith(expect.stringContaining('DELETE FROM api_keys WHERE user_id = ?'));
             expect(prepareSpy).toHaveBeenCalledWith(expect.stringContaining('DELETE FROM account_settings WHERE user_id = ?'));
             expect(prepareSpy).toHaveBeenCalledWith(expect.stringContaining('DELETE FROM sources WHERE user_id = ?'));
@@ -255,7 +256,7 @@ describe('account storage', () => {
 
             // Only 2 batches called since deleteUnreferencedBucketObjects returns early
             expect(batchSpy).toHaveBeenCalledTimes(2);
-            expect(batchSpy.mock.calls[1][0].length).toBe(14); // the main deletion queries
+            expect(batchSpy.mock.calls[1][0].length).toBe(15); // the main deletion queries
 
             if (deleteIndexSpy) {
                 expect(deleteIndexSpy).not.toHaveBeenCalled();

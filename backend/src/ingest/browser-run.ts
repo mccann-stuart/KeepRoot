@@ -1,4 +1,5 @@
 import { DOMParser } from 'linkedom';
+import { discoverBrowserSitemap, shortlistBrowserSitemapEntries, type BrowserSitemapEntry } from './browser-sitemap';
 import { extractHtmlContent } from './extract-url';
 import type { SourceSyncResult } from './source-sync';
 import { saveItemContent } from '../storage/items';
@@ -77,6 +78,22 @@ interface BrowserRunProgressRow {
 	saturated: number;
 	unchanged_count: number;
 	upstream_error_count: number;
+}
+
+interface BrowserSitemapStateRow {
+	state: 'baselined' | 'pending' | 'processed';
+	url_hash: string;
+}
+
+interface HashedSitemapEntry extends BrowserSitemapEntry {
+	urlHash: string;
+}
+
+interface PreparedSitemapCrawl {
+	baseline: boolean;
+	candidates: string[];
+	found: boolean;
+	totalCount: number;
 }
 
 export class BrowserRunCrawlError extends Error {
@@ -258,9 +275,139 @@ function modifiedSince(lastSuccessAt: string | null): number | null {
 	return Math.floor(timestamp / 1_000);
 }
 
-async function initiateCrawl(env: StorageEnv, source: BrowserSourceInput): Promise<string> {
+async function hashSitemapEntries(entries: BrowserSitemapEntry[]): Promise<HashedSitemapEntry[]> {
+	const hashed: HashedSitemapEntry[] = [];
+	for (let offset = 0; offset < entries.length; offset += 200) {
+		const chunk = entries.slice(offset, offset + 200);
+		hashed.push(...await Promise.all(chunk.map(async (entry) => ({
+			...entry,
+			urlHash: await sha256Hex(entry.url),
+		}))));
+	}
+	return hashed;
+}
+
+async function loadSitemapStates(
+	env: StorageEnv,
+	sourceId: string,
+	entries: HashedSitemapEntry[],
+): Promise<Map<string, BrowserSitemapStateRow['state']>> {
+	const states = new Map<string, BrowserSitemapStateRow['state']>();
+	for (let offset = 0; offset < entries.length; offset += 200) {
+		const hashes = entries.slice(offset, offset + 200).map((entry) => entry.urlHash);
+		const result = await env.KEEPROOT_DB.prepare(
+			`SELECT url_hash, state FROM source_sitemap_urls
+			WHERE source_id = ? AND url_hash IN (SELECT value FROM json_each(?))`,
+		).bind(sourceId, JSON.stringify(hashes)).all<BrowserSitemapStateRow>();
+		for (const row of result.results) states.set(row.url_hash, row.state);
+	}
+	return states;
+}
+
+async function prepareSitemapCrawl(
+	env: StorageEnv,
+	source: BrowserSourceInput,
+	runId: string,
+	initialCrawl: boolean,
+): Promise<PreparedSitemapCrawl> {
+	let discovery;
+	try {
+		discovery = await discoverBrowserSitemap(source.pollUrl);
+	} catch (error) {
+		console.warn(JSON.stringify({
+			event: 'browser_sitemap_discovery_failed',
+			error: error instanceof Error ? error.message : 'Unknown sitemap error',
+			runId,
+			sourceId: source.id,
+		}));
+		return { baseline: false, candidates: [], found: false, totalCount: 0 };
+	}
+	if (!discovery.found) return { baseline: false, candidates: [], found: false, totalCount: 0 };
+
+	const shortlisted = shortlistBrowserSitemapEntries(source.pollUrl, discovery.entries);
+	const hashedEntries = await hashSitemapEntries(discovery.entries);
+	const hashByUrl = new Map(hashedEntries.map((entry) => [entry.url, entry.urlHash]));
+	const eligibleHashes = new Set(shortlisted.map((entry) => hashByUrl.get(entry.url)).filter((hash): hash is string => Boolean(hash)));
+	const existingStates = await loadSitemapStates(env, source.id, hashedEntries);
+	const storedState = await env.KEEPROOT_DB.prepare(
+		'SELECT COUNT(*) AS count FROM source_sitemap_urls WHERE source_id = ?',
+	).bind(source.id).first<{ count: number }>();
+	// A source can have an old green run from the pre-sitemap crawler without ever
+	// establishing URL-level state. Its first sitemap snapshot is still a baseline.
+	const sitemapBaseline = initialCrawl || (storedState?.count ?? 0) === 0;
+	const selectable = shortlisted.filter((entry) => {
+		const hash = hashByUrl.get(entry.url);
+		if (!hash) return false;
+		return !existingStates.has(hash) || existingStates.get(hash) === 'pending';
+	});
+	const selected = selectable.slice(0, sitemapBaseline ? INITIAL_IMPORT_LIMIT : CRAWL_PAGE_LIMIT);
+	const selectedHashes = new Set(selected.map((entry) => hashByUrl.get(entry.url)).filter((hash): hash is string => Boolean(hash)));
+	const now = new Date().toISOString();
+	const inserts = hashedEntries.flatMap((entry) => {
+		if (existingStates.has(entry.urlHash)) return [];
+		const state = selectedHashes.has(entry.urlHash)
+			? 'pending'
+			: sitemapBaseline || !eligibleHashes.has(entry.urlHash) ? 'baselined' : 'pending';
+		return [env.KEEPROOT_DB.prepare(
+			`INSERT OR IGNORE INTO source_sitemap_urls
+			(source_id, url_hash, canonical_url, last_modified_at, state, first_seen_run_id, first_seen_at)
+			VALUES (?, ?, ?, ?, ?, ?, ?)`,
+		).bind(source.id, entry.urlHash, entry.url, entry.lastModifiedAt, state, runId, now)];
+	});
+	for (let offset = 0; offset < inserts.length; offset += 100) {
+		await env.KEEPROOT_DB.batch(inserts.slice(offset, offset + 100));
+	}
+	if (selectedHashes.size) {
+		await env.KEEPROOT_DB.prepare(
+			`UPDATE source_sitemap_urls SET selected_run_id = ?
+			WHERE source_id = ? AND state = 'pending'
+				AND url_hash IN (SELECT value FROM json_each(?))`,
+		).bind(runId, source.id, JSON.stringify([...selectedHashes])).run();
+	}
+
+	console.log(JSON.stringify({
+		candidateCount: selected.length,
+		event: 'browser_sitemap_shortlist',
+		initialCrawl: sitemapBaseline,
+		runId,
+		sitemapUrlCount: discovery.entries.length,
+		sourceId: source.id,
+	}));
+	return {
+		baseline: sitemapBaseline,
+		candidates: selected.map((entry) => entry.url),
+		found: true,
+		totalCount: discovery.entries.length,
+	};
+}
+
+async function markSitemapCandidatesProcessed(env: StorageEnv, sourceId: string, runId: string): Promise<void> {
+	const now = new Date().toISOString();
+	await env.KEEPROOT_DB.prepare(
+		`UPDATE source_sitemap_urls
+		SET state = 'processed', processed_at = ?
+		WHERE source_id = ? AND selected_run_id = ? AND state = 'pending'`,
+	).bind(now, sourceId, runId).run();
+}
+
+async function initiateCrawl(
+	env: StorageEnv,
+	source: BrowserSourceInput,
+	runId: string,
+): Promise<{ initialCrawl: boolean; jobId: string | null }> {
 	if (!await validateSafeUrl(source.pollUrl)) {
 		throw new BrowserRunCrawlError('Browser Run source URL must be a safe public HTTP(S) URL');
+	}
+	const sourceInitialCrawl = !source.lastSuccessAt;
+	const sitemap = await prepareSitemapCrawl(env, source, runId, sourceInitialCrawl);
+	const initialCrawl = sitemap.found ? sitemap.baseline : sourceInitialCrawl;
+	if (sitemap.found && sitemap.candidates.length === 0) {
+		if (initialCrawl) {
+			throw new BrowserRunCrawlError(
+				`Browser source sitemap listed ${sitemap.totalCount} URL(s) but none were eligible new article candidates`,
+			);
+		}
+		return { initialCrawl, jobId: null };
 	}
 	const since = modifiedSince(source.lastSuccessAt);
 	const payload = await browserRunRequest(env, '', {
@@ -268,23 +415,24 @@ async function initiateCrawl(env: StorageEnv, source: BrowserSourceInput): Promi
 			crawlPurposes: ['search', 'ai-input'],
 			depth: 5,
 			formats: ['html'],
-			limit: CRAWL_PAGE_LIMIT,
+			limit: sitemap.found ? sitemap.candidates.length : CRAWL_PAGE_LIMIT,
 			maxAge: 0,
-			...(since === null ? {} : { modifiedSince: since }),
+			...(sitemap.found || since === null ? {} : { modifiedSince: since }),
 			options: {
 				includeExternalLinks: false,
 				includeSubdomains: false,
+				...(sitemap.found ? { includePatterns: sitemap.candidates } : {}),
 			},
 			rejectResourceTypes: ['image', 'media', 'font'],
 			render: true,
-			source: 'all',
+			source: sitemap.found ? 'sitemaps' : 'all',
 			url: source.pollUrl,
 		}),
 		method: 'POST',
 	});
 	const jobId = stringValue(payload.result);
 	if (!jobId) throw new BrowserRunCrawlError('Browser Run did not return a crawl job id');
-	return jobId;
+	return { initialCrawl, jobId };
 }
 
 async function getCrawl(
@@ -550,8 +698,31 @@ export async function advanceBrowserSourceRun(
 	run: BrowserSourceRunState,
 ): Promise<BrowserSourceStep> {
 	if (!run.upstreamJobId) {
-		const initialCrawl = !source.lastSuccessAt;
-		const jobId = await initiateCrawl(env, source);
+		const { initialCrawl, jobId } = await initiateCrawl(env, source, run.runId);
+		if (!jobId) {
+			return {
+				status: 'completed',
+				result: {
+					countsPersisted: true,
+					createdCount: 0,
+					discoveredCount: 0,
+					errorCount: 0,
+					examinedCount: 0,
+					httpEtag: null,
+					httpLastModified: null,
+					needsContinuation: false,
+					notModified: true,
+					processedCount: 0,
+					recommendedIntervalMinutes: null,
+					refreshedCount: 0,
+					saturated: false,
+					savedCount: 0,
+					skippedCount: 0,
+					unchangedCount: 0,
+					validatorUrl: null,
+				},
+			};
+		}
 		const now = new Date().toISOString();
 		await env.KEEPROOT_DB.prepare(
 			`UPDATE source_runs
@@ -687,6 +858,7 @@ export async function advanceBrowserSourceRun(
 				{ retryable: true },
 			);
 		}
+		await markSitemapCandidatesProcessed(env, source.id, run.runId);
 		const totals = await progress(env, run.runId, source.id);
 		return {
 			status: 'completed',

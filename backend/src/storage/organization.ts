@@ -54,6 +54,7 @@ const REQUIRED_TABLE_NAMES = [
 	'sources',
 	'source_runs',
 	'source_discoveries',
+	'source_sitemap_urls',
 	'inbox_entries',
 	'item_search_documents',
 	'bookmark_embeddings',
@@ -270,6 +271,23 @@ export async function ensureMcpSchema(env: StorageEnv): Promise<void> {
 
 	await runSchemaStatement(
 		env,
+		`CREATE TABLE IF NOT EXISTS source_sitemap_urls (
+			source_id TEXT NOT NULL,
+			url_hash TEXT NOT NULL,
+			canonical_url TEXT NOT NULL,
+			last_modified_at TEXT,
+			state TEXT NOT NULL DEFAULT 'pending' CHECK (state IN ('pending', 'processed', 'baselined')),
+			first_seen_run_id TEXT NOT NULL,
+			first_seen_at TEXT NOT NULL,
+			selected_run_id TEXT,
+			processed_at TEXT,
+			PRIMARY KEY (source_id, url_hash),
+			FOREIGN KEY (source_id) REFERENCES sources(id) ON DELETE CASCADE
+		)`,
+	);
+
+	await runSchemaStatement(
+		env,
 		`CREATE TABLE IF NOT EXISTS inbox_entries (
 			id TEXT PRIMARY KEY,
 			user_id TEXT NOT NULL,
@@ -341,6 +359,8 @@ export async function ensureMcpSchema(env: StorageEnv): Promise<void> {
 		runSchemaStatement(env, 'CREATE INDEX IF NOT EXISTS idx_source_runs_status_queued_at ON source_runs(status, queued_at)'),
 		runSchemaStatement(env, 'CREATE INDEX IF NOT EXISTS idx_source_discoveries_run ON source_discoveries(source_id, first_seen_run_id, state, published_at DESC)'),
 		runSchemaStatement(env, "CREATE INDEX IF NOT EXISTS idx_source_discoveries_pending ON source_discoveries(source_id, state) WHERE state = 'pending'"),
+		runSchemaStatement(env, "CREATE INDEX IF NOT EXISTS idx_source_sitemap_urls_pending ON source_sitemap_urls(source_id, state, last_modified_at DESC) WHERE state = 'pending'"),
+		runSchemaStatement(env, 'CREATE INDEX IF NOT EXISTS idx_source_sitemap_urls_selected_run ON source_sitemap_urls(source_id, selected_run_id) WHERE selected_run_id IS NOT NULL'),
 		runSchemaStatement(env, 'CREATE INDEX IF NOT EXISTS idx_inbox_entries_user_state_created_at ON inbox_entries(user_id, state, created_at DESC)'),
 		runSchemaStatement(env, 'CREATE INDEX IF NOT EXISTS idx_inbox_entries_bookmark_id ON inbox_entries(bookmark_id)'),
 		runSchemaStatement(env, 'CREATE INDEX IF NOT EXISTS idx_item_search_documents_user_id_updated_at ON item_search_documents(user_id, updated_at DESC)'),
