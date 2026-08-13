@@ -15,7 +15,7 @@ const API_ROOT = 'https://api.cloudflare.com/client/v4/accounts';
 const MAX_API_RESPONSE_BYTES = 12 * 1024 * 1024;
 const CRAWL_PAGE_LIMIT = 100;
 const CRAWL_RESULT_PAGE_SIZE = 25;
-const CRAWL_TIMEOUT_MS = 30 * 60 * 1_000;
+const CRAWL_TIMEOUT_MS = 2 * 60 * 60 * 1_000;
 const INITIAL_IMPORT_LIMIT = 5;
 const ARTICLE_TYPES = new Set(['article', 'blogposting', 'newsarticle']);
 
@@ -115,6 +115,10 @@ export class BrowserRunCrawlError extends Error {
 
 function isRecord(value: unknown): value is JsonRecord {
 	return Boolean(value) && typeof value === 'object' && !Array.isArray(value);
+}
+
+function browserRunLog(event: string, fields: Record<string, boolean | number | string>): void {
+	console.log(JSON.stringify({ event, ...fields }));
 }
 
 function stringValue(value: unknown): string | null {
@@ -724,12 +728,24 @@ export async function advanceBrowserSourceRun(
 			};
 		}
 		const now = new Date().toISOString();
-		await env.KEEPROOT_DB.prepare(
-			`UPDATE source_runs
-			SET status = 'waiting', upstream_job_id = ?, upstream_phase = 'waiting',
-				upstream_cursor = NULL, upstream_started_at = ?, initial_crawl = ?
-			WHERE id = ? AND source_id = ?`,
-		).bind(jobId, now, initialCrawl ? 1 : 0, run.runId, source.id).run();
+		await env.KEEPROOT_DB.batch([
+			env.KEEPROOT_DB.prepare(
+				`UPDATE source_runs
+				SET status = 'waiting', upstream_job_id = ?, upstream_phase = 'waiting',
+					upstream_cursor = NULL, upstream_started_at = ?, initial_crawl = ?
+				WHERE id = ? AND source_id = ?`,
+			).bind(jobId, now, initialCrawl ? 1 : 0, run.runId, source.id),
+			env.KEEPROOT_DB.prepare(
+				`UPDATE sources SET last_error = NULL, updated_at = ?
+				WHERE id = ?`,
+			).bind(now, source.id),
+		]);
+		browserRunLog('browser_crawl_started', {
+			initialCrawl,
+			jobId,
+			runId: run.runId,
+			sourceId: source.id,
+		});
 		return { delaySeconds: 30, status: 'waiting' };
 	}
 
@@ -737,6 +753,12 @@ export async function advanceBrowserSourceRun(
 	if (Number.isFinite(crawlStartedAt) && Date.now() - crawlStartedAt > CRAWL_TIMEOUT_MS) {
 		try {
 			await cancelCrawl(env, run.upstreamJobId);
+			browserRunLog('browser_crawl_cancelled', {
+				jobId: run.upstreamJobId,
+				reason: 'keeproot_timeout',
+				runId: run.runId,
+				sourceId: source.id,
+			});
 		} catch (error) {
 			console.warn(JSON.stringify({
 				event: 'browser_crawl_cancel_failed',
@@ -745,11 +767,19 @@ export async function advanceBrowserSourceRun(
 				error: error instanceof Error ? error.message : 'Unknown cancellation error',
 			}));
 		}
-		throw new BrowserRunCrawlError('Browser Run crawl exceeded the 30 minute KeepRoot timeout');
+		throw new BrowserRunCrawlError('Browser Run crawl exceeded the 2 hour KeepRoot timeout');
 	}
 
 	if (!run.upstreamPhase || run.upstreamPhase === 'waiting') {
 		const crawl = await getCrawl(env, run.upstreamJobId, { limit: 1 });
+		browserRunLog('browser_crawl_status', {
+			finished: crawl.finished,
+			jobId: run.upstreamJobId,
+			runId: run.runId,
+			sourceId: source.id,
+			status: crawl.status,
+			total: crawl.total,
+		});
 		if (crawl.status === 'running') {
 			await env.KEEPROOT_DB.prepare(
 				`UPDATE source_runs SET status = 'waiting' WHERE id = ? AND source_id = ?`,
@@ -764,6 +794,13 @@ export async function advanceBrowserSourceRun(
 				saturated = MAX(saturated, ?)
 			WHERE id = ? AND source_id = ?`,
 		).bind(crawl.total >= CRAWL_PAGE_LIMIT ? 1 : 0, run.runId, source.id).run();
+		browserRunLog('browser_crawl_results_ready', {
+			finished: crawl.finished,
+			jobId: run.upstreamJobId,
+			runId: run.runId,
+			sourceId: source.id,
+			total: crawl.total,
+		});
 		return { delaySeconds: 1, status: 'waiting' };
 	}
 
@@ -813,6 +850,15 @@ export async function advanceBrowserSourceRun(
 			run.runId,
 			source.id,
 		).run();
+		browserRunLog('browser_crawl_scan_page', {
+			examined: crawl.records.length,
+			jobId: run.upstreamJobId,
+			recognised,
+			runId: run.runId,
+			skipped,
+			sourceId: source.id,
+			upstreamErrors,
+		});
 		if (crawl.cursor) return { delaySeconds: 1, status: 'waiting' };
 
 		const totals = await progress(env, run.runId, source.id);
@@ -860,6 +906,16 @@ export async function advanceBrowserSourceRun(
 		}
 		await markSitemapCandidatesProcessed(env, source.id, run.runId);
 		const totals = await progress(env, run.runId, source.id);
+		browserRunLog('browser_crawl_completed', {
+			examined: totals.examined_count,
+			jobId: run.upstreamJobId,
+			recognised: totals.discovered_count,
+			runId: run.runId,
+			saved: totals.saved_count,
+			skipped: totals.skipped_count,
+			sourceId: source.id,
+			upstreamErrors: totals.upstream_error_count,
+		});
 		return {
 			status: 'completed',
 			result: {

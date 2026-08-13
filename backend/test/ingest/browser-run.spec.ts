@@ -173,7 +173,7 @@ describe('Browser Run post recognition', () => {
 		);
 	});
 
-	it('cancels and fails an upstream crawl after KeepRoot\'s 30-minute timeout', async () => {
+	it('cancels and fails an upstream crawl after KeepRoot\'s two-hour timeout', async () => {
 		const fetchSpy = vi.spyOn(globalThis, 'fetch').mockResolvedValue(Response.json({ success: true, result: {} }));
 		const crawl = advanceBrowserSourceRun({
 			BROWSER_RUN_ACCOUNT_ID: 'account-id',
@@ -191,12 +191,12 @@ describe('Browser Run post recognition', () => {
 			upstreamCursor: null,
 			upstreamJobId: 'crawl-id',
 			upstreamPhase: 'waiting',
-			upstreamStartedAt: new Date(Date.now() - 31 * 60 * 1_000).toISOString(),
+			upstreamStartedAt: new Date(Date.now() - 121 * 60 * 1_000).toISOString(),
 		});
 
 		const error = await crawl.catch((caught) => caught);
 		expect(error).toMatchObject({
-			message: 'Browser Run crawl exceeded the 30 minute KeepRoot timeout',
+			message: 'Browser Run crawl exceeded the 2 hour KeepRoot timeout',
 			retryable: false,
 		});
 		expect(fetchSpy).toHaveBeenCalledWith(
