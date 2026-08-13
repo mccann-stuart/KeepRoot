@@ -2615,6 +2615,9 @@ describe('KeepRoot Worker', () => {
 			'list_inbox',
 			'mark_done',
 		]));
+		const saveItemTool = toolsResponse.data.result.tools.find((tool: { name: string }) => tool.name === 'save_item');
+		expect(saveItemTool.inputSchema.properties).toHaveProperty('render');
+		expect(saveItemTool.inputSchema.properties).toHaveProperty('captureScreenshot');
 
 		const whoAmI = await mcpCallTool('whoami');
 		expect(whoAmI.payload.account.username).toBe(TEST_USERNAME);

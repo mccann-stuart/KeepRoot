@@ -50,6 +50,7 @@ Main components:
   - **D1 (`KEEPROOT_DB`):** auth data, bookmark metadata, tags, inbox, sources, search documents, and MCP usage events
   - **R2 (`KEEPROOT_CONTENT`):** extracted content blobs in `content/*.json`, optional `html/*.html`, and image objects
   - **Queues (`SOURCE_QUEUE`, `SOURCE_DLQ`):** durable per-source crawl fan-out, retries, continuations, and dead-letter visibility
+  - **Browser Run (`BROWSER`):** rendered-DOM and screenshot fallback for JavaScript-heavy saves
 
 Authentication modes:
 - **WebAuthn + seven-day sessions** for dashboard sign-up/sign-in
@@ -73,7 +74,7 @@ Security notes:
 ## Features
 
 - One-click page save from the extension popup
-- Server-side readable text extraction for saved URLs, including PDF text extraction
+- Static-first readable text extraction for saved URLs, with PDF handling and an optional Browser Run fallback
 - Web dashboard served directly from the Worker root URL
 - Canonical URL normalization and per-user deduplication
 - Notes, tags, lists, pinned state, and read state on saved items
@@ -85,7 +86,7 @@ Security notes:
 
 | Tool | Description |
 |---|---|
-| `save_item` | Save a URL, extract content, persist it, and place it in the inbox |
+| `save_item` | Save a URL, optionally render or screenshot it, persist the result, and place it in the inbox |
 | `search_items` | Search saved items by query plus filters |
 | `list_items` | List items with cursor pagination and filters |
 | `get_item` | Fetch one item with optional Markdown or HTML content |
@@ -97,6 +98,29 @@ Security notes:
 | `get_stats` | Return item, inbox, source, and tool-usage stats |
 | `list_inbox` | List pending inbox entries and their linked items |
 | `mark_done` | Mark an inbox entry as processed |
+
+### Browser-assisted extraction
+
+URL saves use the existing static fetch, redirect validation, Readability, and Turndown path first. KeepRoot calls Browser Run only when the response looks like a short JavaScript application shell, or when `save_item` explicitly supplies `render: true` or `captureScreenshot: true`. Supplying `render: false` disables the automatic fallback.
+
+Rendered HTML goes through the same Readability and Turndown path. A requested screenshot uses Browser Run's `snapshot` Quick Action and is stored through the existing R2 image pipeline as the `screenshot` variant. Browser failures fail open to the successful static extraction and return an `extraction` status to the caller. Structured `browser_render_extraction` logs include the reason, engine, text lengths, screenshot outcome, and `X-Browser-Ms-Used` value without logging the URL or credentials.
+
+The checked-in `BROWSER` binding uses the credential-free Worker Quick Action API, whose current binding contract renders with Chromium. To opt into the Kitesurf beta today, add these non-secret values to `vars` in `backend/wrangler.jsonc` and store the token as a Wrangler secret:
+
+```jsonc
+"vars": {
+  // Keep the existing variables, then add:
+  "BROWSER_RUN_ENGINE": "kitesurf",
+  "BROWSER_RUN_ACCOUNT_ID": "<32-character-account-id>"
+}
+```
+
+```bash
+cd backend
+npx wrangler secret put BROWSER_RUN_API_TOKEN
+```
+
+The token needs only `Browser Rendering - Edit`. Kitesurf requests use the documented Browser Run REST Quick Action with `browser=kitesurf`; the secret is never returned or logged. Remove `BROWSER_RUN_ENGINE` to return to the binding-backed Chromium path. This REST bridge is isolated in `backend/src/ingest/browser.ts` so it can be removed when the Worker binding exposes an engine selector.
 
 ---
 
@@ -275,6 +299,7 @@ curl "$KEEPROOT_URL/mcp" \
 ### Example MCP argument shapes
 
 - `get_item`: `{ "item_id": "...", "include_content": true, "include_html": false }`
+- `save_item`: `{ "url": "https://example.com/app", "render": true, "captureScreenshot": true }`
 - `update_item`: `{ "item_id": "...", "title": "...", "notes": "...", "tags": ["..."], "status": "saved" }`
 - `add_source`: `{ "kind": "rss", "identifier": "https://example.com/feed.xml", "name": "Example Feed" }`
 - `mark_done`: `{ "inbox_entry_id": "..." }`
@@ -289,6 +314,8 @@ npm run dev
 ```
 
 `npm run dev` regenerates types, applies local D1 migrations, builds the dashboard, and starts `wrangler dev`.
+
+Browser Run binding Quick Actions require remote development mode. For a live browser smoke test, run the generated setup steps and then start `npx wrangler dev --remote`; the unit suite uses mocked browser responses and does not consume Browser Run quota.
 
 ### Useful commands
 
