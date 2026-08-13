@@ -62,6 +62,26 @@ describe('Browser Run post recognition', () => {
 		});
 	});
 
+	it('recognises a source URL that is itself a Squarespace article', async () => {
+		const post = await recogniseBrowserPost('https://insideorchard.com/essays/wall-street-is-predicting-a-turn-in-ai-capex', completedPage(`
+			<html><head>
+				<link rel="canonical" href="https://insideorchard.com/essays/wall-street-is-predicting-a-turn-in-ai-capex">
+				<script type="application/ld+json">{"@type":"WebSite","url":"https://insideorchard.com"}</script>
+				<script type="application/ld+json">{
+					"@type":"Article",
+					"headline":"Wall Street Is Predicting a Turn in AI Capex",
+					"datePublished":"2026-08-10T18:09:23-0400"
+				}</script>
+			</head><body><article>Primary</article><article>Related</article></body></html>
+		`, 'https://insideorchard.com/essays/wall-street-is-predicting-a-turn-in-ai-capex'));
+
+		expect(post).toEqual({
+			canonicalUrl: 'https://insideorchard.com/essays/wall-street-is-predicting-a-turn-in-ai-capex',
+			publishedAt: '2026-08-10T22:09:23.000Z',
+			title: 'Wall Street Is Predicting a Turn in AI Capex',
+		});
+	});
+
 	it.each([
 		['home page', '<html><head><meta property="og:type" content="article"><meta property="og:title" content="Blog home"><meta property="article:published_time" content="2026-08-11"></head></html>', 'https://example.com/'],
 		['category page', `<html><head><link rel="canonical" href="/category/news"><script type="application/ld+json">${JSON.stringify([

@@ -298,15 +298,23 @@ async function hashSitemapEntries(entries: BrowserSitemapEntry[]): Promise<Hashe
 async function loadSitemapStates(
 	env: StorageEnv,
 	sourceId: string,
+	sourceUrl: string,
 	entries: HashedSitemapEntry[],
 ): Promise<Map<string, BrowserSitemapStateRow['state']>> {
 	const states = new Map<string, BrowserSitemapStateRow['state']>();
+	const sourceCanonical = normalizeCanonicalUrl(sourceUrl);
 	for (let offset = 0; offset < entries.length; offset += 200) {
 		const hashes = entries.slice(offset, offset + 200).map((entry) => entry.urlHash);
 		const result = await env.KEEPROOT_DB.prepare(
-			`SELECT url_hash, state FROM source_sitemap_urls
-			WHERE source_id = ? AND url_hash IN (SELECT value FROM json_each(?))`,
-		).bind(sourceId, JSON.stringify(hashes)).all<BrowserSitemapStateRow>();
+			`SELECT sitemap.url_hash,
+				CASE WHEN discovery.url_hash IS NULL
+						AND (sitemap.state = 'processed' OR sitemap.canonical_url = ?)
+					THEN 'pending' ELSE sitemap.state END AS state
+			FROM source_sitemap_urls AS sitemap
+			LEFT JOIN source_discoveries AS discovery
+				ON discovery.source_id = sitemap.source_id AND discovery.url_hash = sitemap.url_hash
+			WHERE sitemap.source_id = ? AND sitemap.url_hash IN (SELECT value FROM json_each(?))`,
+		).bind(sourceCanonical, sourceId, JSON.stringify(hashes)).all<BrowserSitemapStateRow>();
 		for (const row of result.results) states.set(row.url_hash, row.state);
 	}
 	return states;
@@ -336,7 +344,7 @@ async function prepareSitemapCrawl(
 	const hashedEntries = await hashSitemapEntries(discovery.entries);
 	const hashByUrl = new Map(hashedEntries.map((entry) => [entry.url, entry.urlHash]));
 	const eligibleHashes = new Set(shortlisted.map((entry) => hashByUrl.get(entry.url)).filter((hash): hash is string => Boolean(hash)));
-	const existingStates = await loadSitemapStates(env, source.id, hashedEntries);
+	const existingStates = await loadSitemapStates(env, source.id, source.pollUrl, hashedEntries);
 	const storedState = await env.KEEPROOT_DB.prepare(
 		'SELECT COUNT(*) AS count FROM source_sitemap_urls WHERE source_id = ?',
 	).bind(source.id).first<{ count: number }>();
@@ -366,11 +374,23 @@ async function prepareSitemapCrawl(
 		await env.KEEPROOT_DB.batch(inserts.slice(offset, offset + 100));
 	}
 	if (selectedHashes.size) {
+		const selectedJson = JSON.stringify([...selectedHashes]);
+		const sourceCanonical = normalizeCanonicalUrl(source.pollUrl);
+		await env.KEEPROOT_DB.prepare(
+			`UPDATE source_sitemap_urls SET state = 'pending', processed_at = NULL
+			WHERE source_id = ? AND state IN ('processed', 'baselined')
+				AND url_hash IN (SELECT value FROM json_each(?))
+				AND (state = 'processed' OR canonical_url = ?)
+				AND NOT EXISTS (
+					SELECT 1 FROM source_discoveries
+					WHERE source_id = ? AND url_hash = source_sitemap_urls.url_hash
+				)`,
+		).bind(source.id, selectedJson, sourceCanonical, source.id).run();
 		await env.KEEPROOT_DB.prepare(
 			`UPDATE source_sitemap_urls SET selected_run_id = ?
 			WHERE source_id = ? AND state = 'pending'
 				AND url_hash IN (SELECT value FROM json_each(?))`,
-		).bind(runId, source.id, JSON.stringify([...selectedHashes])).run();
+		).bind(runId, source.id, selectedJson).run();
 	}
 
 	console.log(JSON.stringify({
@@ -394,8 +414,13 @@ async function markSitemapCandidatesProcessed(env: StorageEnv, sourceId: string,
 	await env.KEEPROOT_DB.prepare(
 		`UPDATE source_sitemap_urls
 		SET state = 'processed', processed_at = ?
-		WHERE source_id = ? AND selected_run_id = ? AND state = 'pending'`,
-	).bind(now, sourceId, runId).run();
+		WHERE source_id = ? AND selected_run_id = ? AND state = 'pending'
+			AND EXISTS (
+				SELECT 1 FROM source_discoveries
+				WHERE source_id = ? AND url_hash = source_sitemap_urls.url_hash
+					AND last_seen_run_id = ?
+			)`,
+	).bind(now, sourceId, runId, sourceId, runId).run();
 }
 
 async function initiateCrawl(
@@ -508,8 +533,7 @@ function normalizedDate(value: string | null): string | null {
 	return Number.isFinite(timestamp) ? new Date(timestamp).toISOString() : null;
 }
 
-function isArchiveLikeCanonical(source: URL, canonical: URL): boolean {
-	if (normalizeCanonicalUrl(source.toString()) === normalizeCanonicalUrl(canonical.toString())) return true;
+function isArchiveLikeCanonical(canonical: URL): boolean {
 	const segments = canonical.pathname.toLowerCase().split('/').filter(Boolean);
 	if (segments.length === 0) return true;
 	return segments.some((segment) => ['archive', 'archives', 'author', 'authors', 'categories', 'category', 'tag', 'tags'].includes(segment));
@@ -557,7 +581,7 @@ export async function recogniseBrowserPost(
 		return null;
 	}
 	if (!sameSite(source, canonical)
-		|| isArchiveLikeCanonical(source, canonical)
+		|| isArchiveLikeCanonical(canonical)
 		|| !await validateSafeUrl(canonical.toString())) return null;
 	canonical.hash = '';
 	const canonicalUrl = normalizeCanonicalUrl(canonical.toString());

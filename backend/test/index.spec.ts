@@ -435,7 +435,7 @@ describe('KeepRoot Worker', () => {
 		expect(sendBatch.mock.calls[1][0][0].body).toEqual(sent[0].body);
 	});
 
-	it('uses a sitemap shortlist and imports each newly listed canonical URL once', async () => {
+	it('uses a sitemap shortlist, recovers an orphaned baselined source URL, and imports each URL once', async () => {
 		const send = vi.fn().mockResolvedValue({});
 		const browserEnv = {
 			...env,
@@ -444,7 +444,7 @@ describe('KeepRoot Worker', () => {
 			SOURCE_QUEUE: { send },
 		};
 		const source = await addSource(browserEnv as any, {
-			identifier: 'https://example.com/blog',
+			identifier: 'https://example.com/posts/26',
 			kind: 'browser',
 			name: 'Example Blog',
 			userId: TEST_USER_ID,
@@ -473,7 +473,10 @@ describe('KeepRoot Worker', () => {
 			article(index + 1, new Date(Date.UTC(2026, 7, index + 1)).toISOString()));
 		const jobs = new Map([
 			['crawl-initial', initialRecords.slice(21)],
-			['crawl-new', [article(27, '2026-08-27T12:00:00.000Z')]],
+			['crawl-new', [
+				article(27, '2026-08-27T12:00:00.000Z'),
+				article(26, '2026-08-26T00:00:00.000Z'),
+			]],
 		]);
 		const jobIds = [...jobs.keys()];
 		const startBodies: Array<Record<string, unknown>> = [];
@@ -566,6 +569,19 @@ describe('KeepRoot Worker', () => {
 			skipped_count: 0,
 			status: 'success',
 		});
+		await env.KEEPROOT_DB.batch([
+			env.KEEPROOT_DB.prepare(
+				'DELETE FROM bookmarks WHERE source_id = ? AND source_entry_id = ?',
+			).bind(source.id, 'https://example.com/posts/26'),
+			env.KEEPROOT_DB.prepare(
+				'DELETE FROM source_discoveries WHERE source_id = ? AND canonical_url = ?',
+			).bind(source.id, 'https://example.com/posts/26'),
+			env.KEEPROOT_DB.prepare(
+				`UPDATE source_sitemap_urls
+				SET state = 'baselined', selected_run_id = NULL, processed_at = NULL
+				WHERE source_id = ? AND canonical_url = ?`,
+			).bind(source.id, 'https://example.com/posts/26'),
+		]);
 
 		await runToCompletion('browser-new');
 		const unchangedRunId = await runToCompletion('browser-unchanged');
@@ -574,6 +590,7 @@ describe('KeepRoot Worker', () => {
 		).bind(source.id).all<{ source_entry_id: string }>();
 		expect(finalBookmarks.results).toHaveLength(6);
 		expect(finalBookmarks.results.filter((row) => row.source_entry_id === 'https://example.com/posts/27')).toHaveLength(1);
+		expect(finalBookmarks.results.filter((row) => row.source_entry_id === 'https://example.com/posts/26')).toHaveLength(1);
 		const latestRun = await env.KEEPROOT_DB.prepare(
 			'SELECT status, created_count, error_count FROM source_runs WHERE id = ?',
 		).bind(unchangedRunId).first<{ created_count: number; error_count: number; status: string }>();
@@ -598,13 +615,16 @@ describe('KeepRoot Worker', () => {
 			},
 			render: false,
 			source: 'sitemaps',
-			url: 'https://example.com/blog',
+			url: 'https://example.com/posts/26',
 		});
 		expect(startBodies[0]).not.toHaveProperty('rejectResourceTypes');
 		expect(startBodies[0]).not.toHaveProperty('modifiedSince');
 		expect(startBodies[1]).toMatchObject({
-			limit: 1,
-			options: { includePatterns: ['https://example.com/posts/27'] },
+			limit: 2,
+			options: { includePatterns: [
+				'https://example.com/posts/27',
+				'https://example.com/posts/26',
+			] },
 			source: 'sitemaps',
 		});
 		expect(startBodies[1]).not.toHaveProperty('modifiedSince');
