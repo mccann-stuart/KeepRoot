@@ -5,6 +5,8 @@ const MAX_ROBOTS_BYTES = 256 * 1024;
 const MAX_SITEMAP_BYTES = 5 * 1024 * 1024;
 const MAX_SITEMAP_FILES = 10;
 const MAX_SITEMAP_URLS = 10_000;
+const QUADRATIC_LEAF_DETECTION_LIMIT = 256;
+const SORTED_PATH_LEAF_DETECTION_LIMIT = 2_000;
 const REDIRECT_STATUSES = new Set([301, 302, 303, 307, 308]);
 const COLLECTION_SEGMENTS = new Set([
 	'analysis',
@@ -34,6 +36,18 @@ export interface BrowserSitemapDiscovery {
 	found: boolean;
 }
 
+export type BrowserSitemapLeafStrategy = 'quadratic' | 'sorted-path' | 'trie';
+
+interface ParsedBrowserSitemapEntry {
+	entry: BrowserSitemapEntry;
+	index: number;
+	parsed: URL;
+}
+
+interface PathTrieNode {
+	children: Map<string, PathTrieNode>;
+}
+
 function isRecord(value: unknown): value is JsonRecord {
 	return Boolean(value) && typeof value === 'object' && !Array.isArray(value);
 }
@@ -55,6 +69,90 @@ function normalizedDate(value: string | null): string | null {
 
 function sameOrigin(left: URL, right: URL): boolean {
 	return left.origin.toLowerCase() === right.origin.toLowerCase();
+}
+
+function normalizedPathname(pathname: string): string {
+	return pathname.length > 1 && pathname.endsWith('/') ? pathname.slice(0, -1) : pathname;
+}
+
+function isWithinSourcePath(source: URL, candidate: URL): boolean {
+	const sourcePath = normalizedPathname(source.pathname);
+	const candidatePath = normalizedPathname(candidate.pathname);
+	return sourcePath === '/' || candidatePath === sourcePath || candidatePath.startsWith(`${sourcePath}/`);
+}
+
+function pathSegments(pathname: string): string[] {
+	return normalizedPathname(pathname).split('/').filter(Boolean);
+}
+
+export function selectBrowserSitemapLeafStrategy(entryCount: number): BrowserSitemapLeafStrategy {
+	if (entryCount <= QUADRATIC_LEAF_DETECTION_LIMIT) return 'quadratic';
+	if (entryCount <= SORTED_PATH_LEAF_DETECTION_LIMIT) return 'sorted-path';
+	return 'trie';
+}
+
+function quadraticLeafEntries(
+	candidates: ParsedBrowserSitemapEntry[],
+	scopedEntries: ParsedBrowserSitemapEntry[],
+): ParsedBrowserSitemapEntry[] {
+	return candidates.filter(({ parsed }) => {
+		const childPrefix = normalizedPathname(parsed.pathname) === '/'
+			? '/'
+			: `${normalizedPathname(parsed.pathname)}/`;
+		return !scopedEntries.some(({ parsed: other }) =>
+			other !== parsed && normalizedPathname(other.pathname).startsWith(childPrefix));
+	});
+}
+
+function lowerBound(values: string[], target: string): number {
+	let low = 0;
+	let high = values.length;
+	while (low < high) {
+		const middle = low + Math.floor((high - low) / 2);
+		if (values[middle] < target) low = middle + 1;
+		else high = middle;
+	}
+	return low;
+}
+
+function sortedPathLeafEntries(
+	candidates: ParsedBrowserSitemapEntry[],
+	scopedEntries: ParsedBrowserSitemapEntry[],
+): ParsedBrowserSitemapEntry[] {
+	const sortedPaths = scopedEntries.map(({ parsed }) => normalizedPathname(parsed.pathname)).sort();
+	return candidates.filter(({ parsed }) => {
+		const childPrefix = `${normalizedPathname(parsed.pathname)}/`;
+		const childIndex = lowerBound(sortedPaths, childPrefix);
+		return childIndex >= sortedPaths.length || !sortedPaths[childIndex].startsWith(childPrefix);
+	});
+}
+
+function trieLeafEntries(
+	candidates: ParsedBrowserSitemapEntry[],
+	scopedEntries: ParsedBrowserSitemapEntry[],
+): ParsedBrowserSitemapEntry[] {
+	const root: PathTrieNode = { children: new Map() };
+	for (const { parsed } of scopedEntries) {
+		let node = root;
+		for (const segment of pathSegments(parsed.pathname)) {
+			let child = node.children.get(segment);
+			if (!child) {
+				child = { children: new Map() };
+				node.children.set(segment, child);
+			}
+			node = child;
+		}
+	}
+
+	return candidates.filter(({ parsed }) => {
+		let node = root;
+		for (const segment of pathSegments(parsed.pathname)) {
+			const child = node.children.get(segment);
+			if (!child) return true;
+			node = child;
+		}
+		return node.children.size === 0;
+	});
 }
 
 async function readBoundedText(response: Response, maximumBytes: number, label: string): Promise<string> {
@@ -276,25 +374,29 @@ export function shortlistBrowserSitemapEntries(
 	} catch {
 		return [];
 	}
-	const parsedEntries = entries.flatMap((entry, index) => {
+	const parsedEntries: ParsedBrowserSitemapEntry[] = entries.flatMap((entry, index) => {
 		try {
 			return [{ entry, index, parsed: new URL(entry.url) }];
 		} catch {
 			return [];
 		}
 	});
-	const candidates = parsedEntries.filter(({ parsed }) => {
-		if (!sameOrigin(source, parsed)) return false;
+	const scopedEntries = parsedEntries.filter(({ parsed }) =>
+		sameOrigin(source, parsed) && isWithinSourcePath(source, parsed));
+	const candidates = scopedEntries.filter(({ parsed }) => {
 		if (parsed.search || NON_HTML_EXTENSIONS.test(parsed.pathname)) return false;
-		const segments = parsed.pathname.toLowerCase().split('/').filter(Boolean);
+		const segments = pathSegments(parsed.pathname.toLowerCase());
 		if (segments.length === 0 || segments.some((segment) => COLLECTION_SEGMENTS.has(segment))) return false;
-
-		const childPrefix = parsed.pathname.endsWith('/') ? parsed.pathname : `${parsed.pathname}/`;
-		return !parsedEntries.some(({ parsed: other }) =>
-			other !== parsed && sameOrigin(parsed, other) && other.pathname.startsWith(childPrefix));
+		return true;
 	});
+	const strategy = selectBrowserSitemapLeafStrategy(scopedEntries.length);
+	const leaves = strategy === 'quadratic'
+		? quadraticLeafEntries(candidates, scopedEntries)
+		: strategy === 'sorted-path'
+			? sortedPathLeafEntries(candidates, scopedEntries)
+			: trieLeafEntries(candidates, scopedEntries);
 
-	return candidates
+	return leaves
 		.sort((left, right) => {
 			const leftTime = left.entry.lastModifiedAt ? Date.parse(left.entry.lastModifiedAt) : Number.NEGATIVE_INFINITY;
 			const rightTime = right.entry.lastModifiedAt ? Date.parse(right.entry.lastModifiedAt) : Number.NEGATIVE_INFINITY;

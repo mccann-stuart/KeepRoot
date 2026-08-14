@@ -435,6 +435,77 @@ describe('KeepRoot Worker', () => {
 		expect(sendBatch.mock.calls[1][0][0].body).toEqual(sent[0].body);
 	});
 
+	it('recovers an expired running source lease with a persisted terminal error', async () => {
+		const scheduledAt = '2026-08-06T12:00:00.000Z';
+		const startedAt = '2026-08-06T10:00:00.000Z';
+		const expiredAt = '2026-08-06T11:55:00.000Z';
+		await env.KEEPROOT_DB.batch([
+			env.KEEPROOT_DB.prepare(
+				`INSERT INTO sources
+				(id, user_id, kind, name, normalized_identifier, poll_url, status, config_json,
+					poll_interval_minutes, active_run_id, lease_expires_at, created_at, updated_at)
+				VALUES ('source-expired', ?, 'browser', 'Expired browser source', ?, ?, 'active', '{}',
+					1440, 'run-expired', ?, ?, ?)`,
+			).bind(
+				TEST_USER_ID,
+				'https://example.com/tech',
+				'https://example.com/tech',
+				expiredAt,
+				startedAt,
+				startedAt,
+			),
+			env.KEEPROOT_DB.prepare(
+				`INSERT INTO source_runs
+				(id, source_id, run_type, status, dispatch_key, attempt_count, queued_at, started_at, lease_expires_at)
+				VALUES ('run-expired', 'source-expired', 'manual', 'running', 'manual:run-expired', 6, ?, ?, ?)`,
+			).bind(startedAt, startedAt, expiredAt),
+		]);
+		const sendBatch = vi.fn().mockResolvedValue({ metadata: { metrics: { backlogBytes: 0, backlogCount: 0 } } });
+
+		await worker.scheduled(
+			{ scheduledTime: Date.parse(scheduledAt) } as ScheduledController,
+			{ ...env, SOURCE_QUEUE: { sendBatch } as unknown as Queue<unknown> },
+			createExecutionContext(),
+		);
+
+		const run = await env.KEEPROOT_DB.prepare(
+			'SELECT status, attempt_count, error_count, error_text, finished_at, lease_expires_at FROM source_runs WHERE id = ?',
+		).bind('run-expired').first<{
+			attempt_count: number;
+			error_count: number;
+			error_text: string | null;
+			finished_at: string | null;
+			lease_expires_at: string | null;
+			status: string;
+		}>();
+		const source = await env.KEEPROOT_DB.prepare(
+			'SELECT active_run_id, lease_expires_at, last_error, last_polled_at, next_poll_at FROM sources WHERE id = ?',
+		).bind('source-expired').first<{
+			active_run_id: string | null;
+			last_error: string | null;
+			last_polled_at: string | null;
+			lease_expires_at: string | null;
+			next_poll_at: string | null;
+		}>();
+
+		expect(run).toMatchObject({
+			attempt_count: 6,
+			error_count: 1,
+			error_text: 'Source run lease expired before completion',
+			lease_expires_at: null,
+			status: 'error',
+		});
+		expect(run?.finished_at).toBe(scheduledAt);
+		expect(source).toEqual({
+			active_run_id: null,
+			last_error: 'Source run lease expired before completion',
+			last_polled_at: scheduledAt,
+			lease_expires_at: null,
+			next_poll_at: '2026-08-07T12:00:00.000Z',
+		});
+		expect(sendBatch).not.toHaveBeenCalled();
+	});
+
 	it('inspects 15 sitemap candidates, keeps five initial articles, and backfills an underfilled archive', async () => {
 		const send = vi.fn().mockResolvedValue({});
 		const browserEnv = {
@@ -444,7 +515,7 @@ describe('KeepRoot Worker', () => {
 			SOURCE_QUEUE: { send },
 		};
 		const source = await addSource(browserEnv as any, {
-			identifier: 'https://example.com/posts/26',
+			identifier: 'https://example.com/posts',
 			kind: 'browser',
 			name: 'Example Blog',
 			userId: TEST_USER_ID,
@@ -767,6 +838,114 @@ describe('KeepRoot Worker', () => {
 		});
 		expect(duplicate?.finished_at).toBeTruthy();
 		expect(sourceState).toEqual({ active_run_id: 'active-run', lease_expires_at: leaseExpiresAt });
+	});
+
+	it('finalises an exhausted source queue run before repeating expensive work', async () => {
+		const send = vi.fn().mockResolvedValue({});
+		const browserEnv = {
+			...env,
+			BROWSER_RUN_ACCOUNT_ID: 'browser-account',
+			BROWSER_RUN_API_TOKEN: 'browser-token',
+			SOURCE_QUEUE: { send },
+		};
+		const source = await addSource(browserEnv as any, {
+			identifier: 'https://example.com/tech',
+			kind: 'browser',
+			name: 'Example Tech',
+			userId: TEST_USER_ID,
+		});
+		const { runId } = await enqueueSourceRun(browserEnv as any, String(source.id), 'manual');
+		await env.KEEPROOT_DB.prepare(
+			`UPDATE source_runs SET status = 'retrying', attempt_count = 5 WHERE id = ?`,
+		).bind(runId).run();
+		await env.KEEPROOT_DB.prepare(
+			`UPDATE sources SET active_run_id = NULL, lease_expires_at = NULL WHERE id = ?`,
+		).bind(source.id).run();
+		const fetchSpy = vi.spyOn(globalThis, 'fetch');
+
+		await expect(processSourceQueueJob(browserEnv as any, {
+			runId,
+			sourceId: String(source.id),
+		}, 6)).resolves.toBe('completed');
+
+		const run = await env.KEEPROOT_DB.prepare(
+			'SELECT status, attempt_count, error_count, error_text, finished_at FROM source_runs WHERE id = ?',
+		).bind(runId).first<{
+			attempt_count: number;
+			error_count: number;
+			error_text: string | null;
+			finished_at: string | null;
+			status: string;
+		}>();
+		const sourceState = await env.KEEPROOT_DB.prepare(
+			'SELECT active_run_id, lease_expires_at, last_error, last_polled_at, next_poll_at FROM sources WHERE id = ?',
+		).bind(source.id).first<{
+			active_run_id: string | null;
+			last_error: string | null;
+			last_polled_at: string | null;
+			lease_expires_at: string | null;
+			next_poll_at: string | null;
+		}>();
+
+		expect(fetchSpy).not.toHaveBeenCalled();
+		expect(run).toMatchObject({
+			attempt_count: 6,
+			error_count: 1,
+			error_text: 'Source queue exhausted after 6 delivery attempts without completing',
+			status: 'error',
+		});
+		expect(run?.finished_at).toBeTruthy();
+		expect(sourceState).toMatchObject({
+			active_run_id: null,
+			last_error: 'Source queue exhausted after 6 delivery attempts without completing',
+			lease_expires_at: null,
+		});
+		expect(sourceState?.last_polled_at).toBeTruthy();
+		expect(sourceState?.next_poll_at).toBeTruthy();
+	});
+
+	it('does not confuse persisted Browser Run polling steps with queue delivery attempts', async () => {
+		const send = vi.fn().mockResolvedValue({});
+		const browserEnv = {
+			...env,
+			BROWSER_RUN_ACCOUNT_ID: 'browser-account',
+			BROWSER_RUN_API_TOKEN: 'browser-token',
+			SOURCE_QUEUE: { send },
+		};
+		const source = await addSource(browserEnv as any, {
+			identifier: 'https://example.com/tech',
+			kind: 'browser',
+			name: 'Example Tech',
+			userId: TEST_USER_ID,
+		});
+		const { runId } = await enqueueSourceRun(browserEnv as any, String(source.id), 'manual');
+		await env.KEEPROOT_DB.prepare(
+			`UPDATE source_runs SET status = 'waiting', attempt_count = 6,
+				upstream_job_id = 'crawl-polling', upstream_phase = 'waiting'
+			WHERE id = ?`,
+		).bind(runId).run();
+		vi.spyOn(globalThis, 'fetch').mockResolvedValue(Response.json({
+			success: true,
+			result: {
+				browserSecondsUsed: 1,
+				finished: 10,
+				id: 'crawl-polling',
+				records: [],
+				status: 'running',
+				total: 100,
+			},
+		}));
+
+		await expect(processSourceQueueJob(browserEnv as any, {
+			runId,
+			sourceId: String(source.id),
+		}, 1)).resolves.toBe('continued');
+
+		const run = await env.KEEPROOT_DB.prepare(
+			'SELECT status, attempt_count, finished_at FROM source_runs WHERE id = ?',
+		).bind(runId).first<{ attempt_count: number; finished_at: string | null; status: string }>();
+		expect(run).toEqual({ attempt_count: 7, finished_at: null, status: 'waiting' });
+		expect(send).toHaveBeenLastCalledWith({ runId, sourceId: String(source.id) }, { delaySeconds: 10 });
 	});
 
 	it('fails an initial Browser Run crawl that recognises no posts', async () => {

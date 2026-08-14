@@ -38,6 +38,13 @@ interface PollableSourceRunRow {
 	validator_url: string | null;
 }
 
+interface ExpiredSourceRunRow {
+	kind: SourceKind;
+	poll_interval_minutes: number;
+	run_id: string;
+	source_id: string;
+}
+
 export class SourceLeaseBusyError extends Error {
 	constructor() {
 		super('Source is already being processed');
@@ -61,6 +68,55 @@ function sourceRunLog(event: string, fields: Record<string, boolean | number | s
 	console.log(JSON.stringify({ event, ...fields }));
 }
 
+function failureNextPollAt(now: string, sourceKind: SourceKind, storedIntervalMinutes: number): string {
+	return calculateNextPollAt(
+		new Date(now),
+		Math.max(DEFAULT_POLL_INTERVAL_MINUTES, clampSourcePollIntervalMinutes(sourceKind, storedIntervalMinutes)),
+	);
+}
+
+async function recoverExpiredSourceRuns(env: StorageEnv, now: string, sourceId?: string): Promise<number> {
+	const expired = await env.KEEPROOT_DB.prepare(
+		`SELECT s.id AS source_id, s.active_run_id AS run_id, s.kind, s.poll_interval_minutes
+		FROM sources s
+		JOIN source_runs r ON r.id = s.active_run_id AND r.source_id = s.id
+		WHERE s.active_run_id IS NOT NULL AND s.lease_expires_at IS NOT NULL
+			AND s.lease_expires_at <= ? AND r.finished_at IS NULL
+			AND r.status IN ('queued', 'running', 'waiting', 'retrying', 'partial')
+			AND (? IS NULL OR s.id = ?)`,
+	).bind(now, sourceId ?? null, sourceId ?? null).all<ExpiredSourceRunRow>();
+	const errorText = 'Source run lease expired before completion';
+	let recoveredCount = 0;
+	for (const row of expired.results) {
+		const nextPollAt = failureNextPollAt(now, row.kind, row.poll_interval_minutes);
+		const results = await env.KEEPROOT_DB.batch([
+			env.KEEPROOT_DB.prepare(
+				`UPDATE source_runs SET status = 'error', error_count = error_count + 1,
+					error_text = ?, finished_at = ?,
+					duration_ms = CAST((julianday(?) - julianday(started_at)) * 86400000 AS INTEGER),
+					lease_expires_at = NULL
+				WHERE id = ? AND source_id = ? AND finished_at IS NULL
+					AND EXISTS (SELECT 1 FROM sources
+						WHERE id = ? AND active_run_id = ? AND lease_expires_at <= ?)`,
+			).bind(errorText, now, now, row.run_id, row.source_id, row.source_id, row.run_id, now),
+			env.KEEPROOT_DB.prepare(
+				`UPDATE sources SET last_polled_at = ?, last_error = ?, next_poll_at = ?,
+					active_run_id = NULL, lease_expires_at = NULL, updated_at = ?
+				WHERE id = ? AND active_run_id = ? AND lease_expires_at <= ?`,
+			).bind(now, errorText, nextPollAt, now, row.source_id, row.run_id, now),
+		]);
+		if ((results[1]?.meta.changes ?? 0) > 0) {
+			recoveredCount += 1;
+			sourceRunLog('source_run_recovered', {
+				reason: 'expired_lease',
+				runId: row.run_id,
+				sourceId: row.source_id,
+			});
+		}
+	}
+	return recoveredCount;
+}
+
 async function sendSourceJobs(queue: Queue<unknown>, jobs: SourceQueueJob[]): Promise<void> {
 	for (let offset = 0; offset < jobs.length; offset += 100) {
 		await queue.sendBatch(jobs.slice(offset, offset + 100).map((body) => ({ body })));
@@ -77,6 +133,7 @@ export async function dispatchScheduledSourceRuns(
 
 	const startedAt = Date.now();
 	const dueAt = new Date(scheduledTime).toISOString();
+	const recoveredCount = await recoverExpiredSourceRuns(env, dueAt);
 	const sources = await listDuePollableSources(env, dueAt);
 	const runIds = sources.map(() => crypto.randomUUID());
 	const inserts = sources.map((source, index) => env.KEEPROOT_DB.prepare(
@@ -110,6 +167,7 @@ export async function dispatchScheduledSourceRuns(
 	sourceRunLog('source_cron_summary', {
 		durationMs: Date.now() - startedAt,
 		queuedCount: jobs.length,
+		recoveredCount,
 		sourceCount: sources.length,
 	});
 	return { queuedCount: jobs.length, sourceCount: sources.length };
@@ -127,6 +185,7 @@ export async function enqueueSourceRun(
 	const now = new Date();
 	const queuedAt = now.toISOString();
 	const leaseExpiresAt = new Date(now.getTime() + SOURCE_LEASE_MS).toISOString();
+	await recoverExpiredSourceRuns(env, queuedAt, sourceId);
 	const reservation = await env.KEEPROOT_DB.prepare(
 		`UPDATE sources SET active_run_id = ?, lease_expires_at = ?
 		WHERE id = ? AND (active_run_id IS NULL OR lease_expires_at IS NULL OR lease_expires_at <= ?)`,
@@ -344,10 +403,7 @@ async function recordFailure(
 	const now = new Date().toISOString();
 	const terminal = !retryable || attempts >= TERMINAL_ATTEMPT;
 	const errorText = error instanceof Error ? error.message.slice(0, 500) : 'Unknown source sync error';
-	const nextPollAt = calculateNextPollAt(
-		new Date(now),
-		Math.max(DEFAULT_POLL_INTERVAL_MINUTES, clampSourcePollIntervalMinutes(sourceKind, storedIntervalMinutes)),
-	);
+	const nextPollAt = failureNextPollAt(now, sourceKind, storedIntervalMinutes);
 	await env.KEEPROOT_DB.batch([
 		env.KEEPROOT_DB.prepare(
 			`UPDATE source_runs SET status = ?, error_count = error_count + 1,
@@ -364,6 +420,48 @@ async function recordFailure(
 	]);
 }
 
+async function finaliseExhaustedSourceRun(
+	env: StorageEnv,
+	job: SourceQueueJob,
+	source: PollableSourceRunRow,
+	attempts: number,
+): Promise<void> {
+	const now = new Date().toISOString();
+	const persistedAttemptCount = Math.max(attempts, source.attempt_count);
+	const errorText = `Source queue exhausted after ${attempts} delivery attempts without completing`;
+	const nextPollAt = failureNextPollAt(now, source.kind, source.poll_interval_minutes);
+	await env.KEEPROOT_DB.batch([
+		env.KEEPROOT_DB.prepare(
+			`UPDATE source_runs SET status = 'error', attempt_count = MAX(attempt_count, ?),
+				error_count = error_count + 1, error_text = ?, finished_at = ?,
+				duration_ms = CAST((julianday(?) - julianday(started_at)) * 86400000 AS INTEGER),
+				lease_expires_at = NULL
+			WHERE id = ? AND source_id = ? AND finished_at IS NULL`,
+		).bind(persistedAttemptCount, errorText, now, now, job.runId, job.sourceId),
+		env.KEEPROOT_DB.prepare(
+			`UPDATE sources SET last_polled_at = ?, last_error = ?, next_poll_at = ?,
+				active_run_id = NULL, lease_expires_at = NULL, updated_at = ?
+			WHERE id = ? AND (active_run_id IS NULL OR active_run_id = ?)
+				AND EXISTS (SELECT 1 FROM source_runs
+					WHERE id = ? AND source_id = ? AND status = 'error' AND error_text = ?)`,
+		).bind(now, errorText, nextPollAt, now, job.sourceId, job.runId,
+			job.runId, job.sourceId, errorText),
+	]);
+	sourceRunLog('source_run_summary', {
+		attempts,
+		createdCount: 0,
+		discoveredCount: 0,
+		durationMs: 0,
+		errorCount: 1,
+		processedCount: 0,
+		refreshedCount: 0,
+		runId: job.runId,
+		sourceId: job.sourceId,
+		status: 'error',
+		unchangedCount: 0,
+	});
+}
+
 export async function processSourceQueueJob(
 	env: StorageEnv,
 	job: SourceQueueJob,
@@ -376,6 +474,10 @@ export async function processSourceQueueJob(
 	if (source.source_status !== 'active' || !source.poll_url) {
 		await finishWithoutFetch(env, job);
 		return 'ignored';
+	}
+	if (attempts >= TERMINAL_ATTEMPT) {
+		await finaliseExhaustedSourceRun(env, job, source, attempts);
+		return 'completed';
 	}
 
 	const startedAt = Date.now();
@@ -477,7 +579,7 @@ export async function processSourceQueueJob(
 			status: retryable && attempts < TERMINAL_ATTEMPT ? 'retrying' : 'error',
 			unchangedCount: 0,
 		});
-		if (retryable) {
+		if (retryable && attempts < TERMINAL_ATTEMPT) {
 			throw error;
 		}
 		return 'completed';
