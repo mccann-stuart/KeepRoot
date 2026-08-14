@@ -37,9 +37,11 @@ const TERMINAL_CRAWL_STATUSES = new Set([
 	'completed',
 	'errored',
 ]);
-// Records that never carried content. `skipped` and `queued` are upstream outcomes too, not
-// merely uninteresting pages, so they must be visible in the run's error accounting.
-const UPSTREAM_ERROR_RECORD_STATUSES = new Set(['disallowed', 'errored', 'skipped']);
+// Frontier entries the crawler never attempted. A crawl scoped by includePatterns still
+// reports the rest of the sitemap this way — 6,702 of them for The Verge — so they are
+// neither examined pages nor failures. Counting them inflated one run's skipped_count to
+// 23,587 against 13 real records.
+const UNATTEMPTED_RECORD_STATUSES = new Set(['queued', 'skipped']);
 const INITIAL_IMPORT_LIMIT = 5;
 // Modification dates are only hints, so inspect a wider candidate set and retain
 // the five newest pages that actually expose recognised article metadata.
@@ -413,6 +415,11 @@ async function prepareSitemapCrawl(
 	}
 
 	const shortlisted = shortlistBrowserSitemapEntries(source.pollUrl, discovery.entries);
+	// Only URLs absent from the stored index need hashing; the rest reuse their stored hash.
+	const newUrlCount = discovery.entries.reduce(
+		(count, entry) => count + (existingStates.has(entry.url) ? 0 : 1),
+		0,
+	);
 	const hashedEntries = await hashNewSitemapEntries(discovery.entries, existingStates);
 	const hashByUrl = new Map(hashedEntries.map((entry) => [entry.url, entry.urlHash]));
 	const eligibleHashes = new Set(shortlisted.map((entry) => hashByUrl.get(entry.url)).filter((hash): hash is string => Boolean(hash)));
@@ -480,7 +487,7 @@ async function prepareSitemapCrawl(
 	console.log(JSON.stringify({
 		candidateCount: selected.length,
 		event: 'browser_sitemap_shortlist',
-		hashedCount: hashedEntries.length - existingStates.size,
+		hashedCount: newUrlCount,
 		initialCrawl: sitemapBaseline,
 		runId,
 		sitemapUrlCount: discovery.entries.length,
@@ -834,6 +841,7 @@ interface IngestedPage {
 	skipped: number;
 	staged: number;
 	total: number;
+	unattempted: number;
 	unchanged: number;
 	upstreamErrors: number;
 }
@@ -992,6 +1000,7 @@ async function ingestCrawlResults(
 				skipped: 0,
 				staged: 0,
 				total: crawl.total,
+				unattempted: 0,
 				unchanged: 0,
 				upstreamErrors: 0,
 			};
@@ -1000,12 +1009,16 @@ async function ingestCrawlResults(
 				if (knownUrls.has(record.url)) continue;
 				knownUrls.add(record.url);
 				result.recordUrls.push(record.url);
+				if (UNATTEMPTED_RECORD_STATUSES.has(record.status)) {
+					result.unattempted += 1;
+					continue;
+				}
 				result.examined += 1;
 				if (record.status !== 'completed') {
+					// Everything left — errored, disallowed, cancelled — is a page the
+					// crawler tried and failed to deliver.
 					result.skipped += 1;
-					if (UPSTREAM_ERROR_RECORD_STATUSES.has(record.status) || record.status.startsWith('cancelled')) {
-						result.upstreamErrors += 1;
-					}
+					result.upstreamErrors += 1;
 					continue;
 				}
 				result.processed += 1;
@@ -1050,6 +1063,7 @@ async function ingestCrawlResults(
 			seen: seen.size,
 			skipped: page.skipped,
 			sourceId: source.id,
+			unattempted: page.unattempted,
 			upstreamErrors: page.upstreamErrors,
 		});
 
@@ -1194,6 +1208,12 @@ export async function runBrowserCrawl(
 	const totals = await progress(env, runId, source.id);
 	if (totals.processed_count === 0 && totals.upstream_error_count > 0) {
 		throw new BrowserRunCrawlError('Browser Run could not access any pages; the site disallowed or errored every crawl request');
+	}
+	if (totals.examined_count === 0 && pages.some((page) => page.unattempted > 0)) {
+		throw new BrowserRunCrawlError(
+			'Browser Run returned no attempted pages; every crawl candidate was left queued or skipped',
+			{ retryable: true },
+		);
 	}
 	if (started.initialCrawl && totals.discovered_count === 0) {
 		throw new BrowserRunCrawlError(

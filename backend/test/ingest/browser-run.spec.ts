@@ -360,4 +360,42 @@ describe('Browser Run post recognition', () => {
 
 		expect(calls.results).toBe(2);
 	});
+
+	// The Verge's crawl is scoped by includePatterns, so Browser Run reports the other 6,702
+	// sitemap URLs as `skipped` frontier entries alongside the one page it fetched. Counting
+	// those as failures marked healthy runs "partial" and inflated skipped_count.
+	it('does not count unattempted frontier records as examined pages or errors', async () => {
+		const env = envWith();
+		mockCrawlApi({
+			results: () => ({
+				finished: 1,
+				records: [
+					{
+						html: `<html><head><link rel="canonical" href="https://example.com/posts/one">
+							<meta property="og:type" content="article">
+							<meta property="og:title" content="Only post">
+							<meta property="article:published_time" content="2026-08-14">
+						</head></html>`,
+						status: 'completed',
+						url: 'https://example.com/posts/one',
+					},
+					...Array.from({ length: 24 }, (_, index) => ({
+						status: 'skipped',
+						url: `https://example.com/frontier/${index}`,
+					})),
+				],
+				status: 'completed',
+				total: 1,
+			}),
+			status: () => ({ finished: 1, records: [], status: 'completed', total: 1 }),
+		});
+
+		await runBrowserCrawl(env, source(), 'run-id', fakeStep()).catch(() => undefined);
+
+		const ingest = env.prepared.findIndex((sql) => sql.includes('examined_count = examined_count + ?'));
+		expect(ingest).toBeGreaterThanOrEqual(0);
+		// (examined, processed, staged, unchanged, skipped, upstreamErrors, ...)
+		const counts = env.binds.find((args) => args.length === 8 && args[6] === 'run-id');
+		expect(counts?.slice(0, 6)).toEqual([1, 1, 1, 0, 0, 0]);
+	});
 });
