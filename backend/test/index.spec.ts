@@ -506,7 +506,7 @@ describe('KeepRoot Worker', () => {
 		expect(sendBatch).not.toHaveBeenCalled();
 	});
 
-	it('inspects 15 sitemap candidates, keeps five initial articles, and backfills an underfilled archive', async () => {
+	it('inspects 15 sitemap candidates, ignores skipped result tails, and backfills an underfilled archive', async () => {
 		const send = vi.fn().mockResolvedValue({});
 		const browserEnv = {
 			...env,
@@ -547,7 +547,12 @@ describe('KeepRoot Worker', () => {
 			['crawl-backfill', [article(22, '2026-08-22T00:00:00.000Z')]],
 			['crawl-new', [article(27, '2026-08-27T12:00:00.000Z')]],
 		]);
+		const skippedTail = Array.from({ length: 400 }, (_, index) => ({
+			status: 'skipped',
+			url: `https://example.com/unselected/${index + 1}`,
+		}));
 		const jobIds = [...jobs.keys()];
+		const resultRequests: URL[] = [];
 		const startBodies: Array<Record<string, unknown>> = [];
 		let sitemapRequestCount = 0;
 		const sitemap = (postCount: number) => `<?xml version="1.0" encoding="UTF-8"?>
@@ -578,15 +583,19 @@ describe('KeepRoot Worker', () => {
 			const jobId = url.pathname.split('/').at(-1) ?? '';
 			const records = jobs.get(jobId) ?? [];
 			const limit = Number(url.searchParams.get('limit') ?? 25);
+			if (limit !== 1) resultRequests.push(url);
+			const filteredRecords = url.searchParams.get('status') === 'completed'
+				? records
+				: [...records, ...skippedTail];
 			const offset = Number(url.searchParams.get('cursor') ?? 0);
-			const nextOffset = Math.min(offset + limit, records.length);
+			const nextOffset = Math.min(offset + limit, filteredRecords.length);
 			return Response.json({
 				success: true,
 				result: {
-					cursor: limit === 1 || nextOffset >= records.length ? null : String(nextOffset),
+					cursor: limit === 1 || nextOffset >= filteredRecords.length ? null : String(nextOffset),
 					finished: records.length,
 					id: jobId,
-					records: limit === 1 ? [] : records.slice(offset, nextOffset),
+					records: limit === 1 ? [] : filteredRecords.slice(offset, nextOffset),
 					status: 'completed',
 					total: records.length,
 				},
@@ -716,6 +725,8 @@ describe('KeepRoot Worker', () => {
 		});
 		expect(startBodies[2]).not.toHaveProperty('modifiedSince');
 		expect(startBodies).toHaveLength(3);
+		expect(resultRequests.length).toBeGreaterThan(0);
+		expect(resultRequests.every((url) => url.searchParams.get('status') === 'completed')).toBe(true);
 	});
 
 	it('coalesces Browser Run refreshes, cancels orphaned runs, and clears a stale source error', async () => {

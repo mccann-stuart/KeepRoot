@@ -502,10 +502,11 @@ async function initiateCrawl(
 async function getCrawl(
 	env: StorageEnv,
 	jobId: string,
-	options: { cursor?: string | null; limit: number },
+	options: { cursor?: string | null; limit: number; status?: 'completed' },
 ): Promise<BrowserCrawlResult> {
 	const query = new URLSearchParams({ limit: String(options.limit) });
 	if (options.cursor) query.set('cursor', options.cursor);
+	if (options.status) query.set('status', options.status);
 	return parseCrawlResult(await browserRunRequest(env, `/${encodeURIComponent(jobId)}?${query}`));
 }
 
@@ -884,6 +885,7 @@ export async function advanceBrowserSourceRun(
 		const crawl = await getCrawl(env, run.upstreamJobId, {
 			cursor: run.upstreamCursor,
 			limit: CRAWL_RESULT_PAGE_SIZE,
+			status: 'completed',
 		});
 		let recognised = 0;
 		let existing = 0;
@@ -958,6 +960,7 @@ export async function advanceBrowserSourceRun(
 		const crawl = await getCrawl(env, run.upstreamJobId, {
 			cursor: run.upstreamCursor,
 			limit: CRAWL_RESULT_PAGE_SIZE,
+			status: 'completed',
 		});
 		const username = await getUsername(env, source.userId);
 		for (const record of crawl.records) {
