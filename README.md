@@ -89,10 +89,10 @@ Security notes:
 | Tool | Description |
 |---|---|
 | `save_item` | Save a URL, optionally render or screenshot it, persist the result, and place it in the inbox |
-| `search_items` | Search saved items by query plus filters |
-| `list_items` | List items with cursor pagination and filters |
+| `search_items` | Search saved items by query plus filters; returns metadata, not article text |
+| `list_items` | List items with cursor pagination and filters; returns metadata, not article text |
 | `get_item` | Fetch one item with optional Markdown or HTML content |
-| `update_item` | Update title, notes, tags, or status |
+| `update_item` | Update title, notes, tags, or status; returns the updated metadata |
 | `whoami` | Return account identity, feature flags, and limits |
 | `list_sources` | List configured source records |
 | `add_source` | Add an Agentic scraping, RSS, YouTube, X, or email source record |
@@ -328,11 +328,37 @@ curl "$KEEPROOT_URL/mcp" \
 
 ### Example MCP argument shapes
 
-- `get_item`: `{ "item_id": "...", "include_content": true, "include_html": false }`
+All tool arguments are camelCase.
+
+- `get_item`: `{ "id": "...", "includeContent": true, "includeHtml": false }`
 - `save_item`: `{ "url": "https://example.com/app", "render": true, "captureScreenshot": true }`
-- `update_item`: `{ "item_id": "...", "title": "...", "notes": "...", "tags": ["..."], "status": "saved" }`
+- `list_items`: `{ "status": "saved", "isRead": false, "limit": 20, "includeContent": false }`
+- `update_item`: `{ "id": "...", "title": "...", "notes": "...", "tags": ["..."], "status": "saved" }`
 - `add_source`: `{ "kind": "rss", "identifier": "https://example.com/feed.xml", "name": "Example Feed" }`
-- `mark_done`: `{ "inbox_entry_id": "..." }`
+- `mark_done`: `{ "id": "..." }`
+
+### Item status
+
+Items use a closed vocabulary defined by `ITEM_STATUSES` in `backend/src/storage/shared.ts`:
+
+| Status | Meaning |
+|---|---|
+| `saved` | In the library. The default for every newly saved item. |
+| `archived` | Triaged out of the active library. |
+
+The MCP tool schemas build their enums from that constant, so the values an agent sees
+in the tool schema are exactly the values the storage layer accepts; anything else is
+rejected at validation rather than silently matching zero rows. This is unrelated to
+`sources.status` (`active`/`error`/…), which is a different table with its own vocabulary,
+and to the separate `isRead` boolean that tracks read state.
+
+### Response sizes
+
+`list_items` and `search_items` return metadata only — id, title, url, domain, tags,
+status, `isRead`, `pinned`, `excerpt`, `wordCount`, and timestamps — and omit the
+extracted article text. Pass `includeContent: true` to add the full body, or prefer
+`get_item` when you want to read one specific article. `update_item` returns the updated
+metadata as confirmation and does not echo article content back.
 
 ---
 

@@ -147,6 +147,17 @@ export interface BookmarkPatchPayload {
 
 export type SourceKind = 'browser' | 'rss' | 'youtube' | 'x' | 'email';
 
+/**
+ * Closed vocabulary for `bookmarks.status`. This is the single source of truth:
+ * the MCP tool schemas build their enums from it, so the values an agent sees in
+ * the tool schema are always the values the storage layer accepts.
+ *
+ * Distinct from `sources.status` ('active'/…), which is a different table.
+ */
+export const ITEM_STATUSES = ['saved', 'archived'] as const;
+export type ItemStatus = typeof ITEM_STATUSES[number];
+export const DEFAULT_ITEM_STATUS: ItemStatus = 'saved';
+
 export interface PaginationInput {
 	cursor?: string | null;
 	limit?: number;
