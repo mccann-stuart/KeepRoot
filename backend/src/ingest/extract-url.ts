@@ -42,6 +42,22 @@ interface ExtractedHtmlBookmark extends ExtractedBookmarkPayload {
 	readabilitySucceeded: boolean;
 }
 
+interface StructuredArticleBody {
+	body: string;
+	headline?: string;
+}
+
+interface ParentNodeLike {
+	parentNode?: ParentNodeLike | null;
+}
+
+interface SemanticElementLike extends ParentNodeLike {
+	outerHTML: string;
+	textContent?: string | null;
+}
+
+type ParsedHtmlDocument = ReturnType<DOMParser['parseFromString']>;
+
 const PDF_VIEWER_PARAM_KEYS = ['src', 'file', 'url'];
 const PDF_CONTENT_TYPES = new Set(['application/pdf']);
 const NO_EXTRACTABLE_TEXT_MARKDOWN = '_No extractable text was found in this PDF. OCR is not currently supported._';
@@ -53,6 +69,14 @@ const JS_SHELL_MARKERS = [
 	/\b(?:__NEXT_DATA__|__NUXT__|data-reactroot|webpackJsonp)\b/i,
 	/<noscript[^>]*>[\s\S]{0,300}(?:enable|requires?)\s+javascript/i,
 ];
+const STRUCTURED_ARTICLE_TYPES = new Set([
+	'Article',
+	'BlogPosting',
+	'LiveBlogPosting',
+	'NewsArticle',
+	'ReportageNewsArticle',
+]);
+const STRUCTURED_BODY_ADVANTAGE_LENGTH = 80;
 
 function normalizePdfText(rawText: string): string {
 	return String(rawText ?? '')
@@ -264,6 +288,145 @@ function createTurndownService(): TurndownService {
 	});
 }
 
+function structuredArticleType(record: Record<string, unknown>): boolean {
+	const rawTypes = Array.isArray(record['@type']) ? record['@type'] : [record['@type']];
+	return rawTypes.some((type) => typeof type === 'string' && STRUCTURED_ARTICLE_TYPES.has(type));
+}
+
+function elementDepth(element: ParentNodeLike): number {
+	let depth = 0;
+	let current = element.parentNode;
+	while (current) {
+		depth += 1;
+		current = current.parentNode;
+	}
+	return depth;
+}
+
+function selectSemanticArticleHtml(document: ParsedHtmlDocument): string | null {
+	const elements = document.querySelectorAll(
+		'main article, main [role="article"], [role="main"] article, [role="main"] [role="article"], article[role="article"]',
+	) as unknown as ArrayLike<SemanticElementLike>;
+	const candidates = Array.from(elements)
+		.map((element) => ({
+			depth: elementDepth(element),
+			element,
+			textLength: normalizeWhitespace(element.textContent ?? '').length,
+		}))
+		.filter((candidate) => candidate.textLength >= MIN_USEFUL_TEXT_LENGTH);
+	if (!candidates.length) {
+		return null;
+	}
+
+	const longestTextLength = Math.max(...candidates.map((candidate) => candidate.textLength));
+	const viableCandidates = candidates
+		.filter((candidate) => candidate.textLength >= longestTextLength * 0.75)
+		.sort((left, right) => right.depth - left.depth || left.textLength - right.textLength);
+	return viableCandidates[0]?.element.outerHTML ?? null;
+}
+
+function extractIsolatedSemanticArticle(articleHtml: string | null, title: string) {
+	if (!articleHtml) {
+		return null;
+	}
+
+	const isolatedDocument = new DOMParser().parseFromString(
+		`<html><head><title></title></head><body>${articleHtml}</body></html>`,
+		'text/html',
+	);
+	const titleNode = isolatedDocument.querySelector('title');
+	if (titleNode) {
+		titleNode.textContent = title;
+	}
+	return new Readability(isolatedDocument as never).parse();
+}
+
+function structuredArticleCandidates(value: unknown): StructuredArticleBody[] {
+	const candidates: StructuredArticleBody[] = [];
+	const pending: unknown[] = [value];
+	let examined = 0;
+
+	while (pending.length && examined < 1_000) {
+		const current = pending.pop();
+		examined += 1;
+		if (Array.isArray(current)) {
+			pending.push(...current);
+			continue;
+		}
+		if (!current || typeof current !== 'object') {
+			continue;
+		}
+
+		const record = current as Record<string, unknown>;
+		if (structuredArticleType(record) && typeof record.articleBody === 'string' && record.articleBody.trim()) {
+			candidates.push({
+				body: normalizePdfText(record.articleBody),
+				headline: typeof record.headline === 'string' ? normalizeWhitespace(record.headline) : undefined,
+			});
+		}
+		pending.push(...Object.values(record));
+	}
+
+	return candidates;
+}
+
+function extractStructuredArticle(document: ParsedHtmlDocument): StructuredArticleBody | null {
+	const candidates: StructuredArticleBody[] = [];
+	for (const script of document.querySelectorAll('script[type="application/ld+json"]')) {
+		const rawJson = script.textContent?.trim();
+		if (!rawJson) {
+			continue;
+		}
+		try {
+			candidates.push(...structuredArticleCandidates(JSON.parse(rawJson)));
+		} catch {
+			// Invalid publisher metadata should not block the normal Readability path.
+		}
+	}
+
+	return candidates.sort((left, right) => right.body.length - left.body.length)[0] ?? null;
+}
+
+function embeddedMediaLabel(rawUrl: string): string {
+	try {
+		const hostname = new URL(rawUrl).hostname.replace(/^www\./, '').toLowerCase();
+		if (hostname === 'bsky.app' || hostname === 'embed.bsky.app') {
+			return 'View embedded Bluesky post';
+		}
+		if (hostname === 'x.com' || hostname === 'twitter.com') {
+			return 'View embedded post on X';
+		}
+	} catch {
+		return 'View embedded media';
+	}
+	return 'View embedded media';
+}
+
+function replaceStructuredMediaMarkers(value: string, replacement: (url: string, label: string) => string): string {
+	return value.replace(/\[Media:\s*(https?:\/\/[^\]\s]+)\s*\]/gi, (_match, url: string) =>
+		replacement(url, embeddedMediaLabel(url))
+	);
+}
+
+function structuredArticleMarkdown(body: string): string {
+	return replaceStructuredMediaMarkers(body, (url, label) => `[${label}](${url})`)
+		.replace(/\[Image:\s*(https?:\/\/[^\]\s]+)\s*\]/gi, (_match, url: string) => `![Article image](${url})`);
+}
+
+function structuredArticleText(body: string): string {
+	return normalizePdfText(
+		replaceStructuredMediaMarkers(body, (_url, label) => label)
+			.replace(/\[Image:\s*https?:\/\/[^\]\s]+\s*\]/gi, 'Article image'),
+	);
+}
+
+function hasMaterialContentAdvantage(candidateText: string, currentText: string): boolean {
+	const candidate = normalizeWhitespace(candidateText);
+	const current = normalizeWhitespace(currentText);
+	return candidate.length >= MIN_USEFUL_TEXT_LENGTH
+		&& candidate.length >= current.length + STRUCTURED_BODY_ADVANTAGE_LENGTH;
+}
+
 function fallbackExtractHtmlBookmark(html: string, url: string, fallbackTitle?: string): ExtractedHtmlBookmark {
 	const titleMatch = html.match(/<title[^>]*>([\s\S]*?)<\/title>/i);
 	const headingMatch = html.match(/<h1[^>]*>([\s\S]*?)<\/h1>/i);
@@ -287,7 +450,9 @@ function extractHtmlBookmark(html: string, url: string, fallbackTitle?: string):
 	try {
 		const document = new DOMParser().parseFromString(html, 'text/html');
 		const turndownService = createTurndownService();
+		const structuredArticle = extractStructuredArticle(document);
 		const titleNodeText = document.querySelector('title')?.textContent?.trim() ?? '';
+		const semanticArticleHtml = selectSemanticArticleHtml(document);
 		const siteName = normalizeWhitespace(
 			document.querySelector('meta[property="og:site_name"]')?.getAttribute('content')
 				?? document.querySelector('meta[name="application-name"]')?.getAttribute('content')
@@ -299,7 +464,23 @@ function extractHtmlBookmark(html: string, url: string, fallbackTitle?: string):
 		// Readability mutates the document, so capture metadata and the fallback body
 		// before parsing it.
 		const readability = new Readability(document as never);
-		const article = readability.parse();
+		let article = readability.parse();
+		const initialReadabilityText = article?.textContent ?? '';
+		const useStructuredArticle = structuredArticle
+			? hasMaterialContentAdvantage(structuredArticle.body, initialReadabilityText)
+			: false;
+		if (!useStructuredArticle) {
+			const semanticArticle = extractIsolatedSemanticArticle(
+				semanticArticleHtml,
+				fallbackTitle?.trim() || structuredArticle?.headline || titleNodeText || 'Untitled',
+			);
+			if (semanticArticle && hasMaterialContentAdvantage(
+				semanticArticle.textContent ?? '',
+				initialReadabilityText,
+			)) {
+				article = semanticArticle;
+			}
+		}
 		const articleHtml = article?.content?.trim() || originalBodyHtml;
 		const articleRoot = new DOMParser()
 			.parseFromString(`<article>${articleHtml}</article>`, 'text/html')
@@ -312,15 +493,22 @@ function extractHtmlBookmark(html: string, url: string, fallbackTitle?: string):
 				|| htmlToPlainText(articleHtml)
 				|| markdownData,
 		);
-
 		return {
 			htmlData: html,
 			lang,
-			markdownData,
-			readabilitySucceeded: Boolean(article?.content?.trim()),
+			markdownData: useStructuredArticle
+				? structuredArticleMarkdown(structuredArticle!.body)
+				: markdownData,
+			readabilitySucceeded: Boolean(article?.content?.trim() || useStructuredArticle),
 			siteName,
-			textContent,
-			title: article?.title?.trim() || fallbackTitle?.trim() || titleNodeText || 'Untitled',
+			textContent: useStructuredArticle
+				? structuredArticleText(structuredArticle!.body)
+				: textContent,
+			title: article?.title?.trim()
+				|| structuredArticle?.headline
+				|| fallbackTitle?.trim()
+				|| titleNodeText
+				|| 'Untitled',
 			url,
 		};
 	} catch {

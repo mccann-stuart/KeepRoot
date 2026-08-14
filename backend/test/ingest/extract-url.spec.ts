@@ -2,8 +2,82 @@ import { describe, it, expect, vi } from 'vitest';
 import * as extractUrlModule from '../../src/ingest/extract-url';
 
 const extractBookmarkPayloadFromUrl = extractUrlModule.extractBookmarkPayloadFromUrl;
+const extractHtmlContent = extractUrlModule.extractHtmlContent;
 
 describe('extractBookmarkPayloadFromUrl', () => {
+	it('recovers structured article text when Readability keeps only surrounding chrome', () => {
+		const articleUrl = 'https://www.theverge.com/tech/979960/bluesky-beta-tests-better-video-support';
+		const embeddedPostUrl = 'https://bsky.app/profile/alexbenzer.com/post/3msydc62k7k2m';
+		const articleImageUrl = 'https://cdn.example.com/article-image.png';
+		const articleBody = 'While recent stats from Similarweb showed a decline in Bluesky users, the app is continuing to build its network and is now testing support for videos that are up to 10 minutes long. It also announced protocol services that should make it easier to build apps that connect to its infrastructure.';
+		const html = `
+			<html>
+				<head>
+					<title>Bluesky beta tests better video support. | The Verge</title>
+					<script type="application/ld+json">${JSON.stringify({
+						'@context': 'https://schema.org',
+						'@type': 'NewsArticle',
+						articleBody: `${articleBody}\n[Media: ${embeddedPostUrl}]\n[Image: ${articleImageUrl}]`,
+						headline: 'Bluesky beta tests better video support.',
+					})}</script>
+				</head>
+				<body>
+					<main>
+						<article>
+							<p>Posted Aug 13, 2026 at 11:07 PM UTC</p>
+							<p>Bluesky beta tests better video support.</p>
+							<p><strong>Follow topics and authors</strong> from this story to receive email updates.</p>
+							<ul><li>Richard Lawler</li></ul>
+						</article>
+					</main>
+				</body>
+			</html>
+		`;
+
+		const result = extractHtmlContent(articleUrl, html);
+
+		expect(result.textContent).toContain(articleBody);
+		expect(result.markdownData).toContain(articleBody);
+		expect(result.markdownData).toContain(`[View embedded Bluesky post](${embeddedPostUrl})`);
+		expect(result.markdownData).toContain(`![Article image](${articleImageUrl})`);
+		expect(result.markdownData).not.toContain('Follow topics and authors');
+	});
+
+	it('keeps a complete semantic article when structured metadata has no body', () => {
+		const firstParagraph = 'It has been years since this company was last discussed, despite continued customer and viewing growth. The latest acquisition offer gives its founder a dignified exit, although the price is far below the valuation reached a few years ago.';
+		const secondParagraph = 'The original business model paired a television operating system with advertising demand. As viewers moved from linear television to paid streaming services, the platform expected advertisers to become its primary customers.';
+		const html = `
+			<html>
+				<head>
+					<title>Roku Waved the White Flag — Inside Orchard</title>
+					<script type="application/ld+json">${JSON.stringify({
+						'@context': 'https://schema.org',
+						'@type': 'Article',
+						headline: 'Roku Waved the White Flag',
+					})}</script>
+				</head>
+				<body>
+					<main>
+						<article class="h-entry entry hentry">
+							<h1>Roku Waved the White Flag</h1>
+							<div class="blog-item-content e-content">
+								<p>${firstParagraph}</p>
+								<p>${secondParagraph}</p>
+								<h2>Subscription required to continue reading.</h2>
+							</div>
+						</article>
+					</main>
+				</body>
+			</html>
+		`;
+
+		const result = extractHtmlContent('https://insideorchard.com/essays/roku-waved-the-white-flag', html);
+
+		expect(result.markdownData).toContain(firstParagraph);
+		expect(result.markdownData).toContain(secondParagraph);
+		expect(result.textContent).toContain('Subscription required to continue reading.');
+	});
+
     it('throws error if URL is unsafe', async () => {
         await expect(extractBookmarkPayloadFromUrl({ url: 'javascript:alert(1)' })).rejects.toThrow('Unsafe initial URL');
     });
