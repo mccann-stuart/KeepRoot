@@ -8,7 +8,7 @@ import { listInbox, markInboxDone } from '../storage/inbox';
 import { getItem, listItems, searchItems, updateItem } from '../storage/items';
 import { saveItemFromUrl } from '../ingest/save-url';
 import type { IngestJob } from '../ingest/jobs';
-import type { AuthenticatedUser, StorageEnv } from '../storage/shared';
+import { ITEM_STATUSES, type AuthenticatedUser, type StorageEnv } from '../storage/shared';
 
 type ToolHandler<TArgs> = (args: TArgs) => Promise<Record<string, unknown>>;
 type ToolSchema<TArgs extends Record<string, unknown>> = z.ZodType<TArgs>;
@@ -43,14 +43,20 @@ function registerItemTools(registerTool: RegisterToolFn, env: StorageEnv, user: 
 		z.object({
 			captureScreenshot: z.boolean().default(false).optional()
 				.describe('Capture a rendered viewport image and store it with the item. This also enables browser rendering.'),
-			notes: z.string().optional(),
+			notes: z.string().optional()
+				.describe('Free-text note to attach to the saved item.'),
 			render: z.boolean().optional()
 				.describe('Set true to force browser rendering or false to disable the automatic JavaScript-shell fallback.'),
-			status: z.string().optional(),
-			tags: z.array(z.string()).optional(),
-			title: z.string().optional(),
-			url: z.string().url(),
-			waitForProcessing: z.boolean().default(true).optional(),
+			status: z.enum(ITEM_STATUSES).optional()
+				.describe('Initial lifecycle status. Defaults to "saved"; pass "archived" to save without adding it to the active library.'),
+			tags: z.array(z.string()).optional()
+				.describe('Tags to attach to the saved item.'),
+			title: z.string().optional()
+				.describe('Overrides the title extracted from the page.'),
+			url: z.string().url()
+				.describe('The http(s) URL to save. Private, local, and reserved network targets are rejected.'),
+			waitForProcessing: z.boolean().default(true).optional()
+				.describe('When true (default) the save completes before returning. Set false to queue it and return immediately with processingState "queued".'),
 		}),
 		async (args) => {
 			if (args.waitForProcessing === false && env.INGEST_QUEUE) {
@@ -89,45 +95,80 @@ function registerItemTools(registerTool: RegisterToolFn, env: StorageEnv, user: 
 
 	registerTool(
 		'search_items',
-		'Search items by keyword and semantic similarity.',
+		'Search saved items by keyword and semantic similarity, best match first. Returns '
+			+ 'metadata plus score and matchReason ("keyword" | "semantic" | "hybrid") — not article '
+			+ 'text. Set includeContent to add full body text, which is very large. Filters apply '
+			+ 'on top of the query and combine with AND. Not paginated; raise limit instead.',
 		z.object({
-			domain: z.string().optional(),
-			isRead: z.boolean().optional(),
-			limit: z.number().int().min(1).max(50).default(10).optional(),
-			listId: z.string().nullable().optional(),
-			pinned: z.boolean().optional(),
-			query: z.string().min(1),
-			sourceId: z.string().nullable().optional(),
-			status: z.union([z.string(), z.array(z.string())]).optional(),
-			tags: z.array(z.string()).optional(),
+			domain: z.string().optional()
+				.describe('Exact hostname match, e.g. "example.com". Not a suffix or wildcard match.'),
+			includeContent: z.boolean().default(false).optional()
+				.describe('Include each result\'s full extracted body text. Off by default because it is very large.'),
+			isRead: z.boolean().optional()
+				.describe('Filter by read state. Omit for both. Note this is separate from status.'),
+			limit: z.number().int().min(1).max(50).default(10).optional()
+				.describe('Maximum results, 1-50. Defaults to 10.'),
+			listId: z.string().nullable().optional()
+				.describe('Filter to one list id. Pass null to match only items in no list. Omit for all.'),
+			pinned: z.boolean().optional()
+				.describe('Filter by pinned state. Omit for both.'),
+			query: z.string().min(1)
+				.describe('Free-text search string. Matched against title, tags, and extracted body text.'),
+			sourceId: z.string().nullable().optional()
+				.describe('Filter to one source id. Pass null to match only manually saved items. Omit for all.'),
+			status: z.enum(ITEM_STATUSES).optional()
+				.describe('Item lifecycle status. "saved" (the default for new items) means in the library; "archived" means triaged out. Omit to search both.'),
+			tags: z.array(z.string()).optional()
+				.describe('Items must carry every tag listed (AND, not OR). Case-insensitive.'),
 		}),
 		async (args) => searchItems(env, user.userId, args),
 	);
 
 	registerTool(
 		'list_items',
-		'List saved items with optional filters.',
+		'List saved items, newest first, with optional filters. Returns metadata only '
+			+ '(id, title, url, domain, tags, status, isRead, pinned, excerpt, wordCount, dates) — '
+			+ 'not article text. Set includeContent to add the full extracted body, which can be '
+			+ 'tens of thousands of words per item; prefer get_item for reading a specific article. '
+			+ 'Filters combine with AND and match exactly. Paginate by passing the returned '
+			+ 'nextCursor back as cursor; nextCursor is null on the last page.',
 		z.object({
-			cursor: z.string().nullable().optional(),
-			domain: z.string().optional(),
-			isRead: z.boolean().optional(),
-			limit: z.number().int().min(1).max(100).default(20).optional(),
-			listId: z.string().nullable().optional(),
-			pinned: z.boolean().optional(),
-			sourceId: z.string().nullable().optional(),
-			status: z.union([z.string(), z.array(z.string())]).optional(),
-			tags: z.array(z.string()).optional(),
+			cursor: z.string().optional()
+				.describe('Opaque pagination cursor from a previous response\'s nextCursor. Omit for the first page.'),
+			domain: z.string().optional()
+				.describe('Exact hostname match, e.g. "example.com". Not a suffix or wildcard match.'),
+			includeContent: z.boolean().default(false).optional()
+				.describe('Include each item\'s full extracted body text. Off by default because it is very large; use get_item for single articles.'),
+			isRead: z.boolean().optional()
+				.describe('Filter by read state. Omit for both. Note this is separate from status.'),
+			limit: z.number().int().min(1).max(100).default(20).optional()
+				.describe('Items per page, 1-100. Defaults to 20.'),
+			listId: z.string().nullable().optional()
+				.describe('Filter to one list id. Pass null to match only items in no list. Omit for all.'),
+			pinned: z.boolean().optional()
+				.describe('Filter by pinned state. Omit for both.'),
+			sourceId: z.string().nullable().optional()
+				.describe('Filter to one source id. Pass null to match only manually saved items. Omit for all.'),
+			status: z.enum(ITEM_STATUSES).optional()
+				.describe('Item lifecycle status. "saved" (the default for new items) means in the library; "archived" means triaged out. Omit to return both.'),
+			tags: z.array(z.string()).optional()
+				.describe('Items must carry every tag listed (AND, not OR). Case-insensitive.'),
 		}),
 		async (args) => listItems(env, user.userId, args),
 	);
 
 	registerTool(
 		'get_item',
-		'Get a single item by id with optional content.',
+		'Fetch one item by id. Returns metadata only by default; set includeContent to get the '
+			+ 'extracted article as Markdown. This is the right tool for reading a single article — '
+			+ 'use it instead of asking list_items for content across many items.',
 		z.object({
-			id: z.string(),
-			includeContent: z.boolean().default(false).optional(),
-			includeHtml: z.boolean().default(false).optional(),
+			id: z.string()
+				.describe('The item id, as returned by list_items, search_items, or save_item.'),
+			includeContent: z.boolean().default(false).optional()
+				.describe('Include the extracted article as Markdown in markdownData.'),
+			includeHtml: z.boolean().default(false).optional()
+				.describe('Include the raw HTML snapshot in htmlData, when one was stored. Much larger than the Markdown; rarely needed.'),
 		}),
 		async (args) => {
 			const item = await getItem(env, user.userId, args.id, {
@@ -144,13 +185,20 @@ function registerItemTools(registerTool: RegisterToolFn, env: StorageEnv, user: 
 
 	registerTool(
 		'update_item',
-		'Update title, notes, tags, or status of an item.',
+		'Update the title, notes, tags, or status of one item. Only the fields you pass are '
+			+ 'changed. Returns the updated item\'s metadata as confirmation, without article '
+			+ 'text — call get_item if you need the content back.',
 		z.object({
-			id: z.string(),
-			notes: z.string().nullable().optional(),
-			status: z.string().optional(),
-			tags: z.array(z.string()).optional(),
-			title: z.string().optional(),
+			id: z.string()
+				.describe('The item id, as returned by list_items, search_items, or save_item.'),
+			notes: z.string().nullable().optional()
+				.describe('Replaces any existing note. Pass null to clear it.'),
+			status: z.enum(ITEM_STATUSES).optional()
+				.describe('Set the item\'s lifecycle status. "saved" means in the library; "archived" means triaged out. New items start as "saved".'),
+			tags: z.array(z.string()).optional()
+				.describe('Replaces the item\'s tags entirely — it does not append. Pass the full desired set.'),
+			title: z.string().optional()
+				.describe('Replaces the item title.'),
 		}),
 		async (args) => {
 			const item = await updateItem(env, user.userId, args.id, {

@@ -163,7 +163,7 @@ export async function saveItemContent(
 }
 
 export async function listItems(env: StorageEnv, userId: string, options: ItemListOptions = {}): Promise<{ items: Array<Record<string, unknown>>; nextCursor: string | null }> {
-	const allItems = await listBookmarks(env, userId);
+	const allItems = await listBookmarks(env, userId, { includeBodyText: options.includeContent === true });
 	const filtered = applyItemFilters(allItems, options);
 	const limit = normalizeLimit(options.limit);
 	const offset = decodeCursor(options.cursor);
@@ -194,16 +194,17 @@ export async function updateItem(
 	userId: string,
 	bookmarkId: string,
 	payload: BookmarkPatchPayload,
+	options: { includeContent?: boolean; includeHtml?: boolean } = {},
 ): Promise<Record<string, unknown> | null> {
 	const updated = await patchBookmark(env, userId, bookmarkId, payload);
 	if (!updated) {
 		return null;
 	}
 
-	return getItem(env, userId, bookmarkId, {
-		includeContent: true,
-		includeHtml: true,
-	});
+	// A write confirms the write. Returning the full Markdown and HTML snapshot
+	// here shipped an entire article back on every status/tag change; callers that
+	// want content should ask get_item for it.
+	return getItem(env, userId, bookmarkId, options);
 }
 
 export async function searchItems(env: StorageEnv, userId: string, options: ItemSearchOptions): Promise<{ items: SearchItemResult[] }> {
@@ -215,7 +216,10 @@ export async function searchItems(env: StorageEnv, userId: string, options: Item
 	// ⚡ Bolt: Extract matching IDs and pass them to listBookmarks to avoid fetching all user records into memory.
 	// Impact: Prevents O(N) database reads and memory allocations where N is the total number of user bookmarks.
 	const matchIds = matches.map((m) => m.id);
-	const allItems = await listBookmarks(env, userId, { bookmarkIds: matchIds });
+	const allItems = await listBookmarks(env, userId, {
+		bookmarkIds: matchIds,
+		includeBodyText: options.includeContent === true,
+	});
 	const filtered = applyItemFilters(allItems, options);
 
 	// ⚡ Bolt: Using a procedural loop to initialize the Map prevents the allocation of a large intermediate array of tuples.

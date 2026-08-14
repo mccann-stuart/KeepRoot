@@ -3307,6 +3307,79 @@ describe('KeepRoot Worker', () => {
 		expect(stats.payload.recentToolUsage.length).toBeGreaterThan(0);
 	});
 
+	it('keeps list and search responses metadata-only unless content is requested', async () => {
+		mockTextFetch({
+			'https://content.example.com/long': {
+				body: `<!doctype html>
+					<html lang="en">
+						<head><title>Long Article</title></head>
+						<body>
+							<main>
+								<h1>Long Article</h1>
+								<p>${'Distinctive body prose for payload assertions. '.repeat(100)}</p>
+							</main>
+						</body>
+					</html>`,
+				contentType: 'text/html; charset=utf-8',
+			},
+		});
+
+		const saved = await mcpCallTool('save_item', { url: 'https://content.example.com/long' });
+		const itemId = saved.payload.id;
+
+		// list_items must not ship article text by default. The short `excerpt` field
+		// still rides along by design, so compare payload sizes rather than looking
+		// for the prose itself.
+		const listed = await mcpCallTool('list_items', { limit: 10 });
+		expect(listed.payload.items).toHaveLength(1);
+		expect(listed.payload.items[0].metadata).not.toHaveProperty('bodyText');
+
+		// ...but it stays reachable behind the opt-in.
+		const listedWithContent = await mcpCallTool('list_items', { includeContent: true, limit: 10 });
+		expect(listedWithContent.payload.items[0].metadata.bodyText).toContain('Distinctive body prose');
+		expect(JSON.stringify(listed.payload).length * 2)
+			.toBeLessThan(JSON.stringify(listedWithContent.payload).length);
+
+		// search_items shares the same list path and must behave the same way.
+		const searched = await mcpCallTool('search_items', { query: 'distinctive prose' });
+		expect(searched.payload.items.length).toBeGreaterThan(0);
+		expect(searched.payload.items[0].metadata).not.toHaveProperty('bodyText');
+
+		// A write confirms the write; it does not echo the whole article back.
+		const updated = await mcpCallTool('update_item', { id: itemId, status: 'archived' });
+		expect(updated.payload.metadata.status).toBe('archived');
+		expect(updated.payload).not.toHaveProperty('markdownData');
+		expect(updated.payload).not.toHaveProperty('htmlData');
+
+		// get_item remains the way to read one article.
+		const fetched = await mcpCallTool('get_item', { id: itemId, includeContent: true });
+		expect(fetched.payload.markdownData).toContain('Distinctive body prose');
+
+		// The dashboard searches bodyText client-side, so REST must still include it.
+		const restResponse = await authedRequest('/bookmarks', { token: API_KEY });
+		expect(restResponse.status).toBe(200);
+		const restBody = await restResponse.json() as { keys: Array<{ metadata: Record<string, unknown> }> };
+		expect(restBody.keys[0].metadata.bodyText).toContain('Distinctive body prose');
+	});
+
+	it('rejects an unknown item status instead of returning an empty list', async () => {
+		// 'active' is the sources vocabulary, not the items one. It used to filter to
+		// zero rows silently; it must now fail loudly and name the legal values.
+		const { data } = await mcpRequest('tools/call', {
+			arguments: { status: 'active' },
+			name: 'list_items',
+		});
+		const message = JSON.stringify(data.result ?? data.error);
+		expect(data.result?.isError ?? Boolean(data.error)).toBe(true);
+		expect(message).toContain('saved');
+		expect(message).toContain('archived');
+
+		const toolsResponse = await mcpRequest('tools/list');
+		const listItemsTool = toolsResponse.data.result.tools.find((tool: { name: string }) => tool.name === 'list_items');
+		expect(listItemsTool.inputSchema.properties.status.enum).toEqual(['saved', 'archived']);
+		expect(listItemsTool.inputSchema.properties).toHaveProperty('includeContent');
+	});
+
 	it('throttles api key last_used_at writes for repeated MCP requests', async () => {
 		const before = await env.KEEPROOT_DB.prepare(
 			'SELECT last_used_at FROM api_keys WHERE id = ?',

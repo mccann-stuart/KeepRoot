@@ -962,10 +962,25 @@ export async function saveBookmark(
 	};
 }
 
+// `body_text` is the full extracted article text and dwarfs every other column.
+// It is opt-in so that list callers pay for it only when they actually render or
+// search over content: the dashboard's client-side search needs it, MCP list and
+// search responses do not and would otherwise ship whole articles per item.
+const BODY_TEXT_SELECT = ',\n\t\t\t\t\t\titem_search_documents.body_text AS body_text';
+const BODY_TEXT_JOIN = `LEFT JOIN item_search_documents
+						ON item_search_documents.bookmark_id = bookmarks.id
+						AND item_search_documents.user_id = bookmarks.user_id`;
+
 // ⚡ Bolt: Pushing specific ID filtering down to the database level avoids O(N) memory allocations when fetching subset lists.
-export async function listBookmarks(env: StorageEnv, userId: string, options?: { bookmarkIds?: string[] }): Promise<BookmarkListItem[]> {
+export async function listBookmarks(
+	env: StorageEnv,
+	userId: string,
+	options?: { bookmarkIds?: string[]; includeBodyText?: boolean },
+): Promise<BookmarkListItem[]> {
 	const resultBookmarks: BookmarkRow[] = [];
 	const tagsByBookmark = new Map<string, string[]>();
+	const bodyTextSelect = options?.includeBodyText ? BODY_TEXT_SELECT : '';
+	const bodyTextJoin = options?.includeBodyText ? BODY_TEXT_JOIN : '';
 
 	if (options?.bookmarkIds) {
 		if (options.bookmarkIds.length === 0) {
@@ -985,12 +1000,9 @@ export async function listBookmarks(env: StorageEnv, userId: string, options?: {
 					`SELECT bookmarks.id, bookmarks.url, bookmarks.canonical_url, bookmarks.title, bookmarks.site_name, bookmarks.domain, bookmarks.status, bookmarks.notes,
 						bookmarks.source_id, bookmarks.published_at, bookmarks.processing_state, bookmarks.search_updated_at, bookmarks.embedding_updated_at, bookmarks.created_at, bookmarks.updated_at,
 						bookmarks.last_fetched_at, bookmarks.content_hash, bookmarks.content_ref, bookmarks.content_type, bookmarks.content_length, bookmarks.excerpt,
-						bookmarks.word_count, bookmarks.lang, bookmarks.list_id, bookmarks.pinned, bookmarks.sort_order, bookmarks.is_read,
-						item_search_documents.body_text AS body_text
+						bookmarks.word_count, bookmarks.lang, bookmarks.list_id, bookmarks.pinned, bookmarks.sort_order, bookmarks.is_read${bodyTextSelect}
 					FROM bookmarks
-					LEFT JOIN item_search_documents
-						ON item_search_documents.bookmark_id = bookmarks.id
-						AND item_search_documents.user_id = bookmarks.user_id
+					${bodyTextJoin}
 					WHERE bookmarks.user_id = ? AND bookmarks.id IN (${placeholders})`,
 				)
 					.bind(userId, ...batchIds),
@@ -1039,12 +1051,9 @@ export async function listBookmarks(env: StorageEnv, userId: string, options?: {
 				`SELECT bookmarks.id, bookmarks.url, bookmarks.canonical_url, bookmarks.title, bookmarks.site_name, bookmarks.domain, bookmarks.status, bookmarks.notes,
 					bookmarks.source_id, bookmarks.published_at, bookmarks.processing_state, bookmarks.search_updated_at, bookmarks.embedding_updated_at, bookmarks.created_at, bookmarks.updated_at,
 					bookmarks.last_fetched_at, bookmarks.content_hash, bookmarks.content_ref, bookmarks.content_type, bookmarks.content_length, bookmarks.excerpt,
-					bookmarks.word_count, bookmarks.lang, bookmarks.list_id, bookmarks.pinned, bookmarks.sort_order, bookmarks.is_read,
-					item_search_documents.body_text AS body_text
+					bookmarks.word_count, bookmarks.lang, bookmarks.list_id, bookmarks.pinned, bookmarks.sort_order, bookmarks.is_read${bodyTextSelect}
 				FROM bookmarks
-				LEFT JOIN item_search_documents
-					ON item_search_documents.bookmark_id = bookmarks.id
-					AND item_search_documents.user_id = bookmarks.user_id
+				${bodyTextJoin}
 				WHERE bookmarks.user_id = ?
 				ORDER BY bookmarks.pinned DESC, bookmarks.sort_order ASC, bookmarks.created_at DESC`,
 			)

@@ -26,7 +26,9 @@ export async function handleBookmarkRoute(context: ProtectedRouteContext): Promi
 	}
 
 	if (context.request.method === 'GET' && context.pathname === '/bookmarks') {
-		const keys = await listBookmarks(context.env, context.authUser.userId);
+		// The dashboard filters bookmarks client-side and searches over bodyText,
+		// so this route opts into it explicitly. MCP list/search deliberately do not.
+		const keys = await listBookmarks(context.env, context.authUser.userId, { includeBodyText: true });
 		return jsonResponse({ keys });
 	}
 
