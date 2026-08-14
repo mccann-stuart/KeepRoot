@@ -1,5 +1,10 @@
 import { DOMParser } from 'linkedom';
-import { discoverBrowserSitemap, shortlistBrowserSitemapEntries, type BrowserSitemapEntry } from './browser-sitemap';
+import {
+	discoverBrowserSitemap,
+	shortlistBrowserSitemapEntries,
+	type BrowserSitemapEntry,
+	type BrowserSitemapValidators,
+} from './browser-sitemap';
 import { extractHtmlContent } from './extract-url';
 import type { SourceSyncResult } from './source-sync';
 import { saveItemContent } from '../storage/items';
@@ -16,8 +21,25 @@ const MAX_API_RESPONSE_BYTES = 12 * 1024 * 1024;
 const CRAWL_PAGE_LIMIT = 100;
 const CRAWL_RESULT_PAGE_SIZE = 25;
 const CRAWL_TIMEOUT_MS = 2 * 60 * 60 * 1_000;
-// Workers Free permits one Quick Action request every 10 seconds, including status reads.
-const CRAWL_STATUS_POLL_SECONDS = 10;
+// Sleeping between polls is free inside a Workflow, so cadence is chosen for the crawler's
+// pace rather than to conserve invocations. Browser Run REST allows 10 requests per second.
+const POLL_BACKOFF_SECONDS = [5, 10, 20, 30, 60];
+// A crawl job can report every page finished and still sit in "running" indefinitely — an
+// observed production stall. Treat a stable finished/total as done once it holds this long.
+const POLL_STABLE_THRESHOLD = 3;
+// Guards against a result cursor that never terminates. Browser Run returns records for an
+// out-of-range cursor rather than an empty page, so page count must be bounded explicitly.
+const MAX_RESULT_PAGE_SLACK = 2;
+const TERMINAL_CRAWL_STATUSES = new Set([
+	'cancelled_by_user',
+	'cancelled_due_to_limits',
+	'cancelled_due_to_timeout',
+	'completed',
+	'errored',
+]);
+// Records that never carried content. `skipped` and `queued` are upstream outcomes too, not
+// merely uninteresting pages, so they must be visible in the run's error accounting.
+const UPSTREAM_ERROR_RECORD_STATUSES = new Set(['disallowed', 'errored', 'skipped']);
 const INITIAL_IMPORT_LIMIT = 5;
 // Modification dates are only hints, so inspect a wider candidate set and retain
 // the five newest pages that actually expose recognised article metadata.
@@ -26,26 +48,30 @@ const ARTICLE_TYPES = new Set(['article', 'blogposting', 'newsarticle']);
 
 type JsonRecord = Record<string, unknown>;
 
-export interface BrowserSourceRunState {
-	initialCrawl: boolean;
-	runId: string;
-	upstreamCursor: string | null;
-	upstreamJobId: string | null;
-	upstreamPhase: string | null;
-	upstreamStartedAt: string | null;
-}
-
 export interface BrowserSourceInput {
 	id: string;
 	lastSuccessAt: string | null;
 	name: string;
 	pollUrl: string;
+	sitemapValidators?: BrowserSitemapValidators | null;
 	userId: string;
 }
 
-export type BrowserSourceStep =
-	| { delaySeconds: number; status: 'waiting' }
-	| { result: SourceSyncResult; status: 'completed' };
+/**
+ * The subset of Cloudflare's `WorkflowStep` this pipeline uses.
+ *
+ * Depending on the interface rather than the concrete type keeps the crawl logic runnable
+ * under a fake step in tests, where the Workflows runtime is not available.
+ */
+export interface CrawlStep {
+	do<T>(name: string, callback: () => Promise<T>): Promise<T>;
+	sleep(name: string, duration: number | string): Promise<void>;
+}
+
+export interface BrowserCrawlParams {
+	runId: string;
+	sourceId: string;
+}
 
 export interface BrowserCrawlRecord {
 	html?: string;
@@ -106,6 +132,7 @@ interface PreparedSitemapCrawl {
 	candidates: string[];
 	found: boolean;
 	totalCount: number;
+	validators: BrowserSitemapValidators | null;
 }
 
 export class BrowserRunCrawlError extends Error {
@@ -292,46 +319,54 @@ function modifiedSince(lastSuccessAt: string | null): number | null {
 	return Math.floor(timestamp / 1_000);
 }
 
-async function hashSitemapEntries(entries: BrowserSitemapEntry[]): Promise<HashedSitemapEntry[]> {
+/**
+ * Reads every sitemap URL already known for the source in one query, keyed by canonical URL.
+ *
+ * Hashing dominates this path — SHA-256 is an async subtle-crypto call per URL, and a large
+ * sitemap (The Verge publishes 6,704 entries) previously paid that cost on every single run
+ * even when nothing had changed. Indexing by URL lets the caller reuse stored hashes and hash
+ * only genuinely new entries.
+ */
+async function loadSitemapIndex(
+	env: StorageEnv,
+	sourceId: string,
+	sourceUrl: string,
+): Promise<Map<string, BrowserSitemapState & { urlHash: string }>> {
+	const index = new Map<string, BrowserSitemapState & { urlHash: string }>();
+	const sourceCanonical = normalizeCanonicalUrl(sourceUrl);
+	const result = await env.KEEPROOT_DB.prepare(
+		`SELECT sitemap.url_hash, sitemap.canonical_url, sitemap.state,
+			discovery.url_hash IS NOT NULL AS has_discovery
+		FROM source_sitemap_urls AS sitemap
+		LEFT JOIN source_discoveries AS discovery
+			ON discovery.source_id = sitemap.source_id AND discovery.url_hash = sitemap.url_hash
+		WHERE sitemap.source_id = ?`,
+	).bind(sourceId).all<BrowserSitemapStateRow & { canonical_url: string }>();
+	for (const row of result.results) {
+		const hasDiscovery = Boolean(row.has_discovery);
+		// A processed URL with no surviving discovery, or the source page itself, becomes
+		// selectable again. This mirrors the CASE expression the per-hash query used to run.
+		const state = !hasDiscovery && (row.state === 'processed' || row.canonical_url === sourceCanonical)
+			? 'pending'
+			: row.state;
+		index.set(row.canonical_url, { hasDiscovery, state, urlHash: row.url_hash });
+	}
+	return index;
+}
+
+async function hashNewSitemapEntries(
+	entries: BrowserSitemapEntry[],
+	index: Map<string, { urlHash: string }>,
+): Promise<HashedSitemapEntry[]> {
 	const hashed: HashedSitemapEntry[] = [];
 	for (let offset = 0; offset < entries.length; offset += 200) {
 		const chunk = entries.slice(offset, offset + 200);
 		hashed.push(...await Promise.all(chunk.map(async (entry) => ({
 			...entry,
-			urlHash: await sha256Hex(entry.url),
+			urlHash: index.get(entry.url)?.urlHash ?? await sha256Hex(entry.url),
 		}))));
 	}
 	return hashed;
-}
-
-async function loadSitemapStates(
-	env: StorageEnv,
-	sourceId: string,
-	sourceUrl: string,
-	entries: HashedSitemapEntry[],
-): Promise<Map<string, BrowserSitemapState>> {
-	const states = new Map<string, BrowserSitemapState>();
-	const sourceCanonical = normalizeCanonicalUrl(sourceUrl);
-	for (let offset = 0; offset < entries.length; offset += 200) {
-		const hashes = entries.slice(offset, offset + 200).map((entry) => entry.urlHash);
-		const result = await env.KEEPROOT_DB.prepare(
-			`SELECT sitemap.url_hash, discovery.url_hash IS NOT NULL AS has_discovery,
-				CASE WHEN discovery.url_hash IS NULL
-						AND (sitemap.state = 'processed' OR sitemap.canonical_url = ?)
-					THEN 'pending' ELSE sitemap.state END AS state
-			FROM source_sitemap_urls AS sitemap
-			LEFT JOIN source_discoveries AS discovery
-				ON discovery.source_id = sitemap.source_id AND discovery.url_hash = sitemap.url_hash
-			WHERE sitemap.source_id = ? AND sitemap.url_hash IN (SELECT value FROM json_each(?))`,
-		).bind(sourceCanonical, sourceId, JSON.stringify(hashes)).all<BrowserSitemapStateRow>();
-		for (const row of result.results) {
-			states.set(row.url_hash, {
-				hasDiscovery: Boolean(row.has_discovery),
-				state: row.state,
-			});
-		}
-	}
-	return states;
 }
 
 async function prepareSitemapCrawl(
@@ -340,9 +375,10 @@ async function prepareSitemapCrawl(
 	runId: string,
 	initialCrawl: boolean,
 ): Promise<PreparedSitemapCrawl> {
+	const existingStates = await loadSitemapIndex(env, source.id, source.pollUrl);
 	let discovery;
 	try {
-		discovery = await discoverBrowserSitemap(source.pollUrl);
+		discovery = await discoverBrowserSitemap(source.pollUrl, fetch, source.sitemapValidators);
 	} catch (error) {
 		console.warn(JSON.stringify({
 			event: 'browser_sitemap_discovery_failed',
@@ -350,18 +386,37 @@ async function prepareSitemapCrawl(
 			runId,
 			sourceId: source.id,
 		}));
-		return { baseline: false, candidates: [], found: false, totalCount: 0 };
+		return { baseline: false, candidates: [], found: false, totalCount: 0, validators: null };
 	}
-	if (!discovery.found) return { baseline: false, candidates: [], found: false, totalCount: 0 };
+	if (!discovery.found) return { baseline: false, candidates: [], found: false, totalCount: 0, validators: null };
+
+	if (discovery.notModified) {
+		// The site republished nothing. Any URL still marked pending belongs to a run that did
+		// not finish importing it, so it stays a candidate; otherwise there is nothing to crawl.
+		const carried = [...existingStates.entries()]
+			.filter(([, value]) => value.state === 'pending')
+			.map(([url]) => url)
+			.slice(0, CRAWL_PAGE_LIMIT);
+		browserRunLog('browser_sitemap_not_modified', {
+			candidateCount: carried.length,
+			knownUrlCount: existingStates.size,
+			runId,
+			sourceId: source.id,
+		});
+		return {
+			baseline: false,
+			candidates: carried,
+			found: true,
+			totalCount: existingStates.size,
+			validators: discovery.validators,
+		};
+	}
 
 	const shortlisted = shortlistBrowserSitemapEntries(source.pollUrl, discovery.entries);
-	const hashedEntries = await hashSitemapEntries(discovery.entries);
+	const hashedEntries = await hashNewSitemapEntries(discovery.entries, existingStates);
 	const hashByUrl = new Map(hashedEntries.map((entry) => [entry.url, entry.urlHash]));
 	const eligibleHashes = new Set(shortlisted.map((entry) => hashByUrl.get(entry.url)).filter((hash): hash is string => Boolean(hash)));
-	const existingStates = await loadSitemapStates(env, source.id, source.pollUrl, hashedEntries);
-	const storedState = await env.KEEPROOT_DB.prepare(
-		'SELECT COUNT(*) AS count FROM source_sitemap_urls WHERE source_id = ?',
-	).bind(source.id).first<{ count: number }>();
+	const storedState = { count: existingStates.size };
 	const importedState = await env.KEEPROOT_DB.prepare(
 		`SELECT COUNT(*) AS count FROM source_discoveries
 		WHERE source_id = ? AND state = 'imported'`,
@@ -370,9 +425,8 @@ async function prepareSitemapCrawl(
 	// establishing URL-level state. Its first sitemap snapshot is still a baseline.
 	const sitemapBaseline = initialCrawl || (storedState?.count ?? 0) === 0;
 	const normallySelectable = shortlisted.filter((entry) => {
-		const hash = hashByUrl.get(entry.url);
-		if (!hash) return false;
-		return !existingStates.has(hash) || existingStates.get(hash)?.state === 'pending';
+		if (!hashByUrl.has(entry.url)) return false;
+		return !existingStates.has(entry.url) || existingStates.get(entry.url)?.state === 'pending';
 	});
 	const missingInitialImports = Math.max(0, INITIAL_IMPORT_LIMIT - (importedState?.count ?? 0));
 	const backfillSlots = sitemapBaseline ? 0 : Math.max(0, missingInitialImports - normallySelectable.length);
@@ -381,7 +435,7 @@ async function prepareSitemapCrawl(
 	for (const entry of shortlisted) {
 		if (backfillHashes.size >= backfillSlots) break;
 		const hash = hashByUrl.get(entry.url);
-		const existing = hash ? existingStates.get(hash) : undefined;
+		const existing = existingStates.get(entry.url);
 		if (hash && existing?.state === 'baselined' && !existing.hasDiscovery) backfillHashes.add(hash);
 	}
 	const selectable = shortlisted.filter((entry) => {
@@ -392,7 +446,7 @@ async function prepareSitemapCrawl(
 	const selectedHashes = new Set(selected.map((entry) => hashByUrl.get(entry.url)).filter((hash): hash is string => Boolean(hash)));
 	const now = new Date().toISOString();
 	const inserts = hashedEntries.flatMap((entry) => {
-		if (existingStates.has(entry.urlHash)) return [];
+		if (existingStates.has(entry.url)) return [];
 		const state = selectedHashes.has(entry.urlHash)
 			? 'pending'
 			: sitemapBaseline || !eligibleHashes.has(entry.urlHash) ? 'baselined' : 'pending';
@@ -426,6 +480,7 @@ async function prepareSitemapCrawl(
 	console.log(JSON.stringify({
 		candidateCount: selected.length,
 		event: 'browser_sitemap_shortlist',
+		hashedCount: hashedEntries.length - existingStates.size,
 		initialCrawl: sitemapBaseline,
 		runId,
 		sitemapUrlCount: discovery.entries.length,
@@ -436,6 +491,7 @@ async function prepareSitemapCrawl(
 		candidates: selected.map((entry) => entry.url),
 		found: true,
 		totalCount: discovery.entries.length,
+		validators: discovery.validators,
 	};
 }
 
@@ -457,7 +513,7 @@ async function initiateCrawl(
 	env: StorageEnv,
 	source: BrowserSourceInput,
 	runId: string,
-): Promise<{ initialCrawl: boolean; jobId: string | null }> {
+): Promise<{ expectedTotal: number; initialCrawl: boolean; jobId: string | null; validators: BrowserSitemapValidators | null }> {
 	if (!await validateSafeUrl(source.pollUrl)) {
 		throw new BrowserRunCrawlError('Browser Run source URL must be a safe public HTTP(S) URL');
 	}
@@ -470,7 +526,7 @@ async function initiateCrawl(
 				`Browser source sitemap listed ${sitemap.totalCount} URL(s) but none were eligible new article candidates`,
 			);
 		}
-		return { initialCrawl, jobId: null };
+		return { expectedTotal: 0, initialCrawl, jobId: null, validators: sitemap.validators };
 	}
 	const since = modifiedSince(source.lastSuccessAt);
 	const payload = await browserRunRequest(env, '', {
@@ -496,7 +552,12 @@ async function initiateCrawl(
 	});
 	const jobId = stringValue(payload.result);
 	if (!jobId) throw new BrowserRunCrawlError('Browser Run did not return a crawl job id');
-	return { initialCrawl, jobId };
+	return {
+		expectedTotal: sitemap.found ? sitemap.candidates.length : CRAWL_PAGE_LIMIT,
+		initialCrawl,
+		jobId,
+		validators: sitemap.validators,
+	};
 }
 
 async function getCrawl(
@@ -756,268 +817,434 @@ function terminalStatusMessage(result: BrowserCrawlResult): string {
 	return `Browser Run crawl ended with status "${result.status}" (${result.finished}/${result.total} pages finished)`;
 }
 
-export async function advanceBrowserSourceRun(
+interface CrawlPollState {
+	browserSecondsUsed: number;
+	completedAvailable: boolean;
+	finished: number;
+	status: string;
+	total: number;
+}
+
+interface IngestedPage {
+	cursor: string | null;
+	examined: number;
+	processed: number;
+	recognised: Array<{ canonicalUrl: string; recordUrl: string }>;
+	recordUrls: string[];
+	skipped: number;
+	staged: number;
+	total: number;
+	unchanged: number;
+	upstreamErrors: number;
+}
+
+function emptyResult(overrides: Partial<SourceSyncResult> = {}): SourceSyncResult {
+	return {
+		countsPersisted: true,
+		createdCount: 0,
+		discoveredCount: 0,
+		errorCount: 0,
+		examinedCount: 0,
+		httpEtag: null,
+		httpLastModified: null,
+		needsContinuation: false,
+		notModified: true,
+		processedCount: 0,
+		recommendedIntervalMinutes: null,
+		refreshedCount: 0,
+		saturated: false,
+		savedCount: 0,
+		skippedCount: 0,
+		unchangedCount: 0,
+		validatorUrl: null,
+		...overrides,
+	};
+}
+
+/**
+ * Polls a crawl job until it is genuinely finished.
+ *
+ * Two exits, not one. A documented terminal status is the happy path, but Browser Run can
+ * leave a job in `running` forever after every page has finished — production run
+ * d37763ce sat at finished:1/total:1 for over an hour. So a stable `finished >= total`
+ * that also has completed records to show is treated as done.
+ */
+async function pollCrawl(
 	env: StorageEnv,
 	source: BrowserSourceInput,
-	run: BrowserSourceRunState,
-): Promise<BrowserSourceStep> {
-	if (!run.upstreamJobId) {
-		const { initialCrawl, jobId } = await initiateCrawl(env, source, run.runId);
-		if (!jobId) {
-			return {
-				status: 'completed',
-				result: {
-					countsPersisted: true,
-					createdCount: 0,
-					discoveredCount: 0,
-					errorCount: 0,
-					examinedCount: 0,
-					httpEtag: null,
-					httpLastModified: null,
-					needsContinuation: false,
-					notModified: true,
-					processedCount: 0,
-					recommendedIntervalMinutes: null,
-					refreshedCount: 0,
-					saturated: false,
-					savedCount: 0,
-					skippedCount: 0,
-					unchangedCount: 0,
-					validatorUrl: null,
-				},
-			};
-		}
-		const now = new Date().toISOString();
-		await env.KEEPROOT_DB.batch([
-			env.KEEPROOT_DB.prepare(
-				`UPDATE source_runs
-				SET status = 'waiting', upstream_job_id = ?, upstream_phase = 'waiting',
-					upstream_cursor = NULL, upstream_started_at = ?, initial_crawl = ?
-				WHERE id = ? AND source_id = ?`,
-			).bind(jobId, now, initialCrawl ? 1 : 0, run.runId, source.id),
-			env.KEEPROOT_DB.prepare(
-				`UPDATE sources SET last_error = NULL, updated_at = ?
-				WHERE id = ?`,
-			).bind(now, source.id),
-		]);
-		browserRunLog('browser_crawl_started', {
-			initialCrawl,
-			jobId,
-			runId: run.runId,
-			sourceId: source.id,
-		});
-		return { delaySeconds: CRAWL_STATUS_POLL_SECONDS, status: 'waiting' };
-	}
-
-	const crawlStartedAt = run.upstreamStartedAt ? Date.parse(run.upstreamStartedAt) : Number.NaN;
-	if (Number.isFinite(crawlStartedAt) && Date.now() - crawlStartedAt > CRAWL_TIMEOUT_MS) {
-		try {
-			await cancelCrawl(env, run.upstreamJobId);
-			browserRunLog('browser_crawl_cancelled', {
-				jobId: run.upstreamJobId,
-				reason: 'keeproot_timeout',
-				runId: run.runId,
-				sourceId: source.id,
-			});
-		} catch (error) {
-			console.warn(JSON.stringify({
-				event: 'browser_crawl_cancel_failed',
-				runId: run.runId,
-				sourceId: source.id,
-				error: error instanceof Error ? error.message : 'Unknown cancellation error',
-			}));
-		}
-		throw new BrowserRunCrawlError('Browser Run crawl exceeded the 2 hour KeepRoot timeout');
-	}
-
-	if (!run.upstreamPhase || run.upstreamPhase === 'waiting') {
-		const crawl = await getCrawl(env, run.upstreamJobId, { limit: 1 });
-		browserRunLog('browser_crawl_status', {
-			finished: crawl.finished,
-			jobId: run.upstreamJobId,
-			runId: run.runId,
-			sourceId: source.id,
-			status: crawl.status,
-			total: crawl.total,
-		});
-		if (crawl.status === 'running') {
+	jobId: string,
+	runId: string,
+	startedAtMs: number,
+	step: CrawlStep,
+): Promise<CrawlPollState> {
+	let stable = 0;
+	for (let attempt = 0; Date.now() - startedAtMs < CRAWL_TIMEOUT_MS; attempt += 1) {
+		const state = await step.do(`poll-crawl-${attempt}`, async (): Promise<CrawlPollState> => {
+			const crawl = await getCrawl(env, jobId, { limit: 1 });
+			const settled = crawl.total > 0 && crawl.finished >= crawl.total;
+			// Only pay for the extra probe once the counters claim the work is done.
+			const completedAvailable = settled && !TERMINAL_CRAWL_STATUSES.has(crawl.status)
+				? (await getCrawl(env, jobId, { limit: 1, status: 'completed' })).records.length > 0
+				: true;
 			await env.KEEPROOT_DB.prepare(
 				`UPDATE source_runs
 				SET status = 'waiting', upstream_finished_count = ?, upstream_total_count = ?,
 					upstream_browser_seconds = ?
 				WHERE id = ? AND source_id = ?`,
+			).bind(crawl.finished, crawl.total, crawl.browserSecondsUsed, runId, source.id).run();
+			return {
+				browserSecondsUsed: crawl.browserSecondsUsed,
+				completedAvailable,
+				finished: crawl.finished,
+				status: crawl.status,
+				total: crawl.total,
+			};
+		});
+
+		browserRunLog('browser_crawl_status', {
+			attempt,
+			finished: state.finished,
+			jobId,
+			runId,
+			sourceId: source.id,
+			status: state.status,
+			total: state.total,
+		});
+
+		if (TERMINAL_CRAWL_STATUSES.has(state.status)) {
+			if (state.status !== 'completed') {
+				throw new BrowserRunCrawlError(
+					`Browser Run crawl ended with status "${state.status}" (${state.finished}/${state.total} pages finished)`,
+				);
+			}
+			return state;
+		}
+
+		stable = state.total > 0 && state.finished >= state.total && state.completedAvailable ? stable + 1 : 0;
+		if (stable >= POLL_STABLE_THRESHOLD) {
+			browserRunLog('browser_crawl_settled_while_running', {
+				finished: state.finished,
+				jobId,
+				runId,
+				sourceId: source.id,
+				total: state.total,
+			});
+			return state;
+		}
+
+		await step.sleep(
+			`poll-wait-${attempt}`,
+			`${POLL_BACKOFF_SECONDS[Math.min(attempt, POLL_BACKOFF_SECONDS.length - 1)]} seconds`,
+		);
+	}
+
+	try {
+		await cancelCrawl(env, jobId);
+		browserRunLog('browser_crawl_cancelled', { jobId, reason: 'keeproot_timeout', runId, sourceId: source.id });
+	} catch (error) {
+		console.warn(JSON.stringify({
+			error: error instanceof Error ? error.message : 'Unknown cancellation error',
+			event: 'browser_crawl_cancel_failed',
+			runId,
+			sourceId: source.id,
+		}));
+	}
+	throw new BrowserRunCrawlError('Browser Run crawl exceeded the 2 hour KeepRoot timeout');
+}
+
+/**
+ * Reads every completed record exactly once, recognising and staging as it goes.
+ *
+ * The previous implementation looped on `cursor` alone. Browser Run returns a cursor even
+ * for a one-record response and answers an out-of-range cursor with records rather than an
+ * empty page, so that loop could not terminate: production run 9b46d99d fetched 944 pages
+ * of a 13-record job. Termination is therefore bounded by the record set itself.
+ */
+async function ingestCrawlResults(
+	env: StorageEnv,
+	source: BrowserSourceInput,
+	jobId: string,
+	runId: string,
+	expectedTotal: number,
+	step: CrawlStep,
+): Promise<{ pages: IngestedPage[]; saturated: boolean }> {
+	const pages: IngestedPage[] = [];
+	const seen = new Set<string>();
+	const cursors = new Set<string>();
+	let cursor: string | null = null;
+	let upstreamTotal = expectedTotal;
+
+	for (let index = 0; index < Math.ceil(Math.max(expectedTotal, 1) / CRAWL_RESULT_PAGE_SIZE) + MAX_RESULT_PAGE_SLACK; index += 1) {
+		const known = [...seen];
+		const page: IngestedPage = await step.do(`ingest-page-${index}`, async () => {
+			const crawl = await getCrawl(env, jobId, {
+				cursor,
+				limit: CRAWL_RESULT_PAGE_SIZE,
+				status: 'completed',
+			});
+			const knownUrls = new Set(known);
+			const result: IngestedPage = {
+				cursor: crawl.cursor,
+				examined: 0,
+				processed: 0,
+				recognised: [],
+				recordUrls: [],
+				skipped: 0,
+				staged: 0,
+				total: crawl.total,
+				unchanged: 0,
+				upstreamErrors: 0,
+			};
+			for (const record of crawl.records) {
+				// Pages can overlap when a cursor overshoots; never count a record twice.
+				if (knownUrls.has(record.url)) continue;
+				knownUrls.add(record.url);
+				result.recordUrls.push(record.url);
+				result.examined += 1;
+				if (record.status !== 'completed') {
+					result.skipped += 1;
+					if (UPSTREAM_ERROR_RECORD_STATUSES.has(record.status) || record.status.startsWith('cancelled')) {
+						result.upstreamErrors += 1;
+					}
+					continue;
+				}
+				result.processed += 1;
+				const post = await recogniseBrowserPost(source.pollUrl, record);
+				if (!post) {
+					result.skipped += 1;
+					continue;
+				}
+				result.recognised.push({ canonicalUrl: post.canonicalUrl, recordUrl: record.url });
+				if (await stageDiscovery(env, source.id, runId, post)) result.staged += 1;
+				else result.unchanged += 1;
+			}
+			await env.KEEPROOT_DB.prepare(
+				`UPDATE source_runs
+				SET examined_count = examined_count + ?, processed_count = processed_count + ?,
+					discovered_count = discovered_count + ?, unchanged_count = unchanged_count + ?,
+					skipped_count = skipped_count + ?, upstream_error_count = upstream_error_count + ?
+				WHERE id = ? AND source_id = ?`,
 			).bind(
-				crawl.finished,
-				crawl.total,
-				crawl.browserSecondsUsed,
-				run.runId,
+				result.examined,
+				result.processed,
+				result.staged,
+				result.unchanged,
+				result.skipped,
+				result.upstreamErrors,
+				runId,
 				source.id,
 			).run();
-			return { delaySeconds: CRAWL_STATUS_POLL_SECONDS, status: 'waiting' };
-		}
-		if (crawl.status !== 'completed') {
-			throw new BrowserRunCrawlError(terminalStatusMessage(crawl));
-		}
-		await env.KEEPROOT_DB.prepare(
-			`UPDATE source_runs SET status = 'running', upstream_phase = 'scan', upstream_cursor = NULL,
-				saturated = MAX(saturated, ?), upstream_finished_count = ?, upstream_total_count = ?,
-				upstream_browser_seconds = ?
-			WHERE id = ? AND source_id = ?`,
-		).bind(
-			crawl.total >= CRAWL_PAGE_LIMIT ? 1 : 0,
-			crawl.finished,
-			crawl.total,
-			crawl.browserSecondsUsed,
-			run.runId,
-			source.id,
-		).run();
-		browserRunLog('browser_crawl_results_ready', {
-			finished: crawl.finished,
-			jobId: run.upstreamJobId,
-			runId: run.runId,
-			sourceId: source.id,
-			total: crawl.total,
+			return result;
 		});
-		return { delaySeconds: 1, status: 'waiting' };
+
+		pages.push(page);
+		for (const url of page.recordUrls) seen.add(url);
+		if (page.total > 0) upstreamTotal = Math.max(upstreamTotal, page.total);
+
+		browserRunLog('browser_crawl_ingest_page', {
+			examined: page.examined,
+			jobId,
+			page: index,
+			recognised: page.recognised.length,
+			runId,
+			seen: seen.size,
+			skipped: page.skipped,
+			sourceId: source.id,
+			upstreamErrors: page.upstreamErrors,
+		});
+
+		// Every one of these is load-bearing: the cursor alone cannot be trusted to end.
+		if (!page.cursor) break;
+		if (page.recordUrls.length === 0) break;
+		if (cursors.has(page.cursor)) break;
+		if (upstreamTotal > 0 && seen.size >= upstreamTotal) break;
+		cursors.add(page.cursor);
+		cursor = page.cursor;
 	}
 
-	if (run.upstreamPhase === 'scan') {
-		const crawl = await getCrawl(env, run.upstreamJobId, {
-			cursor: run.upstreamCursor,
-			limit: CRAWL_RESULT_PAGE_SIZE,
-			status: 'completed',
-		});
-		let recognised = 0;
-		let existing = 0;
-		let completed = 0;
-		let skipped = 0;
-		let upstreamErrors = 0;
-		for (const record of crawl.records) {
-			if (record.status !== 'completed') {
-				skipped += 1;
-				if (record.status === 'errored' || record.status === 'disallowed' || record.status.startsWith('cancelled')) {
-					upstreamErrors += 1;
-				}
-				continue;
-			}
-			completed += 1;
-			const post = await recogniseBrowserPost(source.pollUrl, record);
-			if (!post) {
-				skipped += 1;
-				continue;
-			}
-			recognised += 1;
-			if (!await stageDiscovery(env, source.id, run.runId, post)) existing += 1;
-		}
+	return { pages, saturated: upstreamTotal >= CRAWL_PAGE_LIMIT };
+}
 
-		await env.KEEPROOT_DB.prepare(
-			`UPDATE source_runs
-			SET examined_count = examined_count + ?, processed_count = processed_count + ?,
-				discovered_count = discovered_count + ?, unchanged_count = unchanged_count + ?,
-				skipped_count = skipped_count + ?, upstream_error_count = upstream_error_count + ?,
-				upstream_cursor = ?
-			WHERE id = ? AND source_id = ?`,
-		).bind(
-			crawl.records.length,
-			completed,
-			recognised,
-			existing,
-			skipped,
-			upstreamErrors,
-			crawl.cursor,
-			run.runId,
-			source.id,
-		).run();
-		browserRunLog('browser_crawl_scan_page', {
-			examined: crawl.records.length,
-			jobId: run.upstreamJobId,
-			recognised,
-			runId: run.runId,
-			skipped,
-			sourceId: source.id,
-			upstreamErrors,
-		});
-		if (crawl.cursor) return { delaySeconds: 1, status: 'waiting' };
-
-		const totals = await progress(env, run.runId, source.id);
-		if (totals.processed_count === 0 && totals.upstream_error_count > 0) {
-			throw new BrowserRunCrawlError('Browser Run could not access any pages; the site disallowed or errored every crawl request');
-		}
-		if (run.initialCrawl && totals.discovered_count === 0) {
-			throw new BrowserRunCrawlError(
-				`Browser Run examined ${totals.examined_count} page(s) but found no blog posts with recognised article metadata. Expected JSON-LD BlogPosting/Article/NewsArticle, og:type=article with article:published_time, or one <article> with <time datetime>.`,
-			);
-		}
-		if (run.initialCrawl) await selectInitialArchive(env, source.id, run.runId);
-		await env.KEEPROOT_DB.prepare(
-			`UPDATE source_runs SET upstream_phase = 'import', upstream_cursor = NULL
-			WHERE id = ? AND source_id = ?`,
-		).bind(run.runId, source.id).run();
-		return { delaySeconds: 1, status: 'waiting' };
-	}
-
-	if (run.upstreamPhase === 'import') {
-		const crawl = await getCrawl(env, run.upstreamJobId, {
-			cursor: run.upstreamCursor,
-			limit: CRAWL_RESULT_PAGE_SIZE,
-			status: 'completed',
-		});
-		const username = await getUsername(env, source.userId);
-		for (const record of crawl.records) {
-			if (record.status === 'completed') {
-				await importPendingRecord(env, source, run.runId, record, username);
-			}
-		}
-		await env.KEEPROOT_DB.prepare(
-			`UPDATE source_runs SET upstream_cursor = ? WHERE id = ? AND source_id = ?`,
-		).bind(crawl.cursor, run.runId, source.id).run();
-		if (crawl.cursor) return { delaySeconds: 1, status: 'waiting' };
-
-		const pending = await env.KEEPROOT_DB.prepare(
-			`SELECT COUNT(*) AS count FROM source_discoveries
+/**
+ * Extracts and saves only the discoveries still marked pending after archive selection.
+ *
+ * Recognition already parsed every record; this pass revisits just the result pages that
+ * hold a selected URL, so an initial crawl re-reads one page to import five posts instead
+ * of re-downloading and re-parsing the entire crawl.
+ */
+async function importSelectedPosts(
+	env: StorageEnv,
+	source: BrowserSourceInput,
+	jobId: string,
+	runId: string,
+	pages: IngestedPage[],
+	step: CrawlStep,
+): Promise<void> {
+	const pending = await step.do('list-pending-imports', async () => {
+		const rows = await env.KEEPROOT_DB.prepare(
+			`SELECT canonical_url FROM source_discoveries
 			WHERE source_id = ? AND state = 'pending'`,
-		).bind(source.id).first<{ count: number }>();
-		if ((pending?.count ?? 0) > 0) {
-			throw new BrowserRunCrawlError(
-				`Browser Run completed but ${pending?.count ?? 0} selected post(s) could not be matched during import`,
-				{ retryable: true },
-			);
+		).bind(source.id).all<{ canonical_url: string }>();
+		return rows.results.map((row) => row.canonical_url);
+	});
+	if (pending.length === 0) return;
+
+	const wanted = new Set(pending);
+	const pageCursors: Array<{ cursor: string | null; index: number }> = [];
+	let previousCursor: string | null = null;
+	for (const [index, page] of pages.entries()) {
+		if (page.recognised.some((entry) => wanted.has(entry.canonicalUrl))) {
+			pageCursors.push({ cursor: previousCursor, index });
 		}
-		await markSitemapCandidatesProcessed(env, source.id, run.runId);
-		const totals = await progress(env, run.runId, source.id);
-		browserRunLog('browser_crawl_completed', {
-			examined: totals.examined_count,
-			jobId: run.upstreamJobId,
-			recognised: totals.discovered_count,
-			runId: run.runId,
-			saved: totals.saved_count,
-			skipped: totals.skipped_count,
-			sourceId: source.id,
-			upstreamErrors: totals.upstream_error_count,
-		});
-		return {
-			status: 'completed',
-			result: {
-				countsPersisted: true,
-				createdCount: totals.created_count,
-				discoveredCount: totals.discovered_count,
-				errorCount: totals.upstream_error_count,
-				examinedCount: totals.examined_count,
-				httpEtag: null,
-				httpLastModified: null,
-				needsContinuation: false,
-				notModified: totals.saved_count === 0,
-				processedCount: totals.processed_count,
-				recommendedIntervalMinutes: null,
-				refreshedCount: 0,
-				saturated: Boolean(totals.saturated),
-				savedCount: totals.saved_count,
-				skippedCount: totals.skipped_count,
-				unchangedCount: totals.unchanged_count,
-				validatorUrl: null,
-			},
-		};
+		previousCursor = page.cursor;
 	}
 
-	throw new BrowserRunCrawlError(`Unknown Browser Run phase "${run.upstreamPhase}"`);
+	const username = await step.do('resolve-username', () => getUsername(env, source.userId));
+	for (const { cursor, index } of pageCursors) {
+		await step.do(`import-page-${index}`, async () => {
+			const crawl = await getCrawl(env, jobId, {
+				cursor,
+				limit: CRAWL_RESULT_PAGE_SIZE,
+				status: 'completed',
+			});
+			let imported = 0;
+			for (const record of crawl.records) {
+				if (record.status !== 'completed') continue;
+				if (await importPendingRecord(env, source, runId, record, username)) imported += 1;
+			}
+			browserRunLog('browser_crawl_import_page', {
+				imported,
+				jobId,
+				page: index,
+				runId,
+				sourceId: source.id,
+			});
+			return imported;
+		});
+	}
+}
+
+/**
+ * Runs one Browser Run crawl to completion as a sequence of durable steps.
+ *
+ * Replaces the queue-redelivery state machine that stored its phase in D1 columns. Waiting
+ * now costs a `step.sleep` rather than a Worker invocation, and step retries replace the
+ * hand-rolled lease-expiry recovery.
+ */
+export async function runBrowserCrawl(
+	env: StorageEnv,
+	source: BrowserSourceInput,
+	runId: string,
+	step: CrawlStep,
+): Promise<SourceSyncResult> {
+	const started = await step.do('initiate-crawl', async () => {
+		const outcome = await initiateCrawl(env, source, runId);
+		const now = new Date().toISOString();
+		if (outcome.jobId) {
+			await env.KEEPROOT_DB.batch([
+				env.KEEPROOT_DB.prepare(
+					`UPDATE source_runs
+					SET status = 'waiting', upstream_job_id = ?, upstream_phase = 'waiting',
+						upstream_started_at = ?, initial_crawl = ?
+					WHERE id = ? AND source_id = ?`,
+				).bind(outcome.jobId, now, outcome.initialCrawl ? 1 : 0, runId, source.id),
+				// Acceptance proves the current credential reached Browser Run, so a stale
+				// authentication error must not stay authoritative on the source.
+				env.KEEPROOT_DB.prepare(
+					'UPDATE sources SET last_error = NULL, updated_at = ? WHERE id = ?',
+				).bind(now, source.id),
+			]);
+		}
+		if (outcome.validators) {
+			await env.KEEPROOT_DB.prepare(
+				`UPDATE sources SET sitemap_etag = ?, sitemap_last_modified = ?, sitemap_fetched_at = ?
+				WHERE id = ?`,
+			).bind(outcome.validators.etag, outcome.validators.lastModified, now, source.id).run();
+		}
+		return { ...outcome, startedAtMs: Date.now() };
+	});
+
+	if (!started.jobId) {
+		browserRunLog('browser_crawl_no_candidates', { runId, sourceId: source.id });
+		return emptyResult();
+	}
+
+	browserRunLog('browser_crawl_started', {
+		initialCrawl: started.initialCrawl,
+		jobId: started.jobId,
+		runId,
+		sourceId: source.id,
+	});
+
+	await pollCrawl(env, source, started.jobId, runId, started.startedAtMs, step);
+
+	await env.KEEPROOT_DB.prepare(
+		`UPDATE source_runs SET status = 'running', upstream_phase = 'scan' WHERE id = ? AND source_id = ?`,
+	).bind(runId, source.id).run();
+
+	const { pages, saturated } = await ingestCrawlResults(
+		env,
+		source,
+		started.jobId,
+		runId,
+		started.expectedTotal,
+		step,
+	);
+
+	const totals = await progress(env, runId, source.id);
+	if (totals.processed_count === 0 && totals.upstream_error_count > 0) {
+		throw new BrowserRunCrawlError('Browser Run could not access any pages; the site disallowed or errored every crawl request');
+	}
+	if (started.initialCrawl && totals.discovered_count === 0) {
+		throw new BrowserRunCrawlError(
+			`Browser Run examined ${totals.examined_count} page(s) but found no blog posts with recognised article metadata. Expected JSON-LD BlogPosting/Article/NewsArticle, og:type=article with article:published_time, or one <article> with <time datetime>.`,
+		);
+	}
+	if (started.initialCrawl) {
+		await step.do('select-initial-archive', () => selectInitialArchive(env, source.id, runId));
+	}
+
+	await env.KEEPROOT_DB.prepare(
+		`UPDATE source_runs SET upstream_phase = 'import' WHERE id = ? AND source_id = ?`,
+	).bind(runId, source.id).run();
+
+	await importSelectedPosts(env, source, started.jobId, runId, pages, step);
+
+	const unmatched = await env.KEEPROOT_DB.prepare(
+		`SELECT COUNT(*) AS count FROM source_discoveries
+		WHERE source_id = ? AND state = 'pending'`,
+	).bind(source.id).first<{ count: number }>();
+	if ((unmatched?.count ?? 0) > 0) {
+		throw new BrowserRunCrawlError(
+			`Browser Run completed but ${unmatched?.count ?? 0} selected post(s) could not be matched during import`,
+			{ retryable: true },
+		);
+	}
+
+	await markSitemapCandidatesProcessed(env, source.id, runId);
+	const final = await progress(env, runId, source.id);
+	browserRunLog('browser_crawl_completed', {
+		examined: final.examined_count,
+		jobId: started.jobId,
+		pages: pages.length,
+		recognised: final.discovered_count,
+		runId,
+		saved: final.saved_count,
+		skipped: final.skipped_count,
+		sourceId: source.id,
+		upstreamErrors: final.upstream_error_count,
+	});
+
+	return emptyResult({
+		createdCount: final.created_count,
+		discoveredCount: final.discovered_count,
+		errorCount: final.upstream_error_count,
+		examinedCount: final.examined_count,
+		notModified: final.saved_count === 0,
+		processedCount: final.processed_count,
+		saturated: Boolean(final.saturated) || saturated,
+		savedCount: final.saved_count,
+		skippedCount: final.skipped_count,
+		unchangedCount: final.unchanged_count,
+	});
 }

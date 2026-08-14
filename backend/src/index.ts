@@ -15,6 +15,8 @@ import { handleSmartListRoute } from './routes/smart-lists';
 import { handleSourceRoute } from './routes/sources';
 import { handleStatsRoute } from './routes/stats';
 
+export { BrowserSourceCrawlWorkflow } from './ingest/browser-crawl-workflow';
+
 export interface Env extends StorageEnv {}
 
 const PUBLIC_AUTH_RATE_LIMIT_PATHS = new Set([

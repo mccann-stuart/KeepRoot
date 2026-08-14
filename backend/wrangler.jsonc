@@ -53,6 +53,18 @@
 	"browser": {
 		"binding": "BROWSER"
 	},
+	/**
+	 * Browser Run crawls are long-lived and mostly idle. A Workflow instance sleeps between
+	 * status polls without consuming an invocation, and resumes each step exactly where it
+	 * left off — replacing the queue message that used to re-enqueue itself every 10s.
+	 */
+	"workflows": [
+		{
+			"name": "keeproot-browser-crawl",
+			"binding": "BROWSER_CRAWL_WORKFLOW",
+			"class_name": "BrowserSourceCrawlWorkflow"
+		}
+	],
 	"secrets_store_secrets": [
 		{
 			"binding": "BROWSER_RUN_API_TOKEN",

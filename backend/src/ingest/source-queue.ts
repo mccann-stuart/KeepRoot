@@ -1,5 +1,5 @@
 import { syncSource, type SourceSyncResult } from './source-sync';
-import { advanceBrowserSourceRun, BrowserRunCrawlError } from './browser-run';
+import { BrowserRunCrawlError, type BrowserCrawlParams } from './browser-run';
 import { calculateNextPollAt, clampSourcePollIntervalMinutes, DEFAULT_POLL_INTERVAL_MINUTES } from './feed-schedule';
 import { listDuePollableSources } from '../storage/sources';
 import type { SourceKind, StorageEnv } from '../storage/shared';
@@ -123,6 +123,92 @@ async function sendSourceJobs(queue: Queue<unknown>, jobs: SourceQueueJob[]): Pr
 	}
 }
 
+const WORKFLOW_LIVE_STATUSES = new Set(['queued', 'running', 'paused', 'waiting', 'waitingForPause', 'unknown']);
+
+/**
+ * Starts a browser crawl as a Workflow instance and records the instance on the run.
+ *
+ * The instance id is derived from the run id, which makes a duplicate start a no-op rather
+ * than a second crawl against the same scarce upstream quota.
+ */
+async function startBrowserCrawlWorkflow(env: StorageEnv, job: SourceQueueJob): Promise<boolean> {
+	if (!env.BROWSER_CRAWL_WORKFLOW) {
+		throw new Error('BROWSER_CRAWL_WORKFLOW binding is required for browser source crawling');
+	}
+	// Claim the source before spending any upstream quota. Idempotent for the manual path,
+	// which already reserved, and a real gate for the cron path, which has not.
+	const claim = await env.KEEPROOT_DB.prepare(
+		`UPDATE sources SET active_run_id = ?, lease_expires_at = NULL
+		WHERE id = ? AND (active_run_id IS NULL OR active_run_id = ?)`,
+	).bind(job.runId, job.sourceId, job.runId).run();
+	if (!claim.meta.changes) {
+		await cancelLeaseCollision(env, job);
+		sourceRunLog('browser_workflow_skipped', { reason: 'source_busy', runId: job.runId, sourceId: job.sourceId });
+		return false;
+	}
+
+	const instanceId = `run-${job.runId}`;
+	await env.BROWSER_CRAWL_WORKFLOW.create({
+		id: instanceId,
+		params: { runId: job.runId, sourceId: job.sourceId } satisfies BrowserCrawlParams,
+	});
+	// The new run owns the source, so any earlier unfinished run for it is superseded and
+	// must reach a terminal status rather than lingering as work the dashboard still shows.
+	await cancelSupersededRuns(env, job.sourceId, job.runId);
+	await env.KEEPROOT_DB.prepare(
+		// A Workflow instance owns its own lifetime, so the lease clock is cleared: a crawl
+		// legitimately outlives the 10 minute lease and must not be reaped as expired.
+		`UPDATE source_runs SET workflow_instance_id = ?, lease_expires_at = NULL
+		WHERE id = ? AND source_id = ?`,
+	).bind(instanceId, job.runId, job.sourceId).run();
+	await env.KEEPROOT_DB.prepare(
+		'UPDATE sources SET lease_expires_at = NULL WHERE id = ? AND active_run_id = ?',
+	).bind(job.sourceId, job.runId).run();
+	sourceRunLog('browser_workflow_started', { instanceId, runId: job.runId, sourceId: job.sourceId });
+	return true;
+}
+
+/**
+ * Reports whether a source's recorded active browser run is still really executing.
+ *
+ * Asks the Workflows engine rather than trusting a lease timestamp. An instance that has
+ * finished, errored or been terminated without writing a terminal D1 status is reconciled
+ * here so the next request is not blocked by a run that no longer exists.
+ */
+async function browserRunStillLive(env: StorageEnv, sourceId: string, runId: string): Promise<boolean> {
+	const row = await env.KEEPROOT_DB.prepare(
+		`SELECT workflow_instance_id FROM source_runs
+		WHERE id = ? AND source_id = ? AND finished_at IS NULL`,
+	).bind(runId, sourceId).first<{ workflow_instance_id: string | null }>();
+	if (!row) return false;
+	if (!row.workflow_instance_id || !env.BROWSER_CRAWL_WORKFLOW) return true;
+
+	let status: string;
+	try {
+		const instance = await env.BROWSER_CRAWL_WORKFLOW.get(row.workflow_instance_id);
+		status = (await instance.status()).status;
+	} catch {
+		// A missing instance cannot be executing, so the run is stale by definition.
+		status = 'terminated';
+	}
+	if (WORKFLOW_LIVE_STATUSES.has(status)) return true;
+
+	const now = new Date().toISOString();
+	await env.KEEPROOT_DB.batch([
+		env.KEEPROOT_DB.prepare(
+			`UPDATE source_runs SET status = 'error', error_count = error_count + 1,
+				error_text = ?, finished_at = ?, lease_expires_at = NULL,
+				duration_ms = CAST((julianday(?) - julianday(started_at)) * 86400000 AS INTEGER)
+			WHERE id = ? AND source_id = ? AND finished_at IS NULL`,
+		).bind(`Browser crawl workflow ended as "${status}" without recording a result`, now, now, runId, sourceId),
+		env.KEEPROOT_DB.prepare(
+			'UPDATE sources SET active_run_id = NULL, lease_expires_at = NULL WHERE id = ? AND active_run_id = ?',
+		).bind(sourceId, runId),
+	]);
+	sourceRunLog('browser_workflow_reconciled', { runId, sourceId, status });
+	return false;
+}
+
 export async function dispatchScheduledSourceRuns(
 	env: StorageEnv,
 	scheduledTime: number,
@@ -158,25 +244,45 @@ export async function dispatchScheduledSourceRuns(
 		).bind(JSON.stringify(dispatchKeys)).all<{ id: string; source_id: string }>()
 		: { results: [] };
 	const runBySource = new Map(dispatchedRuns.results.map((run) => [run.source_id, run.id]));
-	const jobs = sources.flatMap((source) => {
+	const jobs: SourceQueueJob[] = [];
+	const browserJobs: SourceQueueJob[] = [];
+	for (const source of sources) {
 		const runId = runBySource.get(source.id);
-		return runId ? [{ runId, sourceId: source.id }] : [];
-	});
+		if (!runId) continue;
+		(source.kind === 'browser' ? browserJobs : jobs).push({ runId, sourceId: source.id });
+	}
 	await sendSourceJobs(env.SOURCE_QUEUE, jobs);
+	for (const job of browserJobs) {
+		try {
+			await startBrowserCrawlWorkflow(env, job);
+		} catch (error) {
+			await recordSourceRunFailure(
+				env,
+				job,
+				error,
+				sources.find((source) => source.id === job.sourceId)?.pollIntervalMinutes ?? DEFAULT_POLL_INTERVAL_MINUTES,
+				'browser',
+				1,
+				false,
+			);
+		}
+	}
 
 	sourceRunLog('source_cron_summary', {
+		browserCount: browserJobs.length,
 		durationMs: Date.now() - startedAt,
 		queuedCount: jobs.length,
 		recoveredCount,
 		sourceCount: sources.length,
 	});
-	return { queuedCount: jobs.length, sourceCount: sources.length };
+	return { queuedCount: jobs.length + browserJobs.length, sourceCount: sources.length };
 }
 
 export async function enqueueSourceRun(
 	env: StorageEnv,
 	sourceId: string,
 	runType = 'manual',
+	reconciled = false,
 ): Promise<EnqueueSourceRunResult> {
 	if (!env.SOURCE_QUEUE) {
 		throw new Error('SOURCE_QUEUE binding is required for source crawling');
@@ -186,16 +292,33 @@ export async function enqueueSourceRun(
 	const queuedAt = now.toISOString();
 	const leaseExpiresAt = new Date(now.getTime() + SOURCE_LEASE_MS).toISOString();
 	await recoverExpiredSourceRuns(env, queuedAt, sourceId);
-	const reservation = await env.KEEPROOT_DB.prepare(
-		`UPDATE sources SET active_run_id = ?, lease_expires_at = ?
-		WHERE id = ? AND (active_run_id IS NULL OR lease_expires_at IS NULL OR lease_expires_at <= ?)`,
-	).bind(runId, leaseExpiresAt, sourceId, queuedAt).run();
+	const kindRow = await env.KEEPROOT_DB.prepare(
+		'SELECT kind FROM sources WHERE id = ? LIMIT 1',
+	).bind(sourceId).first<{ kind: SourceKind }>();
+	const isBrowser = kindRow?.kind === 'browser';
+	// A browser run has no lease clock — its Workflow instance is the source of truth — so it
+	// reserves purely on the source being free. A null lease must not read as "expired" and
+	// hand the source to a second crawl.
+	const reservation = isBrowser
+		? await env.KEEPROOT_DB.prepare(
+			`UPDATE sources SET active_run_id = ?, lease_expires_at = NULL
+			WHERE id = ? AND active_run_id IS NULL`,
+		).bind(runId, sourceId).run()
+		: await env.KEEPROOT_DB.prepare(
+			`UPDATE sources SET active_run_id = ?, lease_expires_at = ?
+			WHERE id = ? AND (active_run_id IS NULL OR lease_expires_at IS NULL OR lease_expires_at <= ?)`,
+		).bind(runId, leaseExpiresAt, sourceId, queuedAt).run();
 	if (!reservation.meta.changes) {
 		const active = await env.KEEPROOT_DB.prepare(
 			`SELECT active_run_id FROM sources
-			WHERE id = ? AND active_run_id IS NOT NULL AND lease_expires_at > ?
+			WHERE id = ? AND active_run_id IS NOT NULL
 			LIMIT 1`,
-		).bind(sourceId, queuedAt).first<{ active_run_id: string }>();
+		).bind(sourceId).first<{ active_run_id: string }>();
+		if (active?.active_run_id && isBrowser && !reconciled
+			&& !await browserRunStillLive(env, sourceId, active.active_run_id)) {
+			// The recorded run is gone; retry once now that the source has been released.
+			return enqueueSourceRun(env, sourceId, runType, true);
+		}
 		if (!active?.active_run_id) {
 			throw new Error(`Source "${sourceId}" could not reserve a crawl run`);
 		}
@@ -213,9 +336,13 @@ export async function enqueueSourceRun(
 			(id, source_id, run_type, status, dispatch_key, queued_at, started_at, lease_expires_at)
 			VALUES (?, ?, ?, 'queued', ?, ?, ?, ?)`,
 		)
-			.bind(runId, sourceId, runType, `${runType}:${runId}`, queuedAt, queuedAt, leaseExpiresAt)
+			.bind(runId, sourceId, runType, `${runType}:${runId}`, queuedAt, queuedAt, isBrowser ? null : leaseExpiresAt)
 			.run();
-		await env.SOURCE_QUEUE.send({ runId, sourceId } satisfies SourceQueueJob);
+		if (isBrowser) {
+			await startBrowserCrawlWorkflow(env, { runId, sourceId });
+		} else {
+			await env.SOURCE_QUEUE.send({ runId, sourceId } satisfies SourceQueueJob);
+		}
 	} catch (error) {
 		const errorText = error instanceof Error ? error.message.slice(0, 500) : 'Unknown source queue error';
 		await env.KEEPROOT_DB.batch([
@@ -304,7 +431,7 @@ async function finishWithoutFetch(env: StorageEnv, job: SourceQueueJob): Promise
 	).bind(now, now, job.runId, job.sourceId).run();
 }
 
-async function recordResult(
+export async function recordSourceRunResult(
 	env: StorageEnv,
 	job: SourceQueueJob,
 	result: SourceSyncResult,
@@ -391,7 +518,7 @@ async function recordResult(
 	});
 }
 
-async function recordFailure(
+export async function recordSourceRunFailure(
 	env: StorageEnv,
 	job: SourceQueueJob,
 	error: unknown,
@@ -488,49 +615,10 @@ export async function processSourceQueueJob(
 			`UPDATE source_runs SET status = 'running', attempt_count = attempt_count + 1, lease_expires_at = ?
 			WHERE id = ? AND source_id = ?`,
 		).bind(leaseExpiresAt, job.runId, job.sourceId).run();
+		// Browser sources run as durable Workflow instances, never as queue deliveries.
 		if (source.kind === 'browser') {
-			const step = await advanceBrowserSourceRun(
-				env,
-				{
-					id: job.sourceId,
-					lastSuccessAt: source.last_success_at,
-					name: source.name,
-					pollUrl: source.poll_url,
-					userId: source.user_id,
-				},
-				{
-					initialCrawl: Boolean(source.initial_crawl),
-					runId: job.runId,
-					upstreamCursor: source.upstream_cursor,
-					upstreamJobId: source.upstream_job_id,
-					upstreamPhase: source.upstream_phase,
-					upstreamStartedAt: source.upstream_started_at,
-				},
-			);
-			if (step.status === 'waiting') {
-				await env.KEEPROOT_DB.batch([
-					env.KEEPROOT_DB.prepare(
-						`UPDATE source_runs SET status = 'waiting', lease_expires_at = ?
-						WHERE id = ? AND source_id = ?`,
-					).bind(leaseExpiresAt, job.runId, job.sourceId),
-					env.KEEPROOT_DB.prepare(
-						`UPDATE sources SET lease_expires_at = ?
-						WHERE id = ? AND active_run_id = ?`,
-					).bind(leaseExpiresAt, job.sourceId, job.runId),
-				]);
-				await env.SOURCE_QUEUE?.send(job, { delaySeconds: step.delaySeconds });
-				return 'continued';
-			}
-			await recordResult(
-				env,
-				job,
-				step.result,
-				source.poll_interval_minutes,
-				source.kind,
-				attempts,
-				Date.now() - startedAt,
-			);
-			return 'completed';
+			await releaseLease(env, job.sourceId, job.runId);
+			return 'ignored';
 		}
 
 		const result = await syncSource(env, {
@@ -543,7 +631,7 @@ export async function processSourceQueueJob(
 			userId: source.user_id,
 			validatorUrl: source.validator_url,
 		}, { recordStandaloneRun: false });
-		await recordResult(env, job, result, source.poll_interval_minutes, source.kind, attempts, Date.now() - startedAt);
+		await recordSourceRunResult(env, job, result, source.poll_interval_minutes, source.kind, attempts, Date.now() - startedAt);
 		return result.needsContinuation ? 'continued' : 'completed';
 	} catch (error) {
 		if (error instanceof SourceLeaseBusyError) {
@@ -564,7 +652,7 @@ export async function processSourceQueueJob(
 			return 'ignored';
 		}
 		const retryable = retryableSourceError(error);
-		await recordFailure(env, job, error, source.poll_interval_minutes, source.kind, attempts, retryable);
+		await recordSourceRunFailure(env, job, error, source.poll_interval_minutes, source.kind, attempts, retryable);
 		await releaseLease(env, job.sourceId, job.runId);
 		sourceRunLog('source_run_summary', {
 			attempts,

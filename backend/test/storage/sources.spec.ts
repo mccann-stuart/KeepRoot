@@ -246,7 +246,10 @@ describe('sources storage', () => {
 
 			expect(prepareSpy.mock.calls[0][0]).toContain("status = 'active' AND poll_url IS NOT NULL");
 			expect(prepareSpy.mock.calls[0][0]).toContain('next_poll_at IS NULL OR next_poll_at <= ?');
-			expect(prepareSpy.mock.calls[0][0]).toContain('active_run_id IS NULL OR lease_expires_at IS NULL OR lease_expires_at <= ?');
+			// Browser sources hold their source without a lease clock, so a null lease must
+			// not read as "free" for them the way it does for queue-driven kinds.
+			expect(prepareSpy.mock.calls[0][0]).toContain("active_run_id IS NULL OR (kind <> 'browser'");
+			expect(prepareSpy.mock.calls[0][0]).toContain('lease_expires_at IS NULL OR lease_expires_at <= ?');
 			expect(sources).toEqual([{
 				config: {},
 				httpEtag: '"feed-v2"',

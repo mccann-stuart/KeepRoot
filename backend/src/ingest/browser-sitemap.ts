@@ -31,9 +31,18 @@ export interface BrowserSitemapEntry {
 	url: string;
 }
 
+export interface BrowserSitemapValidators {
+	etag: string | null;
+	lastModified: string | null;
+}
+
 export interface BrowserSitemapDiscovery {
 	entries: BrowserSitemapEntry[];
 	found: boolean;
+	// Set when the root sitemap answered 304, in which case `entries` is empty and the
+	// caller must reuse the URLs it already persisted rather than treating this as a loss.
+	notModified: boolean;
+	validators: BrowserSitemapValidators;
 }
 
 export type BrowserSitemapLeafStrategy = 'quadratic' | 'sorted-path' | 'trie';
@@ -194,6 +203,7 @@ async function fetchSameOrigin(
 	sourceOrigin: URL,
 	accept: string,
 	fetchImpl: typeof fetch,
+	validators?: BrowserSitemapValidators | null,
 ): Promise<Response | null> {
 	let currentUrl = url;
 	for (let redirectCount = 0; redirectCount <= 5; redirectCount += 1) {
@@ -209,6 +219,8 @@ async function fetchSameOrigin(
 			headers: {
 				Accept: accept,
 				'User-Agent': 'KeepRoot/1.0 (+https://keeproot.local)',
+				...(validators?.etag ? { 'If-None-Match': validators.etag } : {}),
+				...(validators?.lastModified ? { 'If-Modified-Since': validators.lastModified } : {}),
 			},
 			redirect: 'manual',
 		});
@@ -290,17 +302,22 @@ function normalizeSameOriginUrl(value: string, sourceOrigin: URL): string | null
 	return normalizeCanonicalUrl(parsed.toString());
 }
 
+const NO_VALIDATORS: BrowserSitemapValidators = { etag: null, lastModified: null };
+
 export async function discoverBrowserSitemap(
 	sourceUrl: string,
 	fetchImpl: typeof fetch = fetch,
+	validators: BrowserSitemapValidators | null = null,
 ): Promise<BrowserSitemapDiscovery> {
+	const miss = (found: boolean): BrowserSitemapDiscovery =>
+		({ entries: [], found, notModified: false, validators: NO_VALIDATORS });
 	let sourceOrigin: URL;
 	try {
 		sourceOrigin = new URL(sourceUrl);
 	} catch {
-		return { entries: [], found: false };
+		return miss(false);
 	}
-	if (!await validateSafeUrl(sourceOrigin.toString())) return { entries: [], found: false };
+	if (!await validateSafeUrl(sourceOrigin.toString())) return miss(false);
 
 	const sitemapQueue: string[] = [];
 	try {
@@ -321,6 +338,10 @@ export async function discoverBrowserSitemap(
 	const entriesByUrl = new Map<string, BrowserSitemapEntry>();
 	let found = false;
 	let filesRead = 0;
+	// Validators belong to the first sitemap file actually fetched. A 304 there means the
+	// site published nothing new, so the whole walk — including nested files — is skipped.
+	let rootValidators: BrowserSitemapValidators = NO_VALIDATORS;
+	let rootFetched = false;
 	while (sitemapQueue.length && filesRead < MAX_SITEMAP_FILES && entriesByUrl.size < MAX_SITEMAP_URLS) {
 		const rawSitemapUrl = sitemapQueue.shift()!;
 		const sitemapUrl = normalizeSameOriginUrl(rawSitemapUrl, sourceOrigin);
@@ -329,12 +350,34 @@ export async function discoverBrowserSitemap(
 		filesRead += 1;
 
 		try {
+			const isRoot = !rootFetched;
 			const response = await fetchSameOrigin(
 				sitemapUrl,
 				sourceOrigin,
 				'application/xml, text/xml;q=0.9, */*;q=0.5',
 				fetchImpl,
+				isRoot ? validators : null,
 			);
+			if (isRoot && response) {
+				rootFetched = true;
+				rootValidators = {
+					etag: response.headers.get('ETag'),
+					lastModified: response.headers.get('Last-Modified'),
+				};
+				if (response.status === 304) {
+					await response.body?.cancel().catch(() => undefined);
+					return {
+						entries: [],
+						found: true,
+						notModified: true,
+						// A 304 usually omits validators; keep the ones that produced the hit.
+						validators: {
+							etag: rootValidators.etag ?? validators?.etag ?? null,
+							lastModified: rootValidators.lastModified ?? validators?.lastModified ?? null,
+						},
+					};
+				}
+			}
 			if (!response?.ok) {
 				await response?.body?.cancel().catch(() => undefined);
 				continue;
@@ -361,7 +404,7 @@ export async function discoverBrowserSitemap(
 		}
 	}
 
-	return { entries: [...entriesByUrl.values()], found };
+	return { entries: [...entriesByUrl.values()], found, notModified: false, validators: rootValidators };
 }
 
 export function shortlistBrowserSitemapEntries(
