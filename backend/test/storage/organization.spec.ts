@@ -105,7 +105,8 @@ describe('organization storage', () => {
                                 { name: 'embedding_updated_at' },
 								{ name: 'validator_url' }, { name: 'http_etag' }, { name: 'http_last_modified' },
 								{ name: 'active_run_id' }, { name: 'lease_expires_at' }, { name: 'next_poll_at' },
-								{ name: 'poll_interval_minutes' }, { name: 'dispatch_key' },
+								{ name: 'poll_interval_minutes' }, { name: 'sitemap_etag' },
+								{ name: 'sitemap_last_modified' }, { name: 'sitemap_fetched_at' }, { name: 'dispatch_key' },
 								{ name: 'attempt_count' }, { name: 'processed_count' }, { name: 'created_count' },
 								{ name: 'refreshed_count' }, { name: 'unchanged_count' }, { name: 'not_modified' },
 								{ name: 'saturated' }, { name: 'duration_ms' }, { name: 'queued_at' },
@@ -114,6 +115,7 @@ describe('organization storage', () => {
 								{ name: 'upstream_cursor' }, { name: 'upstream_started_at' },
 								{ name: 'upstream_finished_count' }, { name: 'upstream_total_count' },
 								{ name: 'upstream_browser_seconds' }, { name: 'initial_crawl' },
+								{ name: 'workflow_instance_id' },
                             ] })
                         })
                     } as any;
@@ -157,7 +159,8 @@ describe('organization storage', () => {
                                 { name: 'embedding_updated_at' },
 								{ name: 'validator_url' }, { name: 'http_etag' }, { name: 'http_last_modified' },
 								{ name: 'active_run_id' }, { name: 'lease_expires_at' }, { name: 'next_poll_at' },
-								{ name: 'poll_interval_minutes' }, { name: 'dispatch_key' },
+								{ name: 'poll_interval_minutes' }, { name: 'sitemap_etag' },
+								{ name: 'sitemap_last_modified' }, { name: 'sitemap_fetched_at' }, { name: 'dispatch_key' },
 								{ name: 'attempt_count' }, { name: 'processed_count' }, { name: 'created_count' },
 								{ name: 'refreshed_count' }, { name: 'unchanged_count' }, { name: 'not_modified' },
 								{ name: 'saturated' }, { name: 'duration_ms' }, { name: 'queued_at' },
@@ -166,6 +169,7 @@ describe('organization storage', () => {
 								{ name: 'upstream_cursor' }, { name: 'upstream_started_at' },
 								{ name: 'upstream_finished_count' }, { name: 'upstream_total_count' },
 								{ name: 'upstream_browser_seconds' }, { name: 'initial_crawl' },
+								{ name: 'workflow_instance_id' },
                             ] })
                         })
                     } as any;
@@ -208,7 +212,8 @@ describe('organization storage', () => {
                                 { name: 'embedding_updated_at' },
 								{ name: 'validator_url' }, { name: 'http_etag' }, { name: 'http_last_modified' },
 								{ name: 'active_run_id' }, { name: 'lease_expires_at' }, { name: 'next_poll_at' },
-								{ name: 'poll_interval_minutes' }, { name: 'dispatch_key' },
+								{ name: 'poll_interval_minutes' }, { name: 'sitemap_etag' },
+								{ name: 'sitemap_last_modified' }, { name: 'sitemap_fetched_at' }, { name: 'dispatch_key' },
 								{ name: 'attempt_count' }, { name: 'processed_count' }, { name: 'created_count' },
 								{ name: 'refreshed_count' }, { name: 'unchanged_count' }, { name: 'not_modified' },
 								{ name: 'saturated' }, { name: 'duration_ms' }, { name: 'queued_at' },
@@ -217,6 +222,7 @@ describe('organization storage', () => {
 								{ name: 'upstream_cursor' }, { name: 'upstream_started_at' },
 								{ name: 'upstream_finished_count' }, { name: 'upstream_total_count' },
 								{ name: 'upstream_browser_seconds' }, { name: 'initial_crawl' },
+								{ name: 'workflow_instance_id' },
                             ] })
                         })
                     } as any;

@@ -32,6 +32,7 @@ export interface StorageEnv {
 	AUTH_ORIGIN?: string;
 	AUTH_RATE_LIMITER: RateLimit;
 	BROWSER?: BrowserRun;
+	BROWSER_CRAWL_WORKFLOW?: Workflow;
 	BROWSER_RUN_ACCOUNT_ID?: string;
 	BROWSER_RUN_API_TOKEN?: SecretText;
 	BROWSER_RUN_ENGINE?: string;

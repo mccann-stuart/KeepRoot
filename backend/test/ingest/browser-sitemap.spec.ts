@@ -36,6 +36,8 @@ describe('Browser source sitemap discovery', () => {
 				url: 'https://example.com/posts/new',
 			}],
 			found: true,
+			notModified: false,
+			validators: { etag: null, lastModified: null },
 		});
 		expect(fetchImpl).not.toHaveBeenCalledWith(
 			'https://other.example/private.xml',

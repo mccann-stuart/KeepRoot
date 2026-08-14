@@ -23,6 +23,9 @@ const REQUIRED_SOURCE_COLUMNS = [
 	'lease_expires_at',
 	'next_poll_at',
 	'poll_interval_minutes',
+	'sitemap_etag',
+	'sitemap_last_modified',
+	'sitemap_fetched_at',
 ] as const;
 
 const REQUIRED_SOURCE_RUN_COLUMNS = [
@@ -48,6 +51,7 @@ const REQUIRED_SOURCE_RUN_COLUMNS = [
 	'upstream_total_count',
 	'upstream_browser_seconds',
 	'initial_crawl',
+	'workflow_instance_id',
 ] as const;
 
 const REQUIRED_TABLE_NAMES = [
@@ -196,6 +200,9 @@ export async function ensureMcpSchema(env: StorageEnv): Promise<void> {
 		lease_expires_at: 'TEXT',
 		next_poll_at: 'TEXT',
 		poll_interval_minutes: 'INTEGER NOT NULL DEFAULT 60',
+		sitemap_etag: 'TEXT',
+		sitemap_fetched_at: 'TEXT',
+		sitemap_last_modified: 'TEXT',
 		validator_url: 'TEXT',
 	};
 	const sourcePromises: Promise<void>[] = [];
@@ -247,6 +254,7 @@ export async function ensureMcpSchema(env: StorageEnv): Promise<void> {
 		upstream_browser_seconds: 'REAL NOT NULL DEFAULT 0',
 		initial_crawl: 'INTEGER NOT NULL DEFAULT 0',
 		unchanged_count: 'INTEGER NOT NULL DEFAULT 0',
+		workflow_instance_id: 'TEXT',
 	};
 	const sourceRunPromises: Promise<void>[] = [];
 	for (const [column, definition] of Object.entries(sourceRunColumnDefinitions)) {

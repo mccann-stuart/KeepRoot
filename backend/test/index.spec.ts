@@ -3,6 +3,8 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 import worker from '../src/index';
 import { addSource, createApiKey, createList, createSession, createSmartList, createUserWithCredential, ensureAccountSettings, getBookmark, hashToken, recordToolEvent, saveBookmark, storeAuthChallenge } from '../src/storage';
 import { enqueueSourceRun, processSourceQueueJob } from '../src/ingest/source-queue';
+import { executeBrowserCrawlRun } from '../src/ingest/browser-crawl-workflow';
+import { runBrowserCrawl, type CrawlStep } from '../src/ingest/browser-run';
 import initialSchemaSql from '../migrations/0001_initial.sql?raw';
 import organizationSchemaSql from '../migrations/0002_organization.sql?raw';
 import mcpServerSchemaSql from '../migrations/0003_mcp_server.sql?raw';
@@ -14,6 +16,7 @@ import adaptiveFeedSchedulingSchemaSql from '../migrations/0008_adaptive_feed_sc
 import browserRunSourcesSchemaSql from '../migrations/0009_browser_run_sources.sql?raw';
 import browserSitemapShortlistSchemaSql from '../migrations/0010_browser_sitemap_shortlist.sql?raw';
 import browserRunProgressSchemaSql from '../migrations/0011_browser_run_progress.sql?raw';
+import browserCrawlWorkflowSchemaSql from '../migrations/0012_browser_crawl_workflow.sql?raw';
 
 const API_KEY = 'test-api-key-12345';
 const TEST_USER_ID = 'test-user-id';
@@ -90,6 +93,38 @@ function envWithRegistrationDisabled(): Omit<typeof env, 'ALLOW_REGISTRATION'> &
 	};
 }
 
+/** Runs every crawl step inline and treats sleeps as instantaneous. */
+const inlineCrawlStep: CrawlStep = {
+	async do<T>(_name: string, callback: () => Promise<T>): Promise<T> {
+		return callback();
+	},
+	async sleep(): Promise<void> {},
+};
+
+/**
+ * Stands in for the Workflows binding: records created instances and reports their status,
+ * which is what the source lifecycle now consults instead of a lease timestamp.
+ */
+function browserWorkflowStub() {
+	const created: Array<{ id: string; params: unknown }> = [];
+	const statuses = new Map<string, string>();
+	return {
+		binding: {
+			async create({ id, params }: { id: string; params: unknown }) {
+				created.push({ id, params });
+				statuses.set(id, 'running');
+				return { id };
+			},
+			async get(id: string) {
+				if (!statuses.has(id)) throw new Error(`No workflow instance ${id}`);
+				return { status: async () => ({ status: statuses.get(id) }) };
+			},
+		},
+		created,
+		statuses,
+	};
+}
+
 async function execStatements(sql: string, allowExisting = false): Promise<void> {
 	const statements = sql
 		.split(/;\s*\n/g)
@@ -129,6 +164,7 @@ async function resetDatabase(): Promise<void> {
 	await execStatements(browserRunSourcesSchemaSql, true);
 	await execStatements(browserSitemapShortlistSchemaSql, true);
 	await execStatements(browserRunProgressSchemaSql, true);
+	await execStatements(browserCrawlWorkflowSchemaSql, true);
 	await execStatements(`
 		DELETE FROM bookmark_tags;
 		DELETE FROM bookmark_images;
@@ -508,8 +544,10 @@ describe('KeepRoot Worker', () => {
 
 	it('inspects 15 sitemap candidates, ignores skipped result tails, and backfills an underfilled archive', async () => {
 		const send = vi.fn().mockResolvedValue({});
+		const workflow = browserWorkflowStub();
 		const browserEnv = {
 			...env,
+			BROWSER_CRAWL_WORKFLOW: workflow.binding,
 			BROWSER_RUN_ACCOUNT_ID: 'browser-account',
 			BROWSER_RUN_API_TOKEN: 'browser-token',
 			SOURCE_QUEUE: { send },
@@ -604,11 +642,13 @@ describe('KeepRoot Worker', () => {
 
 		const runToCompletion = async (runType: string) => {
 			const { runId } = await enqueueSourceRun(browserEnv as any, String(source.id), runType);
-			let outcome: Awaited<ReturnType<typeof processSourceQueueJob>> = 'ignored';
-			for (let delivery = 0; delivery < 12 && outcome !== 'completed'; delivery += 1) {
-				outcome = await processSourceQueueJob(browserEnv as any, { runId, sourceId: String(source.id) }, 1);
-			}
+			const outcome = await executeBrowserCrawlRun(
+				browserEnv as any,
+				{ runId, sourceId: String(source.id) },
+				inlineCrawlStep,
+			);
 			expect(outcome).toBe('completed');
+			workflow.statuses.set(`run-${runId}`, 'complete');
 			return runId;
 		};
 
@@ -731,8 +771,10 @@ describe('KeepRoot Worker', () => {
 
 	it('coalesces Browser Run refreshes, cancels orphaned runs, and clears a stale source error', async () => {
 		const send = vi.fn().mockResolvedValue({});
+		const workflow = browserWorkflowStub();
 		const browserEnv = {
 			...env,
+			BROWSER_CRAWL_WORKFLOW: workflow.binding,
 			BROWSER_RUN_ACCOUNT_ID: 'browser-account',
 			BROWSER_RUN_API_TOKEN: 'browser-token',
 			SOURCE_QUEUE: { send },
@@ -769,11 +811,24 @@ describe('KeepRoot Worker', () => {
 
 		expect(first).toMatchObject({ queued: true, runId: expect.any(String) });
 		expect(duplicate).toEqual({ queued: false, runId: first.runId });
-		expect(send).toHaveBeenCalledOnce();
-		await expect(processSourceQueueJob(browserEnv as any, {
-			runId: first.runId,
-			sourceId: String(source.id),
-		}, 1)).resolves.toBe('continued');
+		// A browser refresh starts exactly one Workflow instance and never touches the queue.
+		expect(workflow.created).toHaveLength(1);
+		expect(send).not.toHaveBeenCalled();
+		// Stop once the job is accepted: acceptance is the phase boundary under test.
+		const stopAtPoll: CrawlStep = {
+			async do<T>(name: string, callback: () => Promise<T>): Promise<T> {
+				if (name.startsWith('poll-crawl')) throw new Error('stop-after-acceptance');
+				return callback();
+			},
+			async sleep(): Promise<void> {},
+		};
+		await expect(runBrowserCrawl(browserEnv as any, {
+			id: String(source.id),
+			lastSuccessAt: null,
+			name: 'Example Blog',
+			pollUrl: 'https://example.com/blog',
+			userId: TEST_USER_ID,
+		}, first.runId, stopAtPoll)).rejects.toThrow('stop-after-acceptance');
 
 		const sourceState = await env.KEEPROOT_DB.prepare(
 			'SELECT active_run_id, last_error FROM sources WHERE id = ?',
@@ -915,10 +970,15 @@ describe('KeepRoot Worker', () => {
 		expect(sourceState?.next_poll_at).toBeTruthy();
 	});
 
-	it('does not confuse persisted Browser Run polling steps with queue delivery attempts', async () => {
+	// Waiting for Browser Run used to cost one queue delivery every ten seconds, which both
+	// burned invocations and inflated attempt_count until the run was killed as "exhausted".
+	// Polling is now a Workflow sleep: no queue traffic, no delivery budget consumed.
+	it('waits for a running Browser Run crawl without spending queue deliveries', async () => {
 		const send = vi.fn().mockResolvedValue({});
+		const workflow = browserWorkflowStub();
 		const browserEnv = {
 			...env,
+			BROWSER_CRAWL_WORKFLOW: workflow.binding,
 			BROWSER_RUN_ACCOUNT_ID: 'browser-account',
 			BROWSER_RUN_API_TOKEN: 'browser-token',
 			SOURCE_QUEUE: { send },
@@ -930,39 +990,63 @@ describe('KeepRoot Worker', () => {
 			userId: TEST_USER_ID,
 		});
 		const { runId } = await enqueueSourceRun(browserEnv as any, String(source.id), 'manual');
-		await env.KEEPROOT_DB.prepare(
-			`UPDATE source_runs SET status = 'waiting', attempt_count = 6,
-				upstream_job_id = 'crawl-polling', upstream_phase = 'waiting'
-			WHERE id = ?`,
-		).bind(runId).run();
-		vi.spyOn(globalThis, 'fetch').mockResolvedValue(Response.json({
-			success: true,
-			result: {
-				browserSecondsUsed: 1,
-				finished: 10,
-				id: 'crawl-polling',
-				records: [],
-				status: 'running',
-				total: 100,
+		let statusPolls = 0;
+		vi.spyOn(globalThis, 'fetch').mockImplementation(async (input, init) => {
+			const url = new URL(typeof input === 'string' ? input : input instanceof URL ? input : input.url);
+			if (url.origin === 'https://example.com') return new Response(null, { status: 404 });
+			if (init?.method === 'POST') return Response.json({ success: true, result: 'crawl-polling' });
+			statusPolls += 1;
+			return Response.json({
+				success: true,
+				result: {
+					browserSecondsUsed: 1,
+					finished: 10,
+					id: 'crawl-polling',
+					records: [],
+					status: 'running',
+					total: 100,
+				},
+			});
+		});
+
+		let sleeps = 0;
+		const stopAfterThreePolls: CrawlStep = {
+			async do<T>(_name: string, callback: () => Promise<T>): Promise<T> {
+				return callback();
 			},
-		}));
+			async sleep(): Promise<void> {
+				sleeps += 1;
+				if (sleeps >= 3) throw new Error('stop-after-three-polls');
+			},
+		};
+		await expect(runBrowserCrawl(browserEnv as any, {
+			id: String(source.id),
+			lastSuccessAt: null,
+			name: 'Example Tech',
+			pollUrl: 'https://example.com/tech',
+			userId: TEST_USER_ID,
+		}, runId, stopAfterThreePolls)).rejects.toThrow('stop-after-three-polls');
 
-		await expect(processSourceQueueJob(browserEnv as any, {
-			runId,
-			sourceId: String(source.id),
-		}, 1)).resolves.toBe('continued');
-
+		expect(statusPolls).toBe(3);
+		expect(send).not.toHaveBeenCalled();
 		const run = await env.KEEPROOT_DB.prepare(
-			'SELECT status, attempt_count, finished_at FROM source_runs WHERE id = ?',
-		).bind(runId).first<{ attempt_count: number; finished_at: string | null; status: string }>();
-		expect(run).toEqual({ attempt_count: 7, finished_at: null, status: 'waiting' });
-		expect(send).toHaveBeenLastCalledWith({ runId, sourceId: String(source.id) }, { delaySeconds: 10 });
+			'SELECT status, attempt_count, finished_at, upstream_finished_count, upstream_total_count FROM source_runs WHERE id = ?',
+		).bind(runId).first<Record<string, number | string | null>>();
+		expect(run).toEqual({
+			attempt_count: 0,
+			finished_at: null,
+			status: 'waiting',
+			upstream_finished_count: 10,
+			upstream_total_count: 100,
+		});
 	});
 
 	it('fails an initial Browser Run crawl that recognises no posts', async () => {
 		const send = vi.fn().mockResolvedValue({});
+		const workflow = browserWorkflowStub();
 		const browserEnv = {
 			...env,
+			BROWSER_CRAWL_WORKFLOW: workflow.binding,
 			BROWSER_RUN_ACCOUNT_ID: 'browser-account',
 			BROWSER_RUN_API_TOKEN: 'browser-token',
 			SOURCE_QUEUE: { send },
@@ -994,9 +1078,11 @@ describe('KeepRoot Worker', () => {
 		});
 		const { runId } = await enqueueSourceRun(browserEnv as any, String(source.id), 'browser-empty');
 
-		await expect(processSourceQueueJob(browserEnv as any, { runId, sourceId: String(source.id) }, 1)).resolves.toBe('continued');
-		await expect(processSourceQueueJob(browserEnv as any, { runId, sourceId: String(source.id) }, 1)).resolves.toBe('continued');
-		await expect(processSourceQueueJob(browserEnv as any, { runId, sourceId: String(source.id) }, 1)).resolves.toBe('completed');
+		await expect(executeBrowserCrawlRun(
+			browserEnv as any,
+			{ runId, sourceId: String(source.id) },
+			inlineCrawlStep,
+		)).resolves.toBe('failed');
 
 		const failedRun = await env.KEEPROOT_DB.prepare(
 			'SELECT status, error_text, examined_count, discovered_count FROM source_runs WHERE id = ?',

@@ -553,7 +553,10 @@ export async function listDuePollableSources(env: StorageEnv, dueAt: string): Pr
 		FROM sources
 		WHERE status = 'active' AND poll_url IS NOT NULL
 			AND (next_poll_at IS NULL OR next_poll_at <= ?)
-			AND (active_run_id IS NULL OR lease_expires_at IS NULL OR lease_expires_at <= ?)
+			-- A browser run holds its source with no lease clock, because its Workflow
+			-- instance outlives any lease. For those, an active run alone means busy.
+			AND (active_run_id IS NULL OR (kind <> 'browser'
+				AND (lease_expires_at IS NULL OR lease_expires_at <= ?)))
 		ORDER BY next_poll_at ASC, created_at ASC`,
 	)
 		.bind(dueAt, dueAt)
