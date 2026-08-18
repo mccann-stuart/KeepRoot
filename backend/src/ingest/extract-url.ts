@@ -1,7 +1,7 @@
 import { Readability } from '@mozilla/readability';
 import { DOMParser } from 'linkedom';
-import TurndownService from 'turndown';
 import { renderPageWithBrowser, type BrowserRenderReason } from './browser';
+import { createArticleTurndownService } from './article-media';
 import { fetchWithRedirects, validateSafeUrl, type BookmarkImagePayload } from '../storage/shared';
 
 export interface BrowserExtractionDetails {
@@ -47,6 +47,11 @@ interface StructuredArticleBody {
 	headline?: string;
 }
 
+interface StructuredHeroCandidate {
+	priority: number;
+	url: string;
+}
+
 interface ParentNodeLike {
 	parentNode?: ParentNodeLike | null;
 }
@@ -76,6 +81,7 @@ const STRUCTURED_ARTICLE_TYPES = new Set([
 	'NewsArticle',
 	'ReportageNewsArticle',
 ]);
+const STRUCTURED_WEB_PAGE_TYPES = new Set(['CollectionPage', 'ItemPage', 'ProfilePage', 'WebPage']);
 const STRUCTURED_BODY_ADVANTAGE_LENGTH = 80;
 
 function normalizePdfText(rawText: string): string {
@@ -281,16 +287,18 @@ function htmlToPlainText(html: string): string {
 		.trim();
 }
 
-function createTurndownService(): TurndownService {
-	return new TurndownService({
-		codeBlockStyle: 'fenced',
-		headingStyle: 'atx',
-	});
+function structuredArticleType(record: Record<string, unknown>): boolean {
+	return structuredTypeNames(record).some((type) => STRUCTURED_ARTICLE_TYPES.has(type));
 }
 
-function structuredArticleType(record: Record<string, unknown>): boolean {
+function structuredTypeNames(record: Record<string, unknown>): string[] {
 	const rawTypes = Array.isArray(record['@type']) ? record['@type'] : [record['@type']];
-	return rawTypes.some((type) => typeof type === 'string' && STRUCTURED_ARTICLE_TYPES.has(type));
+	return rawTypes.flatMap((type) => {
+		if (typeof type !== 'string') {
+			return [];
+		}
+		return [type.split(/[\/#]/).pop() ?? type];
+	});
 }
 
 function elementDepth(element: ParentNodeLike): number {
@@ -370,21 +378,151 @@ function structuredArticleCandidates(value: unknown): StructuredArticleBody[] {
 	return candidates;
 }
 
-function extractStructuredArticle(document: ParsedHtmlDocument): StructuredArticleBody | null {
-	const candidates: StructuredArticleBody[] = [];
+function extractStructuredData(document: ParsedHtmlDocument): unknown[] {
+	const values: unknown[] = [];
 	for (const script of document.querySelectorAll('script[type="application/ld+json"]')) {
 		const rawJson = script.textContent?.trim();
 		if (!rawJson) {
 			continue;
 		}
 		try {
-			candidates.push(...structuredArticleCandidates(JSON.parse(rawJson)));
+			values.push(JSON.parse(rawJson));
 		} catch {
 			// Invalid publisher metadata should not block the normal Readability path.
 		}
 	}
+	return values;
+}
+
+function extractStructuredArticle(values: unknown[]): StructuredArticleBody | null {
+	const candidates = values.flatMap((value) => structuredArticleCandidates(value));
 
 	return candidates.sort((left, right) => right.body.length - left.body.length)[0] ?? null;
+}
+
+function schemaImageUrls(value: unknown): string[] {
+	if (typeof value === 'string') {
+		return [value];
+	}
+	if (Array.isArray(value)) {
+		return value.flatMap((item) => schemaImageUrls(item));
+	}
+	if (!value || typeof value !== 'object') {
+		return [];
+	}
+
+	const record = value as Record<string, unknown>;
+	return ['contentUrl', 'url', '@id'].flatMap((key) => typeof record[key] === 'string' ? [record[key] as string] : []);
+}
+
+function structuredHeroCandidates(value: unknown): StructuredHeroCandidate[] {
+	const candidates: StructuredHeroCandidate[] = [];
+	const pending: unknown[] = [value];
+	let examined = 0;
+
+	while (pending.length && examined < 1_000) {
+		const current = pending.pop();
+		examined += 1;
+		if (Array.isArray(current)) {
+			pending.push(...current);
+			continue;
+		}
+		if (!current || typeof current !== 'object') {
+			continue;
+		}
+
+		const record = current as Record<string, unknown>;
+		const types = structuredTypeNames(record);
+		const priority = types.some((type) => STRUCTURED_ARTICLE_TYPES.has(type))
+			? 0
+			: types.some((type) => STRUCTURED_WEB_PAGE_TYPES.has(type))
+				? 1
+				: 2;
+		for (const key of ['image', 'primaryImageOfPage', 'thumbnailUrl']) {
+			for (const url of schemaImageUrls(record[key])) {
+				candidates.push({ priority, url });
+			}
+		}
+		pending.push(...Object.values(record));
+	}
+
+	return candidates;
+}
+
+function resolveHttpUrl(rawUrl: string | null | undefined, pageUrl: string): string | null {
+	if (!rawUrl?.trim()) {
+		return null;
+	}
+
+	try {
+		const resolved = new URL(rawUrl, pageUrl);
+		return resolved.protocol === 'http:' || resolved.protocol === 'https:' ? resolved.toString() : null;
+	} catch {
+		return null;
+	}
+}
+
+function metadataImageCandidates(document: ParsedHtmlDocument): string[] {
+	const openGraph: string[] = [];
+	const twitter: string[] = [];
+	for (const meta of document.querySelectorAll('meta')) {
+		const key = (meta.getAttribute('property') ?? meta.getAttribute('name') ?? '').trim().toLowerCase();
+		const content = meta.getAttribute('content')?.trim();
+		if (!content) {
+			continue;
+		}
+		if (key === 'og:image' || key === 'og:image:url' || key === 'og:image:secure_url') {
+			openGraph.push(content);
+		} else if (key === 'twitter:image' || key === 'twitter:image:src') {
+			twitter.push(content);
+		}
+	}
+
+	const imageSourceLinks: string[] = [];
+	for (const link of document.querySelectorAll('link')) {
+		if (!(link.getAttribute('rel') ?? '').toLowerCase().split(/\s+/).includes('image_src')) {
+			continue;
+		}
+		const href = link.getAttribute('href')?.trim();
+		if (href) {
+			imageSourceLinks.push(href);
+		}
+	}
+	return [...openGraph, ...twitter, ...imageSourceLinks];
+}
+
+function extractLeadImageUrl(document: ParsedHtmlDocument, structuredValues: unknown[], pageUrl: string): string | null {
+	const structuredCandidates = structuredValues
+		.flatMap((value) => structuredHeroCandidates(value))
+		.sort((left, right) => left.priority - right.priority)
+		.map((candidate) => candidate.url);
+
+	for (const candidate of [...structuredCandidates, ...metadataImageCandidates(document)]) {
+		const resolved = resolveHttpUrl(candidate, pageUrl);
+		if (resolved) {
+			return resolved;
+		}
+	}
+	return null;
+}
+
+function markdownContainsImage(markdown: string, imageUrl: string, pageUrl: string): boolean {
+	const imagePattern = /!\[[^\]]*]\((?:<)?([^\s)>]+)(?:>)?(?:\s+["'][^"']*["'])?\)/g;
+	let match: RegExpExecArray | null = imagePattern.exec(markdown);
+	while (match) {
+		if (resolveHttpUrl(match[1], pageUrl) === imageUrl) {
+			return true;
+		}
+		match = imagePattern.exec(markdown);
+	}
+	return false;
+}
+
+function prependLeadImage(markdown: string, imageUrl: string | null, pageUrl: string): string {
+	if (!imageUrl || markdownContainsImage(markdown, imageUrl, pageUrl)) {
+		return markdown;
+	}
+	return `![Article image](${imageUrl})\n\n${markdown}`.trim();
 }
 
 function embeddedMediaLabel(rawUrl: string): string {
@@ -449,8 +587,10 @@ function fallbackExtractHtmlBookmark(html: string, url: string, fallbackTitle?: 
 function extractHtmlBookmark(html: string, url: string, fallbackTitle?: string): ExtractedHtmlBookmark {
 	try {
 		const document = new DOMParser().parseFromString(html, 'text/html');
-		const turndownService = createTurndownService();
-		const structuredArticle = extractStructuredArticle(document);
+		const turndownService = createArticleTurndownService();
+		const structuredValues = extractStructuredData(document);
+		const structuredArticle = extractStructuredArticle(structuredValues);
+		const leadImageUrl = extractLeadImageUrl(document, structuredValues, url);
 		const titleNodeText = document.querySelector('title')?.textContent?.trim() ?? '';
 		const semanticArticleHtml = selectSemanticArticleHtml(document);
 		const siteName = normalizeWhitespace(
@@ -493,12 +633,13 @@ function extractHtmlBookmark(html: string, url: string, fallbackTitle?: string):
 				|| htmlToPlainText(articleHtml)
 				|| markdownData,
 		);
+		const selectedMarkdownData = useStructuredArticle
+			? structuredArticleMarkdown(structuredArticle!.body)
+			: markdownData;
 		return {
 			htmlData: html,
 			lang,
-			markdownData: useStructuredArticle
-				? structuredArticleMarkdown(structuredArticle!.body)
-				: markdownData,
+			markdownData: prependLeadImage(selectedMarkdownData, leadImageUrl, url),
 			readabilitySucceeded: Boolean(article?.content?.trim() || useStructuredArticle),
 			siteName,
 			textContent: useStructuredArticle

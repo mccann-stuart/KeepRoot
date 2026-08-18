@@ -17,6 +17,7 @@ import browserRunSourcesSchemaSql from '../migrations/0009_browser_run_sources.s
 import browserSitemapShortlistSchemaSql from '../migrations/0010_browser_sitemap_shortlist.sql?raw';
 import browserRunProgressSchemaSql from '../migrations/0011_browser_run_progress.sql?raw';
 import browserCrawlWorkflowSchemaSql from '../migrations/0012_browser_crawl_workflow.sql?raw';
+import leadImageSchemaSql from '../migrations/0013_lead_image.sql?raw';
 
 const API_KEY = 'test-api-key-12345';
 const TEST_USER_ID = 'test-user-id';
@@ -165,6 +166,7 @@ async function resetDatabase(): Promise<void> {
 	await execStatements(browserSitemapShortlistSchemaSql, true);
 	await execStatements(browserRunProgressSchemaSql, true);
 	await execStatements(browserCrawlWorkflowSchemaSql, true);
+	await execStatements(leadImageSchemaSql, true);
 	await execStatements(`
 		DELETE FROM bookmark_tags;
 		DELETE FROM bookmark_images;
@@ -2050,6 +2052,8 @@ describe('KeepRoot Worker', () => {
 		expect(response.headers.get('Cross-Origin-Opener-Policy')).toBe('same-origin');
 		expect(response.headers.get('Cross-Origin-Resource-Policy')).toBe('same-origin');
 		expect(response.headers.get('Content-Security-Policy')).toContain("img-src 'self' blob:");
+		expect(response.headers.get('Content-Security-Policy')).toContain('frame-src https://www.youtube-nocookie.com');
+		expect(response.headers.get('Content-Security-Policy')).not.toContain('frame-src https://www.youtube.com');
 	});
 
 	it('rate limits authentication traffic by connecting IP', async () => {
@@ -2643,6 +2647,14 @@ describe('KeepRoot Worker', () => {
 		if (!imagePath) {
 			throw new Error('Expected a rewritten image path');
 		}
+		expect(getData.metadata.leadImageKey).toBe(imagePath.slice(1));
+
+		const listResponse = await worker.fetch(new Request('http://example.com/bookmarks', {
+			headers: { Authorization: `Bearer ${API_KEY}` },
+		}), env, ctx);
+		expect(listResponse.status).toBe(200);
+		const listData = (await listResponse.json()) as any;
+		expect(listData.keys.find((item: any) => item.id === createData.id)?.metadata.leadImageKey).toBe(imagePath.slice(1));
 
 		const unauthorizedContext = createExecutionContext();
 		const unauthorizedResponse = await worker.fetch(new Request(`http://example.com${imagePath}`), env, unauthorizedContext);

@@ -4,7 +4,7 @@ import { ApiError, KeepRootApi } from './lib/api';
 import { getDom } from './lib/dom';
 import { collectTags, filterBookmarks } from './lib/filters';
 import { decodeHtmlCharacterReferences, escapeHtml, renderMarkdown } from './lib/markdown';
-import { loadProtectedMedia } from './lib/media';
+import { loadProtectedImage, loadProtectedMedia } from './lib/media';
 import { buildMcpPresets, getDefaultSourceKind, getMcpEndpoint, getSourceKindOptions, getSourceSummaryLine } from './lib/mcp';
 import { registerServiceWorker } from './lib/service-worker';
 import { buildDataSnapshot, createAppState, getBookmarkId, type AccountFeatures, type ApiKeyRecord, type BookmarkDetail, type BookmarkSummary, type HighlightRecord, type SmartListSummary, type SourceHealthRecord, type SourceRecord, type ToolUsageRecord, type UsageStats, type ViewName } from './lib/state';
@@ -481,6 +481,25 @@ function getBookmarkDisplayDate(metadata: Record<string, any> | undefined): { da
 	return null;
 }
 
+function leadImagePath(rawKey: unknown): string | null {
+	if (typeof rawKey !== 'string') {
+		return null;
+	}
+	return /^(?:images\/[a-f0-9]{64}|thumbs\/[a-f0-9]{64}\/[a-z0-9_-]+)$/.test(rawKey) ? `/${rawKey}` : null;
+}
+
+async function loadBookmarkThumbnail(thumbnail: HTMLElement, path: string): Promise<void> {
+	const image = document.createElement('img');
+	image.alt = '';
+	image.decoding = 'async';
+	image.loading = 'lazy';
+	if (!await loadProtectedImage(image, path, api)) {
+		return;
+	}
+	thumbnail.replaceChildren(image);
+	thumbnail.classList.add('has-image');
+}
+
 function createBookmarkCard(bookmark: BookmarkSummary) {
 	const fragment = dom.bookmarkTemplate.content.cloneNode(true) as DocumentFragment;
 	const card = fragment.querySelector<HTMLElement>('.bookmark-card');
@@ -533,6 +552,10 @@ function createBookmarkCard(bookmark: BookmarkSummary) {
 	thumbnail.textContent = thumbnailLabel.slice(0, 2).toUpperCase() || 'KR';
 	const hue = [...domain].reduce((value, character) => value + character.charCodeAt(0), 0) % 360;
 	thumbnail.style.setProperty('--thumb-hue', String(hue));
+	const thumbnailPath = leadImagePath(bookmark.metadata?.leadImageKey);
+	if (thumbnailPath) {
+		void loadBookmarkThumbnail(thumbnail, thumbnailPath);
+	}
 	statusButton.textContent = '';
 	statusButton.setAttribute('aria-label', bookmark.metadata?.isRead ? 'Mark as unread' : 'Mark as read');
 	statusButton.title = bookmark.metadata?.isRead ? 'Read' : 'Unread';

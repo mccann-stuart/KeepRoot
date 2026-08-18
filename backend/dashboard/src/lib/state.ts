@@ -197,6 +197,7 @@ export function buildDataSnapshot(bookmarks: BookmarkSummary[], lists: ListSumma
 			contentHash: bookmark.metadata?.contentHash,
 			id: getBookmarkId(bookmark),
 			isRead: Boolean(bookmark.metadata?.isRead),
+			leadImageKey: bookmark.metadata?.leadImageKey,
 			listId: bookmark.metadata?.listId,
 			pinned: Boolean(bookmark.metadata?.pinned),
 			tags: Array.isArray(bookmark.metadata?.tags) ? bookmark.metadata.tags : [],

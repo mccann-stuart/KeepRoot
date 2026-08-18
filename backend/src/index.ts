@@ -111,7 +111,7 @@ function applyCorsHeaders(response: Response, request: Request, env: Env): Respo
 	headers.set('X-Frame-Options', 'DENY');
 	headers.set('X-XSS-Protection', '1; mode=block');
 	headers.set('Strict-Transport-Security', 'max-age=31536000; includeSubDomains');
-	headers.set('Content-Security-Policy', "default-src 'self'; img-src 'self' blob:; frame-ancestors 'none'; form-action 'self';");
+	headers.set('Content-Security-Policy', "default-src 'self'; img-src 'self' blob:; frame-src https://www.youtube-nocookie.com; frame-ancestors 'none'; form-action 'self';");
 	headers.set('Referrer-Policy', 'no-referrer');
 	headers.set('Permissions-Policy', 'camera=(), geolocation=(), microphone=(), payment=(), usb=()');
 	headers.set('Cross-Origin-Opener-Policy', 'same-origin');
