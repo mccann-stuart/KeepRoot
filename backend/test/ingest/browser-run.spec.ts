@@ -332,17 +332,17 @@ describe('Browser Run post recognition', () => {
 
 	it('recognises each completed article in its own durable step and persists its metadata', async () => {
 		const { calls } = mockCrawlApi({
-			results: (call) => ({
-				cursor: call === 1 ? '1' : null,
+			results: () => ({
+				cursor: null,
 				finished: 2,
-				records: [completedPage(`
+				records: [1, 2].map((index) => completedPage(`
 					<html><head>
-						<link rel="canonical" href="https://example.com/posts/${call}">
+						<link rel="canonical" href="https://example.com/posts/${index}">
 						<meta property="og:type" content="article">
-						<meta property="og:title" content="Post ${call}">
-						<meta property="article:published_time" content="2026-08-${10 + call}">
+						<meta property="og:title" content="Post ${index}">
+						<meta property="article:published_time" content="2026-08-${10 + index}">
 					</head></html>
-				`, `https://example.com/posts/${call}`)],
+				`, `https://example.com/posts/${index}`)),
 				status: 'completed',
 				total: 2,
 			}),
@@ -357,33 +357,51 @@ describe('Browser Run post recognition', () => {
 			step,
 		);
 
-		expect(calls.results).toBe(2);
+		expect(calls.results).toBe(1);
+		expect(step.names.filter((name) => name.startsWith('fetch-result-batch-')))
+			.toEqual(['fetch-result-batch-0']);
 		expect(step.names.filter((name) => name.startsWith('ingest-record-')))
 			.toEqual(['ingest-record-0', 'ingest-record-1']);
 		expect(step.outputs.get('ingest-record-0')).toMatchObject({
-			recognised: [{
+			recognised: {
 				canonicalUrl: 'https://example.com/posts/1',
 				publishedAt: '2026-08-11T00:00:00.000Z',
 				recordUrl: 'https://example.com/posts/1',
 				title: 'Post 1',
-			}],
+			},
 		});
 	});
 
 	it('resumes from the first unfinished article without rerunning successful steps', async () => {
 		const cache = new Map<string, unknown>();
 		const executions = new Map<string, number>();
+		let failSecondRecord = true;
 		const step: CrawlStep = {
 			async do<T>(name: string, callback: () => Promise<T>): Promise<T> {
-				if (cache.has(name)) return cache.get(name) as T;
+				if (cache.has(name)) {
+					const cached = cache.get(name);
+					if (typeof cached === 'string' && name.startsWith('fetch-result-batch-')) {
+						return new Blob([cached]).stream() as T;
+					}
+					return cached as T;
+				}
 				executions.set(name, (executions.get(name) ?? 0) + 1);
+				if (name === 'ingest-record-1' && failSecondRecord) {
+					failSecondRecord = false;
+					throw new TypeError('transient article failure');
+				}
 				const output = await callback();
+				if (output instanceof ReadableStream) {
+					const text = await new Response(output).text();
+					cache.set(name, text);
+					return new Blob([text]).stream() as T;
+				}
 				cache.set(name, output);
 				return output;
 			},
 			async sleep(): Promise<void> {},
 		};
-		const resultFetches = new Map<string, number>();
+		let resultFetches = 0;
 		vi.spyOn(globalThis, 'fetch').mockImplementation(async (input: any, init: any) => {
 			const url = String(input);
 			if (!url.includes('/browser-rendering/crawl')) return new Response('Not found', { status: 404 });
@@ -392,22 +410,18 @@ describe('Browser Run post recognition', () => {
 			if (parsed.searchParams.get('status') !== 'completed') {
 				return Response.json(crawlBody({ finished: 2, records: [], status: 'completed', total: 2 }));
 			}
-			const cursor = parsed.searchParams.get('cursor') ?? 'start';
-			const attempts = (resultFetches.get(cursor) ?? 0) + 1;
-			resultFetches.set(cursor, attempts);
-			if (cursor === '1' && attempts === 1) throw new TypeError('transient result failure');
-			const index = cursor === 'start' ? 1 : 2;
+			resultFetches += 1;
 			return Response.json(crawlBody({
-				cursor: index === 1 ? '1' : null,
+				cursor: null,
 				finished: 2,
-				records: [completedPage(`
+				records: [1, 2].map((index) => completedPage(`
 					<html><head>
 						<link rel="canonical" href="https://example.com/posts/${index}">
 						<meta property="og:type" content="article">
 						<meta property="og:title" content="Post ${index}">
 						<meta property="article:published_time" content="2026-08-1${index}">
 					</head></html>
-				`, `https://example.com/posts/${index}`)],
+				`, `https://example.com/posts/${index}`)),
 				status: 'completed',
 				total: 2,
 			}));
@@ -416,14 +430,15 @@ describe('Browser Run post recognition', () => {
 		const input = source({ lastSuccessAt: '2026-08-10T00:00:00.000Z' });
 
 		await expect(runBrowserCrawl(env, input, 'run-id', step))
-			.rejects.toThrow('transient result failure');
+			.rejects.toThrow('transient article failure');
 		await expect(runBrowserCrawl(env, input, 'run-id', step)).resolves.toBeDefined();
 
 		expect(executions.get('initiate-crawl')).toBe(1);
 		expect(executions.get('poll-crawl-0')).toBe(1);
+		expect(executions.get('fetch-result-batch-0')).toBe(1);
 		expect(executions.get('ingest-record-0')).toBe(1);
 		expect(executions.get('ingest-record-1')).toBe(2);
-		expect(resultFetches).toEqual(new Map([['start', 1], ['1', 2]]));
+		expect(resultFetches).toBe(1);
 	});
 
 	// Production run 9b46d99d fetched 944 result pages for a 13-record crawl. Browser Run

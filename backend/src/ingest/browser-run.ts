@@ -19,10 +19,10 @@ import {
 const API_ROOT = 'https://api.cloudflare.com/client/v4/accounts';
 const MAX_API_RESPONSE_BYTES = 12 * 1024 * 1024;
 const CRAWL_PAGE_LIMIT = 100;
-// A completed record can contain hundreds of kilobytes of publisher HTML. Keep each
-// recognition/import callback inside its own durable Workflow step so the CPU ceiling and
-// automatic retries apply to one article rather than an entire result page.
-const CRAWL_RESULT_PAGE_SIZE = 1;
+// Browser Run can return up to 200 completed records efficiently in one result request.
+// Persist the response as a streamed step output, then keep recognition/import inside
+// per-article steps so large HTML documents do not share one Workflow CPU budget.
+const CRAWL_RESULT_BATCH_SIZE = 200;
 const CRAWL_TIMEOUT_MS = 2 * 60 * 60 * 1_000;
 // Sleeping between polls is free inside a Workflow, so cadence is chosen for the crawler's
 // pace rather than to conserve invocations. Browser Run REST allows 10 requests per second.
@@ -227,11 +227,11 @@ function errorMessage(payload: unknown): string | null {
 	return null;
 }
 
-async function browserRunRequest(
+async function browserRunResponse(
 	env: StorageEnv,
 	path: string,
 	init: RequestInit = {},
-): Promise<JsonRecord> {
+): Promise<Response> {
 	if (!env.BROWSER_RUN_ACCOUNT_ID || !env.BROWSER_RUN_API_TOKEN) {
 		throw new BrowserRunCrawlError('Browser Run account credentials are not configured');
 	}
@@ -245,7 +245,7 @@ async function browserRunRequest(
 		throw new BrowserRunCrawlError('Browser Run API token is empty');
 	}
 
-	const response = await fetch(
+	return fetch(
 		`${API_ROOT}/${encodeURIComponent(env.BROWSER_RUN_ACCOUNT_ID)}/browser-rendering/crawl${path}`,
 		{
 			...init,
@@ -256,6 +256,14 @@ async function browserRunRequest(
 			},
 		},
 	);
+}
+
+async function browserRunRequest(
+	env: StorageEnv,
+	path: string,
+	init: RequestInit = {},
+): Promise<JsonRecord> {
+	const response = await browserRunResponse(env, path, init);
 	const text = await readBoundedText(response);
 	let payload: unknown = null;
 	try {
@@ -279,6 +287,58 @@ async function browserRunRequest(
 		);
 	}
 	return payload;
+}
+
+async function getCrawlResultStream(
+	env: StorageEnv,
+	jobId: string,
+	options: { cursor?: string | null; limit: number; status?: 'completed' },
+): Promise<ReadableStream<Uint8Array>> {
+	const query = new URLSearchParams({ limit: String(options.limit) });
+	if (options.cursor) query.set('cursor', options.cursor);
+	if (options.status) query.set('status', options.status);
+	const response = await browserRunResponse(
+		env,
+		`/${encodeURIComponent(jobId)}?${query}`,
+	);
+	if (!response.ok) {
+		const text = await readBoundedText(response);
+		let payload: unknown = null;
+		try {
+			payload = text ? JSON.parse(text) : null;
+		} catch {
+			// The status code remains more useful than an invalid error response body.
+		}
+		throw new BrowserRunCrawlError(
+			`Browser Run crawl failed (${response.status}): ${errorMessage(payload) ?? 'Unknown API error'}`,
+			{
+				retryAfterSeconds: retryAfterSeconds(response),
+				retryable: response.status === 408 || response.status === 429 || response.status >= 500,
+				statusCode: response.status,
+			},
+		);
+	}
+	if (!response.body) {
+		throw new BrowserRunCrawlError('Browser Run crawl response did not contain a body');
+	}
+	return response.body;
+}
+
+async function parseCrawlResultStream(stream: ReadableStream<Uint8Array>): Promise<BrowserCrawlResult> {
+	const text = await readBoundedText(new Response(stream));
+	let payload: unknown = null;
+	try {
+		payload = text ? JSON.parse(text) : null;
+	} catch {
+		throw new BrowserRunCrawlError('Browser Run returned invalid JSON (200)');
+	}
+	if (!isRecord(payload) || payload.success !== true) {
+		throw new BrowserRunCrawlError(
+			`Browser Run crawl failed (200): ${errorMessage(payload) ?? 'Unknown API error'}`,
+			{ statusCode: 200 },
+		);
+	}
+	return parseCrawlResult(payload);
 }
 
 function parseCrawlResult(payload: JsonRecord): BrowserCrawlResult {
@@ -838,15 +898,13 @@ interface CrawlPollState {
 	total: number;
 }
 
-interface IngestedPage {
-	cursor: string | null;
+interface IngestedRecord {
 	examined: number;
 	processed: number;
-	recognised: Array<RecognisedBrowserPost & { recordUrl: string }>;
-	recordUrls: string[];
+	recognised: (RecognisedBrowserPost & { recordUrl: string }) | null;
+	recordUrl: string;
 	skipped: number;
 	staged: number;
-	total: number;
 	unattempted: number;
 	unchanged: number;
 	upstreamErrors: number;
@@ -967,7 +1025,8 @@ async function pollCrawl(
 }
 
 /**
- * Reads every completed record exactly once, recognising and staging as it goes.
+ * Fetches completed records in large streamed batches, then recognises and stages each
+ * article in its own durable step.
  *
  * The previous implementation looped on `cursor` alone. Browser Run returns a cursor even
  * for a one-record response and answers an out-of-range cursor with records rather than an
@@ -981,112 +1040,124 @@ async function ingestCrawlResults(
 	runId: string,
 	expectedTotal: number,
 	step: CrawlStep,
-): Promise<{ pages: IngestedPage[]; saturated: boolean }> {
-	const pages: IngestedPage[] = [];
+): Promise<{
+	batchCount: number;
+	records: Map<string, BrowserCrawlRecord>;
+	results: IngestedRecord[];
+	saturated: boolean;
+}> {
+	let batchCount = 0;
+	const records = new Map<string, BrowserCrawlRecord>();
+	const results: IngestedRecord[] = [];
 	const seen = new Set<string>();
 	const cursors = new Set<string>();
 	let cursor: string | null = null;
+	let recordIndex = 0;
 	// `expectedTotal` is the requested crawl ceiling. Once results arrive, their total is
 	// authoritative; otherwise a 13-record fallback crawl requested with limit 100 would
-	// perform 87 redundant single-record steps against Browser Run's out-of-range cursor.
+	// continue requesting out-of-range cursor batches from Browser Run.
 	let upstreamTotal = 0;
 
-	for (let index = 0; index < Math.ceil(Math.max(expectedTotal, 1) / CRAWL_RESULT_PAGE_SIZE) + MAX_RESULT_PAGE_SLACK; index += 1) {
-		const known = [...seen];
-		const page: IngestedPage = await step.do(`ingest-record-${index}`, async () => {
-			const crawl = await getCrawl(env, jobId, {
+	for (let batchIndex = 0; batchIndex < (upstreamTotal || Math.max(expectedTotal, 1)) + MAX_RESULT_PAGE_SLACK; batchIndex += 1) {
+		const stream = await step.do(`fetch-result-batch-${batchIndex}`, async () =>
+			getCrawlResultStream(env, jobId, {
 				cursor,
-				limit: CRAWL_RESULT_PAGE_SIZE,
+				limit: CRAWL_RESULT_BATCH_SIZE,
 				status: 'completed',
-			});
-			const knownUrls = new Set(known);
-			const result: IngestedPage = {
-				cursor: crawl.cursor,
-				examined: 0,
-				processed: 0,
-				recognised: [],
-				recordUrls: [],
-				skipped: 0,
-				staged: 0,
-				total: crawl.total,
-				unattempted: 0,
-				unchanged: 0,
-				upstreamErrors: 0,
-			};
-			for (const record of crawl.records) {
-				// Pages can overlap when a cursor overshoots; never count a record twice.
-				if (knownUrls.has(record.url)) continue;
-				knownUrls.add(record.url);
-				result.recordUrls.push(record.url);
+			}),
+		);
+		batchCount += 1;
+		const crawl = await parseCrawlResultStream(stream);
+		let batchRecordCount = 0;
+		for (const record of crawl.records) {
+			// Cursor pages may overlap; keep the first complete payload for import and do not
+			// create another durable article step for the duplicate.
+			if (seen.has(record.url)) continue;
+			seen.add(record.url);
+			records.set(record.url, record);
+			batchRecordCount += 1;
+			const result = await step.do(`ingest-record-${recordIndex}`, async (): Promise<IngestedRecord> => {
+				const ingested: IngestedRecord = {
+					examined: 0,
+					processed: 0,
+					recognised: null,
+					recordUrl: record.url,
+					skipped: 0,
+					staged: 0,
+					unattempted: 0,
+					unchanged: 0,
+					upstreamErrors: 0,
+				};
 				if (UNATTEMPTED_RECORD_STATUSES.has(record.status)) {
-					result.unattempted += 1;
-					continue;
+					ingested.unattempted = 1;
+				} else {
+					ingested.examined = 1;
+					if (record.status !== 'completed') {
+						// Everything left — errored, disallowed, cancelled — is a page the
+						// crawler tried and failed to deliver.
+						ingested.skipped = 1;
+						ingested.upstreamErrors = 1;
+					} else {
+						ingested.processed = 1;
+						const post = await recogniseBrowserPost(source.pollUrl, record);
+						if (!post) {
+							ingested.skipped = 1;
+						} else {
+							ingested.recognised = { ...post, recordUrl: record.url };
+							if (await stageDiscovery(env, source.id, runId, post)) ingested.staged = 1;
+							else ingested.unchanged = 1;
+						}
+					}
 				}
-				result.examined += 1;
-				if (record.status !== 'completed') {
-					// Everything left — errored, disallowed, cancelled — is a page the
-					// crawler tried and failed to deliver.
-					result.skipped += 1;
-					result.upstreamErrors += 1;
-					continue;
-				}
-				result.processed += 1;
-				const post = await recogniseBrowserPost(source.pollUrl, record);
-				if (!post) {
-					result.skipped += 1;
-					continue;
-				}
-				result.recognised.push({ ...post, recordUrl: record.url });
-				if (await stageDiscovery(env, source.id, runId, post)) result.staged += 1;
-				else result.unchanged += 1;
-			}
-			await env.KEEPROOT_DB.prepare(
-				`UPDATE source_runs
-				SET examined_count = examined_count + ?, processed_count = processed_count + ?,
-					discovered_count = discovered_count + ?, unchanged_count = unchanged_count + ?,
-					skipped_count = skipped_count + ?, upstream_error_count = upstream_error_count + ?
-				WHERE id = ? AND source_id = ?`,
-			).bind(
-				result.examined,
-				result.processed,
-				result.staged,
-				result.unchanged,
-				result.skipped,
-				result.upstreamErrors,
+				await env.KEEPROOT_DB.prepare(
+					`UPDATE source_runs
+					SET examined_count = examined_count + ?, processed_count = processed_count + ?,
+						discovered_count = discovered_count + ?, unchanged_count = unchanged_count + ?,
+						skipped_count = skipped_count + ?, upstream_error_count = upstream_error_count + ?
+					WHERE id = ? AND source_id = ?`,
+				).bind(
+					ingested.examined,
+					ingested.processed,
+					ingested.staged,
+					ingested.unchanged,
+					ingested.skipped,
+					ingested.upstreamErrors,
+					runId,
+					source.id,
+				).run();
+				return ingested;
+			});
+			results.push(result);
+
+			browserRunLog('browser_crawl_ingest_record', {
+				examined: result.examined,
+				jobId,
+				record: recordIndex,
+				recognised: Boolean(result.recognised),
 				runId,
-				source.id,
-			).run();
-			return result;
-		});
-
-		pages.push(page);
-		for (const url of page.recordUrls) seen.add(url);
-		if (page.total > 0) upstreamTotal = Math.max(upstreamTotal, page.total);
-
-		browserRunLog('browser_crawl_ingest_record', {
-			examined: page.examined,
-			jobId,
-			page: index,
-			recognised: page.recognised.length,
-			runId,
-			seen: seen.size,
-			skipped: page.skipped,
-			sourceId: source.id,
-			unattempted: page.unattempted,
-			upstreamErrors: page.upstreamErrors,
-		});
+				seen: seen.size,
+				skipped: result.skipped,
+				sourceId: source.id,
+				unattempted: result.unattempted,
+				upstreamErrors: result.upstreamErrors,
+			});
+			recordIndex += 1;
+		}
+		if (crawl.total > 0) upstreamTotal = Math.max(upstreamTotal, crawl.total);
 
 		// Every one of these is load-bearing: the cursor alone cannot be trusted to end.
-		if (!page.cursor) break;
-		if (page.recordUrls.length === 0) break;
-		if (cursors.has(page.cursor)) break;
+		if (!crawl.cursor) break;
+		if (batchRecordCount === 0) break;
+		if (cursors.has(crawl.cursor)) break;
 		if (upstreamTotal > 0 && seen.size >= upstreamTotal) break;
-		cursors.add(page.cursor);
-		cursor = page.cursor;
+		cursors.add(crawl.cursor);
+		cursor = crawl.cursor;
 	}
 
 	return {
-		pages,
+		batchCount,
+		records,
+		results,
 		saturated: (upstreamTotal || expectedTotal) >= CRAWL_PAGE_LIMIT,
 	};
 }
@@ -1095,15 +1166,16 @@ async function ingestCrawlResults(
  * Extracts and saves only the discoveries still marked pending after archive selection.
  *
  * Recognition already persisted each record's canonical URL, title and publication date.
- * This pass refetches only selected records and performs content extraction without running
- * metadata recognition again.
+ * The streamed batch already contains the selected HTML, so this pass performs no extra
+ * Browser Run requests and does not run metadata recognition again.
  */
 async function importSelectedPosts(
 	env: StorageEnv,
 	source: BrowserSourceInput,
 	jobId: string,
 	runId: string,
-	pages: IngestedPage[],
+	records: Map<string, BrowserCrawlRecord>,
+	results: IngestedRecord[],
 	step: CrawlStep,
 ): Promise<void> {
 	const pending = await step.do('list-pending-imports', async () => {
@@ -1117,41 +1189,30 @@ async function importSelectedPosts(
 
 	const wanted = new Set(pending);
 	const selectedRecords: Array<{
-		cursor: string | null;
 		index: number;
 		post: RecognisedBrowserPost;
-		recordUrl: string;
+		record: BrowserCrawlRecord;
 	}> = [];
-	let previousCursor: string | null = null;
-	for (const [index, page] of pages.entries()) {
-		for (const entry of page.recognised) {
-			if (wanted.has(entry.canonicalUrl)) {
-				selectedRecords.push({
-					cursor: previousCursor,
-					index,
-					post: {
-						canonicalUrl: entry.canonicalUrl,
-						publishedAt: entry.publishedAt,
-						title: entry.title,
-					},
-					recordUrl: entry.recordUrl,
-				});
-			}
+	for (const [index, result] of results.entries()) {
+		const entry = result.recognised;
+		const record = entry ? records.get(entry.recordUrl) : null;
+		if (entry && record && wanted.has(entry.canonicalUrl)) {
+			selectedRecords.push({
+				index,
+				post: {
+					canonicalUrl: entry.canonicalUrl,
+					publishedAt: entry.publishedAt,
+					title: entry.title,
+				},
+				record,
+			});
 		}
-		previousCursor = page.cursor;
 	}
 
 	const username = await step.do('resolve-username', () => getUsername(env, source.userId));
-	for (const { cursor, index, post, recordUrl } of selectedRecords) {
+	for (const { index, post, record } of selectedRecords) {
 		await step.do(`import-record-${index}`, async () => {
-			const crawl = await getCrawl(env, jobId, {
-				cursor,
-				limit: CRAWL_RESULT_PAGE_SIZE,
-				status: 'completed',
-			});
-			const record = crawl.records.find((candidate) =>
-				candidate.status === 'completed' && candidate.url === recordUrl);
-			const imported = record
+			const imported = record.status === 'completed'
 				? await importPendingRecord(env, source, runId, record, post, username)
 				: false;
 			browserRunLog('browser_crawl_import_record', {
@@ -1224,7 +1285,7 @@ export async function runBrowserCrawl(
 		`UPDATE source_runs SET status = 'running', upstream_phase = 'scan' WHERE id = ? AND source_id = ?`,
 	).bind(runId, source.id).run();
 
-	const { pages, saturated } = await ingestCrawlResults(
+	const { batchCount, records, results, saturated } = await ingestCrawlResults(
 		env,
 		source,
 		started.jobId,
@@ -1237,7 +1298,7 @@ export async function runBrowserCrawl(
 	if (totals.processed_count === 0 && totals.upstream_error_count > 0) {
 		throw new BrowserRunCrawlError('Browser Run could not access any pages; the site disallowed or errored every crawl request');
 	}
-	if (totals.examined_count === 0 && pages.some((page) => page.unattempted > 0)) {
+	if (totals.examined_count === 0 && results.some((result) => result.unattempted > 0)) {
 		throw new BrowserRunCrawlError(
 			'Browser Run returned no attempted pages; every crawl candidate was left queued or skipped',
 			{ retryable: true },
@@ -1256,7 +1317,7 @@ export async function runBrowserCrawl(
 		`UPDATE source_runs SET upstream_phase = 'import' WHERE id = ? AND source_id = ?`,
 	).bind(runId, source.id).run();
 
-	await importSelectedPosts(env, source, started.jobId, runId, pages, step);
+	await importSelectedPosts(env, source, started.jobId, runId, records, results, step);
 
 	const unmatched = await env.KEEPROOT_DB.prepare(
 		`SELECT COUNT(*) AS count FROM source_discoveries
@@ -1274,7 +1335,7 @@ export async function runBrowserCrawl(
 	browserRunLog('browser_crawl_completed', {
 		examined: final.examined_count,
 		jobId: started.jobId,
-		pages: pages.length,
+		batches: batchCount,
 		recognised: final.discovered_count,
 		runId,
 		saved: final.saved_count,
