@@ -765,9 +765,9 @@ describe('KeepRoot Worker', () => {
 		});
 		expect(startBodies[2]).not.toHaveProperty('modifiedSince');
 		expect(startBodies).toHaveLength(3);
-		expect(resultRequests.length).toBeGreaterThan(0);
+		expect(resultRequests).toHaveLength(3);
 		expect(resultRequests.every((url) => url.searchParams.get('status') === 'completed')).toBe(true);
-		expect(resultRequests.every((url) => url.searchParams.get('limit') === '1')).toBe(true);
+		expect(resultRequests.every((url) => url.searchParams.get('limit') === '200')).toBe(true);
 	});
 
 	it('coalesces Browser Run refreshes, cancels orphaned runs, and clears a stale source error', async () => {
@@ -1060,16 +1060,14 @@ describe('KeepRoot Worker', () => {
 		await env.KEEPROOT_DB.prepare(
 			'UPDATE sources SET last_success_at = ? WHERE id = ?',
 		).bind('2026-08-17T00:00:00.000Z', source.id).run();
-		const scanHtml = `<!doctype html><html><head>
+		const articleHtml = `<!doctype html><html><head>
 			<link rel="canonical" href="https://metadata.example/posts/one">
 			<meta property="og:type" content="article">
 			<meta property="og:title" content="Recognised once">
 			<meta property="article:published_time" content="2026-08-18T08:30:00Z">
-		</head><body><article><h1>Recognised once</h1></article></body></html>`;
-		const importHtml = `<!doctype html><html><body><article>
-			<h1>Content-only response</h1>
+		</head><body><article><h1>Recognised once</h1>
 			<p>This article body is long enough for the normal readable-content extraction path.</p>
-			<p>It deliberately contains no publication metadata for a second recognition pass.</p>
+			<p>The same Browser Run record supplies recognition metadata and import content.</p>
 		</article></body></html>`;
 		let resultRequestCount = 0;
 		vi.spyOn(globalThis, 'fetch').mockImplementation(async (input, init) => {
@@ -1087,7 +1085,7 @@ describe('KeepRoot Worker', () => {
 				finished: 1,
 				id: 'crawl-metadata',
 				records: isResultRequest ? [{
-					html: resultRequestCount === 1 ? scanHtml : importHtml,
+					html: articleHtml,
 					status: 'completed',
 					url: 'https://metadata.example/posts/one',
 				}] : [],
@@ -1103,7 +1101,7 @@ describe('KeepRoot Worker', () => {
 			inlineCrawlStep,
 		)).resolves.toBe('completed');
 
-		expect(resultRequestCount).toBe(2);
+		expect(resultRequestCount).toBe(1);
 		const bookmark = await env.KEEPROOT_DB.prepare(
 			`SELECT title, published_at, source_entry_id FROM bookmarks
 			WHERE source_id = ? LIMIT 1`,
