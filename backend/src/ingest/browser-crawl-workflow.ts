@@ -49,7 +49,7 @@ export async function executeBrowserCrawlRun(
 	env: StorageEnv,
 	params: BrowserCrawlParams,
 	step: CrawlStep,
-): Promise<'completed' | 'failed' | 'ignored'> {
+): Promise<'completed' | 'ignored'> {
 	const row = await loadBrowserRun(env, params);
 	if (!row || row.finished_at || row.run_status === 'success' || row.run_status === 'error') {
 		return 'ignored';
@@ -89,7 +89,9 @@ export async function executeBrowserCrawlRun(
 	} catch (error) {
 		// Step retries have already been exhausted by the time the error surfaces here.
 		await recordSourceRunFailure(env, params, error, row.poll_interval_minutes, row.kind, 1, false);
-		return 'failed';
+		// KeepRoot has its terminal failure state; rethrow so Cloudflare also reports the
+		// Workflow instance as errored instead of green after a step exhausted its retries.
+		throw error;
 	}
 }
 

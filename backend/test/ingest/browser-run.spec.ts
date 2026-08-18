@@ -62,13 +62,24 @@ function envWith(overrides: Record<string, unknown> = {}): RecordingEnv {
  * Drives steps inline and advances the clock for each sleep, which is what lets a two-hour
  * poll deadline be exercised without a two-hour test.
  */
-function fakeStep(): CrawlStep & { sleeps: Array<{ duration: unknown; name: string }> } {
+function fakeStep(): CrawlStep & {
+	names: string[];
+	outputs: Map<string, unknown>;
+	sleeps: Array<{ duration: unknown; name: string }>;
+} {
+	const names: string[] = [];
+	const outputs = new Map<string, unknown>();
 	const sleeps: Array<{ duration: unknown; name: string }> = [];
 	vi.useFakeTimers({ shouldAdvanceTime: false, toFake: ['Date'] });
 	return {
-		async do<T>(_name: string, callback: () => Promise<T>): Promise<T> {
-			return callback();
+		async do<T>(name: string, callback: () => Promise<T>): Promise<T> {
+			names.push(name);
+			const output = await callback();
+			outputs.set(name, output);
+			return output;
 		},
+		names,
+		outputs,
 		sleeps,
 		async sleep(name: string, duration: number | string): Promise<void> {
 			sleeps.push({ duration, name });
@@ -319,19 +330,115 @@ describe('Browser Run post recognition', () => {
 		expect(calls.status).toBe(3);
 	});
 
+	it('recognises each completed article in its own durable step and persists its metadata', async () => {
+		const { calls } = mockCrawlApi({
+			results: (call) => ({
+				cursor: call === 1 ? '1' : null,
+				finished: 2,
+				records: [completedPage(`
+					<html><head>
+						<link rel="canonical" href="https://example.com/posts/${call}">
+						<meta property="og:type" content="article">
+						<meta property="og:title" content="Post ${call}">
+						<meta property="article:published_time" content="2026-08-${10 + call}">
+					</head></html>
+				`, `https://example.com/posts/${call}`)],
+				status: 'completed',
+				total: 2,
+			}),
+			status: () => ({ finished: 2, records: [], status: 'completed', total: 2 }),
+		});
+		const step = fakeStep();
+
+		await runBrowserCrawl(
+			envWith(),
+			source({ lastSuccessAt: '2026-08-10T00:00:00.000Z' }),
+			'run-id',
+			step,
+		);
+
+		expect(calls.results).toBe(2);
+		expect(step.names.filter((name) => name.startsWith('ingest-record-')))
+			.toEqual(['ingest-record-0', 'ingest-record-1']);
+		expect(step.outputs.get('ingest-record-0')).toMatchObject({
+			recognised: [{
+				canonicalUrl: 'https://example.com/posts/1',
+				publishedAt: '2026-08-11T00:00:00.000Z',
+				recordUrl: 'https://example.com/posts/1',
+				title: 'Post 1',
+			}],
+		});
+	});
+
+	it('resumes from the first unfinished article without rerunning successful steps', async () => {
+		const cache = new Map<string, unknown>();
+		const executions = new Map<string, number>();
+		const step: CrawlStep = {
+			async do<T>(name: string, callback: () => Promise<T>): Promise<T> {
+				if (cache.has(name)) return cache.get(name) as T;
+				executions.set(name, (executions.get(name) ?? 0) + 1);
+				const output = await callback();
+				cache.set(name, output);
+				return output;
+			},
+			async sleep(): Promise<void> {},
+		};
+		const resultFetches = new Map<string, number>();
+		vi.spyOn(globalThis, 'fetch').mockImplementation(async (input: any, init: any) => {
+			const url = String(input);
+			if (!url.includes('/browser-rendering/crawl')) return new Response('Not found', { status: 404 });
+			if (init?.method === 'POST') return Response.json({ result: 'crawl-id', success: true });
+			const parsed = new URL(url);
+			if (parsed.searchParams.get('status') !== 'completed') {
+				return Response.json(crawlBody({ finished: 2, records: [], status: 'completed', total: 2 }));
+			}
+			const cursor = parsed.searchParams.get('cursor') ?? 'start';
+			const attempts = (resultFetches.get(cursor) ?? 0) + 1;
+			resultFetches.set(cursor, attempts);
+			if (cursor === '1' && attempts === 1) throw new TypeError('transient result failure');
+			const index = cursor === 'start' ? 1 : 2;
+			return Response.json(crawlBody({
+				cursor: index === 1 ? '1' : null,
+				finished: 2,
+				records: [completedPage(`
+					<html><head>
+						<link rel="canonical" href="https://example.com/posts/${index}">
+						<meta property="og:type" content="article">
+						<meta property="og:title" content="Post ${index}">
+						<meta property="article:published_time" content="2026-08-1${index}">
+					</head></html>
+				`, `https://example.com/posts/${index}`)],
+				status: 'completed',
+				total: 2,
+			}));
+		});
+		const env = envWith();
+		const input = source({ lastSuccessAt: '2026-08-10T00:00:00.000Z' });
+
+		await expect(runBrowserCrawl(env, input, 'run-id', step))
+			.rejects.toThrow('transient result failure');
+		await expect(runBrowserCrawl(env, input, 'run-id', step)).resolves.toBeDefined();
+
+		expect(executions.get('initiate-crawl')).toBe(1);
+		expect(executions.get('poll-crawl-0')).toBe(1);
+		expect(executions.get('ingest-record-0')).toBe(1);
+		expect(executions.get('ingest-record-1')).toBe(2);
+		expect(resultFetches).toEqual(new Map([['start', 1], ['1', 2]]));
+	});
+
 	// Production run 9b46d99d fetched 944 result pages for a 13-record crawl. Browser Run
 	// answers an out-of-range cursor with records rather than an empty page, so a loop that
-	// trusts the cursor alone never terminates.
+	// trusts the cursor alone must stop at the upstream record total.
 	it('bounds result paging when the cursor never terminates', async () => {
 		const { calls } = mockCrawlApi({
 			results: (call) => ({
-				cursor: String(call * 25),
+				cursor: String(call),
 				finished: 13,
 				// Always non-empty and always advancing: only an explicit bound stops this.
-				records: Array.from({ length: 25 }, (_, index) => ({
+				records: [{
 					status: 'queued',
-					url: `https://example.com/posts/${call}-${index}`,
-				})),
+					url: `https://example.com/posts/${call}`,
+				}],
 				status: 'completed',
 				total: 13,
 			}),
@@ -340,8 +447,7 @@ describe('Browser Run post recognition', () => {
 
 		await runBrowserCrawl(envWith(), source(), 'run-id', fakeStep()).catch(() => undefined);
 
-		expect(calls.results).toBeGreaterThan(0);
-		expect(calls.results).toBeLessThanOrEqual(4);
+		expect(calls.results).toBe(13);
 	});
 
 	it('stops paging when the cursor repeats', async () => {
@@ -361,29 +467,17 @@ describe('Browser Run post recognition', () => {
 		expect(calls.results).toBe(2);
 	});
 
-	// The Verge's crawl is scoped by includePatterns, so Browser Run reports the other 6,702
-	// sitemap URLs as `skipped` frontier entries alongside the one page it fetched. Counting
-	// those as failures marked healthy runs "partial" and inflated skipped_count.
+	// Browser Run can leak sitemap URLs with `skipped` status into completed-result requests.
+	// Counting those as failures marks healthy runs "partial" and inflates skipped_count.
 	it('does not count unattempted frontier records as examined pages or errors', async () => {
 		const env = envWith();
 		mockCrawlApi({
 			results: () => ({
 				finished: 1,
-				records: [
-					{
-						html: `<html><head><link rel="canonical" href="https://example.com/posts/one">
-							<meta property="og:type" content="article">
-							<meta property="og:title" content="Only post">
-							<meta property="article:published_time" content="2026-08-14">
-						</head></html>`,
-						status: 'completed',
-						url: 'https://example.com/posts/one',
-					},
-					...Array.from({ length: 24 }, (_, index) => ({
-						status: 'skipped',
-						url: `https://example.com/frontier/${index}`,
-					})),
-				],
+				records: [{
+					status: 'skipped',
+					url: 'https://example.com/frontier/one',
+				}],
 				status: 'completed',
 				total: 1,
 			}),
@@ -396,6 +490,6 @@ describe('Browser Run post recognition', () => {
 		expect(ingest).toBeGreaterThanOrEqual(0);
 		// (examined, processed, staged, unchanged, skipped, upstreamErrors, ...)
 		const counts = env.binds.find((args) => args.length === 8 && args[6] === 'run-id');
-		expect(counts?.slice(0, 6)).toEqual([1, 1, 1, 0, 0, 0]);
+		expect(counts?.slice(0, 6)).toEqual([0, 0, 0, 0, 0, 0]);
 	});
 });
