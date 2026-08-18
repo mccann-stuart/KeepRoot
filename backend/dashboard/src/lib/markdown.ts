@@ -1,6 +1,7 @@
 import createDOMPurify from 'dompurify';
 import { marked } from 'marked';
 import type { HighlightRecord } from './state';
+import { upgradeStructuredMedia } from './media';
 
 const DOMPurify = createDOMPurify(window);
 const htmlEntityDecoder = document.createElement('textarea');
@@ -45,10 +46,10 @@ function applyHighlights(html: string, highlights: HighlightRecord[]): string {
 export function renderMarkdown(markdown: string, highlights: HighlightRecord[] = []): string | DocumentFragment {
 	let html = marked.parse(markdown ?? '') as string;
 	html = DOMPurify.sanitize(html);
-
-	if (!highlights.length) {
-		return DOMPurify.sanitize(html, { RETURN_DOM_FRAGMENT: true });
-	}
-
-	return DOMPurify.sanitize(applyHighlights(html, highlights), { RETURN_DOM_FRAGMENT: true });
+	const fragment = DOMPurify.sanitize(
+		highlights.length ? applyHighlights(html, highlights) : html,
+		{ RETURN_DOM_FRAGMENT: true },
+	);
+	upgradeStructuredMedia(fragment);
+	return fragment;
 }

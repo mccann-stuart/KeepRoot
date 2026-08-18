@@ -34,4 +34,32 @@ describe('renderMarkdown', () => {
 		expect(mark?.hasAttribute('autofocus')).toBe(false);
 		expect(mark?.hasAttribute('onfocus')).toBe(false);
 	});
+
+	it('renders canonical YouTube media records with a restricted no-cookie iframe', () => {
+		const fragment = renderMarkdown(
+			'[Watch this video on YouTube](https://www.youtube-nocookie.com/embed/UdJHTPprjoI)',
+		) as DocumentFragment;
+		const iframe = fragment.querySelector('iframe');
+		const externalLink = fragment.querySelector<HTMLAnchorElement>('.embedded-media__external-link');
+
+		expect(iframe?.src).toBe('https://www.youtube-nocookie.com/embed/UdJHTPprjoI');
+		expect(iframe?.getAttribute('sandbox')).toBe('allow-scripts allow-same-origin allow-presentation');
+		expect(iframe?.referrerPolicy).toBe('no-referrer');
+		expect(iframe?.allowFullscreen).toBe(true);
+		expect(externalLink?.href).toBe('https://www.youtube.com/watch?v=UdJHTPprjoI');
+		expect(externalLink?.rel).toBe('noopener noreferrer');
+	});
+
+	it('does not upgrade lookalike hosts, query-bearing records, or raw iframe HTML', () => {
+		const fragment = renderMarkdown([
+			'[Lookalike](https://www.youtube-nocookie.com.evil.test/embed/UdJHTPprjoI)',
+			'',
+			'[Query](https://www.youtube-nocookie.com/embed/UdJHTPprjoI?autoplay=1)',
+			'',
+			'<iframe src="https://www.youtube-nocookie.com/embed/UdJHTPprjoI"></iframe>',
+		].join('\n')) as DocumentFragment;
+
+		expect(fragment.querySelector('iframe')).toBeNull();
+		expect(fragment.querySelectorAll('a')).toHaveLength(2);
+	});
 });

@@ -32,6 +32,7 @@ interface BookmarkRow {
 	is_read: number;
 	lang: string | null;
 	last_fetched_at: string | null;
+	lead_image_key: string | null;
 	list_id: string | null;
 	notes: string | null;
 	pinned: number;
@@ -491,6 +492,7 @@ function makeBookmarkMetadata(row: BookmarkRow, tags: string[], images: Bookmark
 		isRead: Boolean(row.is_read),
 		lang: row.lang,
 		lastFetchedAt: row.last_fetched_at,
+		leadImageKey: row.lead_image_key,
 		listId: row.list_id,
 		notes: row.notes,
 		pinned: Boolean(row.pinned),
@@ -705,6 +707,7 @@ export async function saveBookmark(
 	const sourceEntryId = payload.sourceEntryId?.trim() || null;
 	const sourceId = payload.sourceId ?? null;
 	const hydratedImages = await hydrateImagePayloads(payload, normalizedUrl);
+	let leadImageKey: string | null = null;
 
 	let rewrittenMarkdownData = markdownData;
 	let rewrittenHtmlData = payload.htmlData;
@@ -747,6 +750,9 @@ export async function saveBookmark(
 			const { image, imageHash } = processedImages[i];
 			const variant = normalizeVariant(image.variant);
 			const imageKey = variant === 'original' ? `images/${imageHash}` : `thumbs/${imageHash}/${variant}`;
+			if (!leadImageKey && variant === 'original') {
+				leadImageKey = imageKey;
+			}
 
 			contentDocument.images.push({
 				height: image.height ?? null,
@@ -827,7 +833,7 @@ export async function saveBookmark(
 			`UPDATE bookmarks
 			SET url = ?, canonical_url = ?, url_hash = ?, title = ?, site_name = ?, domain = ?, status = ?, notes = ?, source_id = ?, source_entry_id = ?, source_entry_fingerprint = ?, published_at = COALESCE(?, published_at), processing_state = ?,
 				updated_at = ?, last_fetched_at = ?, content_hash = ?, content_ref = ?, content_type = ?,
-				content_length = ?, excerpt = ?, word_count = ?, lang = ?, list_id = ?, pinned = ?, sort_order = ?, is_read = ?
+				content_length = ?, excerpt = ?, word_count = ?, lang = ?, lead_image_key = ?, list_id = ?, pinned = ?, sort_order = ?, is_read = ?
 			WHERE id = ? AND user_id = ?`,
 		)
 			.bind(
@@ -853,6 +859,7 @@ export async function saveBookmark(
 				excerpt,
 				wordCount,
 				payload.lang ?? null,
+				leadImageKey,
 				payload.listId ?? null,
 				payload.pinned ? 1 : 0,
 				payload.sortOrder ?? 0,
@@ -864,8 +871,8 @@ export async function saveBookmark(
 	} else {
 		await env.KEEPROOT_DB.prepare(
 			`INSERT INTO bookmarks
-			(id, user_id, url, canonical_url, url_hash, title, site_name, domain, status, notes, source_id, source_entry_id, source_entry_fingerprint, published_at, processing_state, created_at, updated_at, last_fetched_at, content_hash, content_ref, content_type, content_length, excerpt, word_count, lang, list_id, pinned, sort_order, is_read)
-			VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+			(id, user_id, url, canonical_url, url_hash, title, site_name, domain, status, notes, source_id, source_entry_id, source_entry_fingerprint, published_at, processing_state, created_at, updated_at, last_fetched_at, content_hash, content_ref, content_type, content_length, excerpt, word_count, lang, lead_image_key, list_id, pinned, sort_order, is_read)
+			VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
 		)
 			.bind(
 				bookmarkId,
@@ -893,6 +900,7 @@ export async function saveBookmark(
 				excerpt,
 				wordCount,
 				payload.lang ?? null,
+				leadImageKey,
 				payload.listId ?? null,
 				payload.pinned ? 1 : 0,
 				payload.sortOrder ?? 0,
@@ -945,6 +953,7 @@ export async function saveBookmark(
 			isRead: existingBookmark ? (payload.isRead !== undefined ? payload.isRead : Boolean(existingBookmark.is_read)) : Boolean(payload.isRead),
 			lang: payload.lang ?? null,
 			lastFetchedAt: now,
+			leadImageKey,
 			listId: payload.listId ?? null,
 			notes,
 			pinned: payload.pinned ? true : false,
@@ -1000,7 +1009,7 @@ export async function listBookmarks(
 					`SELECT bookmarks.id, bookmarks.url, bookmarks.canonical_url, bookmarks.title, bookmarks.site_name, bookmarks.domain, bookmarks.status, bookmarks.notes,
 						bookmarks.source_id, bookmarks.published_at, bookmarks.processing_state, bookmarks.search_updated_at, bookmarks.embedding_updated_at, bookmarks.created_at, bookmarks.updated_at,
 						bookmarks.last_fetched_at, bookmarks.content_hash, bookmarks.content_ref, bookmarks.content_type, bookmarks.content_length, bookmarks.excerpt,
-						bookmarks.word_count, bookmarks.lang, bookmarks.list_id, bookmarks.pinned, bookmarks.sort_order, bookmarks.is_read${bodyTextSelect}
+						bookmarks.word_count, bookmarks.lang, bookmarks.lead_image_key, bookmarks.list_id, bookmarks.pinned, bookmarks.sort_order, bookmarks.is_read${bodyTextSelect}
 					FROM bookmarks
 					${bodyTextJoin}
 					WHERE bookmarks.user_id = ? AND bookmarks.id IN (${placeholders})`,
@@ -1051,7 +1060,7 @@ export async function listBookmarks(
 				`SELECT bookmarks.id, bookmarks.url, bookmarks.canonical_url, bookmarks.title, bookmarks.site_name, bookmarks.domain, bookmarks.status, bookmarks.notes,
 					bookmarks.source_id, bookmarks.published_at, bookmarks.processing_state, bookmarks.search_updated_at, bookmarks.embedding_updated_at, bookmarks.created_at, bookmarks.updated_at,
 					bookmarks.last_fetched_at, bookmarks.content_hash, bookmarks.content_ref, bookmarks.content_type, bookmarks.content_length, bookmarks.excerpt,
-					bookmarks.word_count, bookmarks.lang, bookmarks.list_id, bookmarks.pinned, bookmarks.sort_order, bookmarks.is_read${bodyTextSelect}
+					bookmarks.word_count, bookmarks.lang, bookmarks.lead_image_key, bookmarks.list_id, bookmarks.pinned, bookmarks.sort_order, bookmarks.is_read${bodyTextSelect}
 				FROM bookmarks
 				${bodyTextJoin}
 				WHERE bookmarks.user_id = ?
@@ -1089,7 +1098,7 @@ export async function listBookmarks(
 export async function getBookmark(env: StorageEnv, userId: string, bookmarkId: string): Promise<BookmarkRecord | null> {
 	const bookmarkRow = await env.KEEPROOT_DB.prepare(
 		`SELECT id, url, canonical_url, title, site_name, domain, status, notes, source_id, published_at, processing_state, search_updated_at, embedding_updated_at, created_at, updated_at, last_fetched_at,
-			content_hash, content_ref, content_type, content_length, excerpt, word_count, lang, list_id, pinned, sort_order, is_read
+			content_hash, content_ref, content_type, content_length, excerpt, word_count, lang, lead_image_key, list_id, pinned, sort_order, is_read
 		FROM bookmarks
 		WHERE id = ? AND user_id = ?
 		LIMIT 1`,

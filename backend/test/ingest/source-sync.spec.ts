@@ -204,7 +204,7 @@ describe('source-sync', () => {
 					bind: vi.fn().mockReturnThis(),
 					all: vi.fn().mockResolvedValue({
 						results: [{
-							source_entry_fingerprint: '144a7450303b1d2af132e89dda2d792e768272037b5c9ac6c2fcaf62becc11d0',
+							source_entry_fingerprint: '1299bdd4e724fa39331c43554eb5ef0f15b16d7be669df0828ed329736d41bec',
 							source_entry_id: 'stable-entry',
 						}],
 					}),
@@ -335,6 +335,68 @@ describe('source-sync', () => {
 			skipInboxForExisting: true,
 		});
 		expect(payload.markdownData).not.toBe('Two-line teaser only.');
+	});
+
+	it('enriches a truncated feed entry from its linked page before saving it', async () => {
+		const fetchMock = vi.fn(async (input: RequestInfo | URL) => {
+			const url = typeof input === 'string' ? input : input instanceof URL ? input.toString() : input.url;
+			if (url === 'https://example.com/feed.xml') {
+				return new Response(`
+					<rss><channel><item>
+						<guid>truncated-entry</guid>
+						<title>Truncated report</title>
+						<link>https://example.com/truncated-report</link>
+						<description>A short feed teaser that ends here…</description>
+					</item></channel></rss>
+				`, { status: 200 });
+			}
+			return new Response(`
+				<html><head><title>Truncated report</title><meta property="og:image" content="/media/report-hero.jpg"></head>
+				<body><article><h1>Truncated report</h1>
+				<p>This is the complete linked-page report, with substantially more text than the short feed teaser and enough detail to replace it safely.</p>
+				<p>The second paragraph confirms that article extraction retained the complete story.</p>
+				</article></body></html>
+			`, { headers: { 'Content-Type': 'text/html' }, status: 200 });
+		});
+		vi.stubGlobal('fetch', fetchMock);
+
+		await syncSource(env as any, {
+			id: 'source-truncated',
+			kind: 'rss',
+			pollUrl: 'https://example.com/feed.xml',
+			userId: 'user-1',
+		});
+
+		const payload = vi.mocked(items.saveItemContent).mock.calls[0][2];
+		expect(payload.markdownData).toContain('![Article image](https://example.com/media/report-hero.jpg)');
+		expect(payload.markdownData).toContain('second paragraph confirms');
+		expect(payload.textContent).toContain('complete linked-page report');
+		expect(fetchMock).toHaveBeenCalledTimes(2);
+	});
+
+	it('preserves allowlisted YouTube embeds from feed content as structured no-cookie media links', async () => {
+		vi.stubGlobal('fetch', vi.fn().mockResolvedValue(new Response(`
+			<rss xmlns:content="http://purl.org/rss/1.0/modules/content/"><channel><item>
+				<guid>video-entry</guid>
+				<title>Video report</title>
+				<link>https://example.com/video-report</link>
+				<content:encoded><![CDATA[
+					<p>Watch the complete report below.</p>
+					<iframe src="https://youtube.com/embed/UdJHTPprjoI?feature=oembed"></iframe>
+				]]></content:encoded>
+			</item></channel></rss>
+		`, { status: 200 })));
+
+		await syncSource(env as any, {
+			id: 'source-video',
+			kind: 'rss',
+			pollUrl: 'https://example.com/feed.xml',
+			userId: 'user-1',
+		});
+
+		const payload = vi.mocked(items.saveItemContent).mock.calls[0][2];
+		expect(payload.markdownData).toContain('[Watch this video on YouTube](https://www.youtube-nocookie.com/embed/UdJHTPprjoI)');
+		expect(payload.markdownData).not.toContain('feature=oembed');
 	});
 
 	it('handles redirects correctly', async () => {

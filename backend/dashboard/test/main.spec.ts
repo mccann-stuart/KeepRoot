@@ -1028,6 +1028,44 @@ describe('dashboard mobile reader', () => {
 		expect(cardMeta.textContent).toBe(`example.com · 2 min · ${new Date(publishedAt).toLocaleDateString()}`);
 	});
 
+	it('loads bookmark lead images through the authenticated stored-media path', async () => {
+		const leadImageKey = `images/${'b'.repeat(64)}`;
+		const createObjectUrl = vi.fn().mockReturnValue('blob:bookmark-lead-image');
+		const { fetchSpy } = await bootDashboard({
+			beforeImport: () => {
+				Object.defineProperty(URL, 'createObjectURL', { configurable: true, value: createObjectUrl });
+				Object.defineProperty(URL, 'revokeObjectURL', { configurable: true, value: vi.fn() });
+			},
+			handleFetch: (url, method) => {
+				if (url.endsWith('/bookmarks') && method === 'GET') {
+					return jsonResponse({ keys: [{
+						id: 'bookmark-lead-image',
+						metadata: {
+							leadImageKey,
+							title: 'Article with a lead image',
+							url: 'https://example.com/lead-image',
+						},
+					}] });
+				}
+				if (url === `/${leadImageKey}` && method === 'GET') {
+					return new Response(new Uint8Array([1, 2, 3]), { headers: { 'Content-Type': 'image/png' } });
+				}
+				return undefined;
+			},
+		});
+
+		const image = await waitFor(
+			() => document.querySelector<HTMLImageElement>('[data-bookmark-id="bookmark-lead-image"] [data-role="bookmark-thumb"] img'),
+			'the authenticated lead image thumbnail',
+		);
+		expect(image.src).toBe('blob:bookmark-lead-image');
+		expect(createObjectUrl).toHaveBeenCalledTimes(1);
+		expect(fetchSpy).toHaveBeenCalledWith(`/${leadImageKey}`, {
+			credentials: 'same-origin',
+			headers: { Authorization: 'Bearer session-secret' },
+		});
+	});
+
 	it('opens reader text-size controls without changing the size until an adjustment is chosen', async () => {
 		await bootDashboard({ mobileMatches: true });
 

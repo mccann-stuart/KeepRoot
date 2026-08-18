@@ -5,6 +5,89 @@ const extractBookmarkPayloadFromUrl = extractUrlModule.extractBookmarkPayloadFro
 const extractHtmlContent = extractUrlModule.extractHtmlContent;
 
 describe('extractBookmarkPayloadFromUrl', () => {
+	it.each([
+		{
+			head: `<script type="application/ld+json">${JSON.stringify({
+				'@context': 'https://schema.org',
+				'@type': 'NewsArticle',
+				image: { '@type': 'ImageObject', contentUrl: '/media/schema-hero.jpg' },
+			})}</script>`,
+			label: 'schema.org image fields',
+			url: 'https://example.com/media/schema-hero.jpg',
+		},
+		{
+			head: `<script type="application/ld+json">${JSON.stringify({
+				'@context': 'https://schema.org',
+				'@type': 'Article',
+				thumbnailUrl: '/media/schema-thumbnail.jpg',
+			})}</script>`,
+			label: 'schema.org thumbnailUrl',
+			url: 'https://example.com/media/schema-thumbnail.jpg',
+		},
+		{
+			head: `<script type="application/ld+json">${JSON.stringify({
+				'@context': 'https://schema.org',
+				'@type': 'WebPage',
+				primaryImageOfPage: { '@type': 'ImageObject', url: '/media/schema-primary.jpg' },
+			})}</script>`,
+			label: 'schema.org primaryImageOfPage',
+			url: 'https://example.com/media/schema-primary.jpg',
+		},
+		{
+			head: '<meta property="og:image" content="/media/open-graph.jpg">',
+			label: 'Open Graph image metadata',
+			url: 'https://example.com/media/open-graph.jpg',
+		},
+		{
+			head: '<meta name="twitter:image" content="https://cdn.example.com/twitter.jpg">',
+			label: 'Twitter image metadata',
+			url: 'https://cdn.example.com/twitter.jpg',
+		},
+		{
+			head: '<link rel="alternate image_src" href="/media/image-src.jpg">',
+			label: 'image_src links',
+			url: 'https://example.com/media/image-src.jpg',
+		},
+	])('prepends a lead image discovered from $label', ({ head, url }) => {
+		const result = extractHtmlContent('https://example.com/articles/story', `
+			<html><head><title>Story</title>${head}</head><body><article>
+				<h1>Story</h1><p>This complete article has enough useful text for extraction and a publisher-provided lead image.</p>
+			</article></body></html>
+		`);
+
+		expect(result.markdownData.startsWith(`![Article image](${url})`)).toBe(true);
+	});
+
+	it('prefers schema.org article imagery and does not duplicate an image already in the article', () => {
+		const schemaImage = 'https://cdn.example.com/schema.jpg';
+		const result = extractHtmlContent('https://example.com/story', `
+			<html><head>
+				<title>Story</title>
+				<meta property="og:image" content="https://cdn.example.com/open-graph.jpg">
+				<script type="application/ld+json">${JSON.stringify({ '@type': 'Article', image: schemaImage })}</script>
+			</head><body><article><h1>Story</h1><img src="${schemaImage}" alt="Lead"><p>Article copy that Readability keeps with the image.</p></article></body></html>
+		`);
+
+		expect(result.markdownData.match(new RegExp(schemaImage, 'g'))).toHaveLength(1);
+		expect(result.markdownData).not.toContain('open-graph.jpg');
+	});
+
+	it('converts only allowlisted YouTube iframes into canonical structured media links', () => {
+		const result = extractHtmlContent('https://example.com/story', `
+			<html><head><title>Video story</title></head><body><article>
+				<h1>Video story</h1>
+				<p>Introduction to a video report with enough surrounding article copy to preserve the embedded media.</p>
+				<iframe src="https://www.youtube.com/embed/UdJHTPprjoI?feature=oembed"></iframe>
+				<iframe src="https://www.youtube.com.evil.test/embed/UdJHTPprjoI"></iframe>
+				<p>Additional reporting follows the embedded video.</p>
+			</article></body></html>
+		`);
+
+		expect(result.markdownData).toContain('[Watch this video on YouTube](https://www.youtube-nocookie.com/embed/UdJHTPprjoI)');
+		expect(result.markdownData).not.toContain('youtube.com.evil.test');
+		expect(result.markdownData).not.toContain('feature=oembed');
+	});
+
 	it('recovers structured article text when Readability keeps only surrounding chrome', () => {
 		const articleUrl = 'https://www.theverge.com/tech/979960/bluesky-beta-tests-better-video-support';
 		const embeddedPostUrl = 'https://bsky.app/profile/alexbenzer.com/post/3msydc62k7k2m';

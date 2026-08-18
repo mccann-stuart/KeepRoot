@@ -1,6 +1,7 @@
 import { XMLParser } from 'fast-xml-parser';
 import { DOMParser } from 'linkedom';
-import TurndownService from 'turndown';
+import { createArticleTurndownService } from './article-media';
+import { extractBookmarkPayloadFromUrl } from './extract-url';
 import { fetchFeed, type FeedEntry } from './feed';
 import { calculateAdaptivePollIntervalMinutes, normalizePublishedAt } from './feed-schedule';
 import { saveItemContent } from '../storage/items';
@@ -18,9 +19,18 @@ interface ExistingSourceEntryRow {
 	source_entry_id: string;
 }
 
+interface ExtractedEntryContent {
+	lang?: string | null;
+	markdownData: string;
+	siteName?: string | null;
+	textContent: string;
+}
+
 const MAX_VISIBLE_ENTRIES = 2_000;
 const MAX_CHANGED_ENTRIES_PER_ATTEMPT = 200;
 const MAX_ENTRY_WRITE_CONCURRENCY = 4;
+const SOURCE_CONTENT_FINGERPRINT_VERSION = 'article-media-v1';
+const LINKED_PAGE_TEXT_ADVANTAGE = 80;
 const htmlEntityParser = new XMLParser({ htmlEntities: true });
 
 async function mapSettledWithConcurrency<T>(
@@ -70,7 +80,7 @@ function decodeHtmlCharacterReferences(value: string): string {
 	return typeof decoded.value === 'string' ? decoded.value : value;
 }
 
-function extractEntryContent(entry: FeedEntry): { markdownData: string; textContent: string } {
+function extractEntryContent(entry: FeedEntry): ExtractedEntryContent {
 	const rawContent = entry.content?.trim() || entry.title;
 	if (!/<[a-z][\s\S]*>/i.test(rawContent)) {
 		return {
@@ -90,10 +100,7 @@ function extractEntryContent(entry: FeedEntry): { markdownData: string; textCont
 		}
 
 		const textContent = article.textContent?.replace(/\s+/g, ' ').trim() || stripHtml(rawContent) || entry.title;
-		const markdownData = new TurndownService({
-			codeBlockStyle: 'fenced',
-			headingStyle: 'atx',
-		}).turndown(article).trim();
+		const markdownData = createArticleTurndownService().turndown(article).trim();
 
 		return {
 			markdownData: markdownData || textContent,
@@ -105,6 +112,58 @@ function extractEntryContent(entry: FeedEntry): { markdownData: string; textCont
 			markdownData: textContent,
 			textContent,
 		};
+	}
+}
+
+function looksLikeTruncatedFeedContent(content: ExtractedEntryContent): boolean {
+	return /(?:…|\.\.\.)\s*$/.test(content.textContent);
+}
+
+function extractMediaRecords(markdown: string): string[] {
+	const records: string[] = [];
+	const patterns = [
+		/!\[[^\]]*]\([^\n)]+\)/g,
+		/\[Watch this video on YouTube]\(https:\/\/www\.youtube-nocookie\.com\/embed\/[A-Za-z0-9_-]{11}\)/g,
+	];
+	for (const pattern of patterns) {
+		for (const match of markdown.matchAll(pattern)) {
+			records.push(match[0]);
+		}
+	}
+	return [...new Set(records)];
+}
+
+async function enrichTruncatedEntryContent(entry: FeedEntry, feedContent: ExtractedEntryContent): Promise<ExtractedEntryContent> {
+	if (!looksLikeTruncatedFeedContent(feedContent)) {
+		return feedContent;
+	}
+
+	try {
+		const pageContent = await extractBookmarkPayloadFromUrl({
+			render: false,
+			url: entry.url,
+		});
+		if (pageContent.textContent.length >= feedContent.textContent.length + LINKED_PAGE_TEXT_ADVANTAGE) {
+			return {
+				lang: pageContent.lang,
+				markdownData: pageContent.markdownData,
+				siteName: pageContent.siteName,
+				textContent: pageContent.textContent,
+			};
+		}
+
+		const mediaRecords = extractMediaRecords(pageContent.markdownData)
+			.filter((record) => !feedContent.markdownData.includes(record));
+		return mediaRecords.length
+			? {
+				...feedContent,
+				lang: pageContent.lang,
+				markdownData: `${mediaRecords.join('\n\n')}\n\n${feedContent.markdownData}`,
+				siteName: pageContent.siteName,
+			}
+			: feedContent;
+	} catch {
+		return feedContent;
 	}
 }
 
@@ -125,6 +184,7 @@ async function fingerprintFeedEntries(entries: FeedEntry[]): Promise<Fingerprint
 	return Promise.all(entries.map(async (entry) => ({
 		...entry,
 		fingerprint: await sha256Hex(JSON.stringify([
+			SOURCE_CONTENT_FINGERPRINT_VERSION,
 			entry.id,
 			entry.url,
 			entry.title,
@@ -342,7 +402,7 @@ export async function syncSource(
 		entriesToProcess,
 		MAX_ENTRY_WRITE_CONCURRENCY,
 		async (entry) => {
-			const content = extractEntryContent(entry);
+			const content = await enrichTruncatedEntryContent(entry, extractEntryContent(entry));
 			const publishedAt = normalizePublishedAt(entry.publishedAt);
 			await saveItemContent(
 				env,
@@ -353,10 +413,12 @@ export async function syncSource(
 				{
 					notes: source.name ? `Saved from source: ${source.name}` : undefined,
 					markdownData: content.markdownData,
+					lang: content.lang ?? undefined,
 					publishedAt,
 					sourceEntryId: entry.id,
 					sourceEntryFingerprint: entry.fingerprint,
 					sourceId: source.id,
+					siteName: content.siteName ?? undefined,
 					status: 'saved',
 					tags: [`source: ${getSourceLabel(source)}`],
 					textContent: content.textContent,
