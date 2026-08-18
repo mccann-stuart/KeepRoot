@@ -19,7 +19,10 @@ import {
 const API_ROOT = 'https://api.cloudflare.com/client/v4/accounts';
 const MAX_API_RESPONSE_BYTES = 12 * 1024 * 1024;
 const CRAWL_PAGE_LIMIT = 100;
-const CRAWL_RESULT_PAGE_SIZE = 25;
+// A completed record can contain hundreds of kilobytes of publisher HTML. Keep each
+// recognition/import callback inside its own durable Workflow step so the CPU ceiling and
+// automatic retries apply to one article rather than an entire result page.
+const CRAWL_RESULT_PAGE_SIZE = 1;
 const CRAWL_TIMEOUT_MS = 2 * 60 * 60 * 1_000;
 // Sleeping between polls is free inside a Workflow, so cadence is chosen for the crawler's
 // pace rather than to conserve invocations. Browser Run REST allows 10 requests per second.
@@ -743,16 +746,19 @@ async function importPendingRecord(
 	source: BrowserSourceInput,
 	runId: string,
 	record: BrowserCrawlRecord,
+	post: RecognisedBrowserPost,
 	username: string,
 ): Promise<boolean> {
-	const post = await recogniseBrowserPost(source.pollUrl, record);
-	if (!post || !record.html) return false;
 	const urlHash = await sha256Hex(post.canonicalUrl);
 	const discovery = await env.KEEPROOT_DB.prepare(
 		`SELECT state FROM source_discoveries
 		WHERE source_id = ? AND url_hash = ? LIMIT 1`,
 	).bind(source.id, urlHash).first<{ state: string }>();
 	if (discovery?.state !== 'pending') return false;
+	// Recognition already validated this record during the scan step. Check durable state
+	// before touching the large HTML payload so a retried import that already committed can
+	// finish cheaply without parsing the article again.
+	if (!record.html) return false;
 	const existingBookmark = await env.KEEPROOT_DB.prepare(
 		`SELECT id FROM bookmarks
 		WHERE user_id = ? AND url_hash = ? LIMIT 1`,
@@ -836,7 +842,7 @@ interface IngestedPage {
 	cursor: string | null;
 	examined: number;
 	processed: number;
-	recognised: Array<{ canonicalUrl: string; recordUrl: string }>;
+	recognised: Array<RecognisedBrowserPost & { recordUrl: string }>;
 	recordUrls: string[];
 	skipped: number;
 	staged: number;
@@ -980,11 +986,14 @@ async function ingestCrawlResults(
 	const seen = new Set<string>();
 	const cursors = new Set<string>();
 	let cursor: string | null = null;
-	let upstreamTotal = expectedTotal;
+	// `expectedTotal` is the requested crawl ceiling. Once results arrive, their total is
+	// authoritative; otherwise a 13-record fallback crawl requested with limit 100 would
+	// perform 87 redundant single-record steps against Browser Run's out-of-range cursor.
+	let upstreamTotal = 0;
 
 	for (let index = 0; index < Math.ceil(Math.max(expectedTotal, 1) / CRAWL_RESULT_PAGE_SIZE) + MAX_RESULT_PAGE_SLACK; index += 1) {
 		const known = [...seen];
-		const page: IngestedPage = await step.do(`ingest-page-${index}`, async () => {
+		const page: IngestedPage = await step.do(`ingest-record-${index}`, async () => {
 			const crawl = await getCrawl(env, jobId, {
 				cursor,
 				limit: CRAWL_RESULT_PAGE_SIZE,
@@ -1027,7 +1036,7 @@ async function ingestCrawlResults(
 					result.skipped += 1;
 					continue;
 				}
-				result.recognised.push({ canonicalUrl: post.canonicalUrl, recordUrl: record.url });
+				result.recognised.push({ ...post, recordUrl: record.url });
 				if (await stageDiscovery(env, source.id, runId, post)) result.staged += 1;
 				else result.unchanged += 1;
 			}
@@ -1054,7 +1063,7 @@ async function ingestCrawlResults(
 		for (const url of page.recordUrls) seen.add(url);
 		if (page.total > 0) upstreamTotal = Math.max(upstreamTotal, page.total);
 
-		browserRunLog('browser_crawl_ingest_page', {
+		browserRunLog('browser_crawl_ingest_record', {
 			examined: page.examined,
 			jobId,
 			page: index,
@@ -1076,15 +1085,18 @@ async function ingestCrawlResults(
 		cursor = page.cursor;
 	}
 
-	return { pages, saturated: upstreamTotal >= CRAWL_PAGE_LIMIT };
+	return {
+		pages,
+		saturated: (upstreamTotal || expectedTotal) >= CRAWL_PAGE_LIMIT,
+	};
 }
 
 /**
  * Extracts and saves only the discoveries still marked pending after archive selection.
  *
- * Recognition already parsed every record; this pass revisits just the result pages that
- * hold a selected URL, so an initial crawl re-reads one page to import five posts instead
- * of re-downloading and re-parsing the entire crawl.
+ * Recognition already persisted each record's canonical URL, title and publication date.
+ * This pass refetches only selected records and performs content extraction without running
+ * metadata recognition again.
  */
 async function importSelectedPosts(
 	env: StorageEnv,
@@ -1104,36 +1116,52 @@ async function importSelectedPosts(
 	if (pending.length === 0) return;
 
 	const wanted = new Set(pending);
-	const pageCursors: Array<{ cursor: string | null; index: number }> = [];
+	const selectedRecords: Array<{
+		cursor: string | null;
+		index: number;
+		post: RecognisedBrowserPost;
+		recordUrl: string;
+	}> = [];
 	let previousCursor: string | null = null;
 	for (const [index, page] of pages.entries()) {
-		if (page.recognised.some((entry) => wanted.has(entry.canonicalUrl))) {
-			pageCursors.push({ cursor: previousCursor, index });
+		for (const entry of page.recognised) {
+			if (wanted.has(entry.canonicalUrl)) {
+				selectedRecords.push({
+					cursor: previousCursor,
+					index,
+					post: {
+						canonicalUrl: entry.canonicalUrl,
+						publishedAt: entry.publishedAt,
+						title: entry.title,
+					},
+					recordUrl: entry.recordUrl,
+				});
+			}
 		}
 		previousCursor = page.cursor;
 	}
 
 	const username = await step.do('resolve-username', () => getUsername(env, source.userId));
-	for (const { cursor, index } of pageCursors) {
-		await step.do(`import-page-${index}`, async () => {
+	for (const { cursor, index, post, recordUrl } of selectedRecords) {
+		await step.do(`import-record-${index}`, async () => {
 			const crawl = await getCrawl(env, jobId, {
 				cursor,
 				limit: CRAWL_RESULT_PAGE_SIZE,
 				status: 'completed',
 			});
-			let imported = 0;
-			for (const record of crawl.records) {
-				if (record.status !== 'completed') continue;
-				if (await importPendingRecord(env, source, runId, record, username)) imported += 1;
-			}
-			browserRunLog('browser_crawl_import_page', {
+			const record = crawl.records.find((candidate) =>
+				candidate.status === 'completed' && candidate.url === recordUrl);
+			const imported = record
+				? await importPendingRecord(env, source, runId, record, post, username)
+				: false;
+			browserRunLog('browser_crawl_import_record', {
 				imported,
 				jobId,
 				page: index,
 				runId,
 				sourceId: source.id,
 			});
-			return imported;
+			return imported ? 1 : 0;
 		});
 	}
 }

@@ -1,4 +1,5 @@
 import { env, createExecutionContext, waitOnExecutionContext } from 'cloudflare:test';
+import { DOMParser } from 'linkedom';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import worker from '../src/index';
 import { addSource, createApiKey, createList, createSession, createSmartList, createUserWithCredential, ensureAccountSettings, getBookmark, hashToken, recordToolEvent, saveBookmark, storeAuthChallenge } from '../src/storage';
@@ -623,19 +624,18 @@ describe('KeepRoot Worker', () => {
 			const jobId = url.pathname.split('/').at(-1) ?? '';
 			const records = jobs.get(jobId) ?? [];
 			const limit = Number(url.searchParams.get('limit') ?? 25);
-			if (limit !== 1) resultRequests.push(url);
-			const filteredRecords = url.searchParams.get('status') === 'completed'
-				? records
-				: [...records, ...skippedTail];
+			const isResultRequest = url.searchParams.get('status') === 'completed';
+			if (isResultRequest) resultRequests.push(url);
+			const filteredRecords = isResultRequest ? records : [...records, ...skippedTail];
 			const offset = Number(url.searchParams.get('cursor') ?? 0);
 			const nextOffset = Math.min(offset + limit, filteredRecords.length);
 			return Response.json({
 				success: true,
 				result: {
-					cursor: limit === 1 || nextOffset >= filteredRecords.length ? null : String(nextOffset),
+					cursor: !isResultRequest || nextOffset >= filteredRecords.length ? null : String(nextOffset),
 					finished: records.length,
 					id: jobId,
-					records: limit === 1 ? [] : filteredRecords.slice(offset, nextOffset),
+					records: isResultRequest ? filteredRecords.slice(offset, nextOffset) : [],
 					status: 'completed',
 					total: records.length,
 				},
@@ -769,6 +769,7 @@ describe('KeepRoot Worker', () => {
 		expect(startBodies).toHaveLength(3);
 		expect(resultRequests.length).toBeGreaterThan(0);
 		expect(resultRequests.every((url) => url.searchParams.get('status') === 'completed')).toBe(true);
+		expect(resultRequests.every((url) => url.searchParams.get('limit') === '1')).toBe(true);
 	});
 
 	it('coalesces Browser Run refreshes, cancels orphaned runs, and clears a stale source error', async () => {
@@ -1043,6 +1044,157 @@ describe('KeepRoot Worker', () => {
 		});
 	});
 
+	it('reuses recognised article metadata when importing the selected record', async () => {
+		const workflow = browserWorkflowStub();
+		const browserEnv = {
+			...env,
+			BROWSER_CRAWL_WORKFLOW: workflow.binding,
+			BROWSER_RUN_ACCOUNT_ID: 'browser-account',
+			BROWSER_RUN_API_TOKEN: 'browser-token',
+			SOURCE_QUEUE: { send: vi.fn().mockResolvedValue({}) },
+		};
+		const source = await addSource(browserEnv as any, {
+			identifier: 'https://metadata.example/posts',
+			kind: 'browser',
+			name: 'Metadata Blog',
+			userId: TEST_USER_ID,
+		});
+		await env.KEEPROOT_DB.prepare(
+			'UPDATE sources SET last_success_at = ? WHERE id = ?',
+		).bind('2026-08-17T00:00:00.000Z', source.id).run();
+		const scanHtml = `<!doctype html><html><head>
+			<link rel="canonical" href="https://metadata.example/posts/one">
+			<meta property="og:type" content="article">
+			<meta property="og:title" content="Recognised once">
+			<meta property="article:published_time" content="2026-08-18T08:30:00Z">
+		</head><body><article><h1>Recognised once</h1></article></body></html>`;
+		const importHtml = `<!doctype html><html><body><article>
+			<h1>Content-only response</h1>
+			<p>This article body is long enough for the normal readable-content extraction path.</p>
+			<p>It deliberately contains no publication metadata for a second recognition pass.</p>
+		</article></body></html>`;
+		let resultRequestCount = 0;
+		vi.spyOn(globalThis, 'fetch').mockImplementation(async (input, init) => {
+			const url = new URL(typeof input === 'string' ? input : input instanceof URL ? input : input.url);
+			if (!url.pathname.includes('/browser-rendering/crawl')) {
+				return new Response('Not found', { status: 404 });
+			}
+			if (init?.method === 'POST') {
+				return Response.json({ success: true, result: 'crawl-metadata' });
+			}
+			const isResultRequest = url.searchParams.get('status') === 'completed';
+			if (isResultRequest) resultRequestCount += 1;
+			return Response.json({ success: true, result: {
+				cursor: null,
+				finished: 1,
+				id: 'crawl-metadata',
+				records: isResultRequest ? [{
+					html: resultRequestCount === 1 ? scanHtml : importHtml,
+					status: 'completed',
+					url: 'https://metadata.example/posts/one',
+				}] : [],
+				status: 'completed',
+				total: 1,
+			} });
+		});
+		const { runId } = await enqueueSourceRun(browserEnv as any, String(source.id), 'browser-metadata');
+
+		await expect(executeBrowserCrawlRun(
+			browserEnv as any,
+			{ runId, sourceId: String(source.id) },
+			inlineCrawlStep,
+		)).resolves.toBe('completed');
+
+		expect(resultRequestCount).toBe(2);
+		const bookmark = await env.KEEPROOT_DB.prepare(
+			`SELECT title, published_at, source_entry_id FROM bookmarks
+			WHERE source_id = ? LIMIT 1`,
+		).bind(source.id).first<{
+			published_at: string | null;
+			source_entry_id: string | null;
+			title: string;
+		}>();
+		expect(bookmark).toEqual({
+			published_at: '2026-08-18T08:30:00.000Z',
+			source_entry_id: 'https://metadata.example/posts/one',
+			title: 'Recognised once',
+		});
+	});
+
+	it('checks durable pending state before parsing a selected record for import', async () => {
+		const workflow = browserWorkflowStub();
+		const browserEnv = {
+			...env,
+			BROWSER_CRAWL_WORKFLOW: workflow.binding,
+			BROWSER_RUN_ACCOUNT_ID: 'browser-account',
+			BROWSER_RUN_API_TOKEN: 'browser-token',
+			SOURCE_QUEUE: { send: vi.fn().mockResolvedValue({}) },
+		};
+		const source = await addSource(browserEnv as any, {
+			identifier: 'https://pending.example/posts',
+			kind: 'browser',
+			name: 'Pending Blog',
+			userId: TEST_USER_ID,
+		});
+		await env.KEEPROOT_DB.prepare(
+			'UPDATE sources SET last_success_at = ? WHERE id = ?',
+		).bind('2026-08-17T00:00:00.000Z', source.id).run();
+		const articleHtml = `<!doctype html><html><head>
+			<link rel="canonical" href="https://pending.example/posts/one">
+			<meta property="og:type" content="article">
+			<meta property="og:title" content="Pending once">
+			<meta property="article:published_time" content="2026-08-18T09:00:00Z">
+		</head><body><article><h1>Pending once</h1><p>Article content.</p></article></body></html>`;
+		vi.spyOn(globalThis, 'fetch').mockImplementation(async (input, init) => {
+			const url = new URL(typeof input === 'string' ? input : input instanceof URL ? input : input.url);
+			if (!url.pathname.includes('/browser-rendering/crawl')) {
+				return new Response('Not found', { status: 404 });
+			}
+			if (init?.method === 'POST') {
+				return Response.json({ success: true, result: 'crawl-pending' });
+			}
+			const isResultRequest = url.searchParams.get('status') === 'completed';
+			return Response.json({ success: true, result: {
+				cursor: null,
+				finished: 1,
+				id: 'crawl-pending',
+				records: isResultRequest ? [{
+					html: articleHtml,
+					status: 'completed',
+					url: 'https://pending.example/posts/one',
+				}] : [],
+				status: 'completed',
+				total: 1,
+			} });
+		});
+		const parseSpy = vi.spyOn(DOMParser.prototype, 'parseFromString');
+		const step: CrawlStep = {
+			async do<T>(name: string, callback: () => Promise<T>): Promise<T> {
+				if (name === 'import-record-0') {
+					await env.KEEPROOT_DB.prepare(
+						`UPDATE source_discoveries SET state = 'baselined'
+						WHERE source_id = ? AND canonical_url = ?`,
+					).bind(source.id, 'https://pending.example/posts/one').run();
+				}
+				return callback();
+			},
+			async sleep(): Promise<void> {},
+		};
+		const { runId } = await enqueueSourceRun(browserEnv as any, String(source.id), 'browser-pending');
+
+		await expect(executeBrowserCrawlRun(
+			browserEnv as any,
+			{ runId, sourceId: String(source.id) },
+			step,
+		)).resolves.toBe('completed');
+
+		expect(parseSpy).toHaveBeenCalledTimes(1);
+		const bookmarkCount = await env.KEEPROOT_DB.prepare(
+			'SELECT COUNT(*) AS count FROM bookmarks WHERE source_id = ?',
+		).bind(source.id).first<{ count: number }>();
+		expect(bookmarkCount?.count).toBe(0);
+	});
+
 	it('fails an initial Browser Run crawl that recognises no posts', async () => {
 		const send = vi.fn().mockResolvedValue({});
 		const workflow = browserWorkflowStub();
@@ -1064,16 +1216,16 @@ describe('KeepRoot Worker', () => {
 			if (url.pathname.endsWith('/browser-rendering/crawl') && init?.method === 'POST') {
 				return Response.json({ success: true, result: 'crawl-empty' });
 			}
-			const pollOnly = url.searchParams.get('limit') === '1';
+			const resultRequest = url.searchParams.get('status') === 'completed';
 			return Response.json({ success: true, result: {
 				cursor: null,
 				finished: 1,
 				id: 'crawl-empty',
-				records: pollOnly ? [] : [{
+				records: resultRequest ? [{
 					html: '<html><head><title>Blog home</title></head><body>No article metadata</body></html>',
 					status: 'completed',
 					url: 'https://empty.example/blog',
-				}],
+				}] : [],
 				status: 'completed',
 				total: 1,
 			} });
@@ -1084,7 +1236,7 @@ describe('KeepRoot Worker', () => {
 			browserEnv as any,
 			{ runId, sourceId: String(source.id) },
 			inlineCrawlStep,
-		)).resolves.toBe('failed');
+		)).rejects.toThrow('found no blog posts with recognised article metadata');
 
 		const failedRun = await env.KEEPROOT_DB.prepare(
 			'SELECT status, error_text, examined_count, discovered_count FROM source_runs WHERE id = ?',
