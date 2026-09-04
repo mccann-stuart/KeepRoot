@@ -44,6 +44,17 @@ describe('KeepRootApi', () => {
 		}));
 	});
 
+	it('encodes dynamic identifiers as a single path segment', async () => {
+		fetchSpy.mockResolvedValue(new Response(JSON.stringify({ message: 'Updated' }), { status: 200 }));
+
+		await api.updateBookmark('../account/data?confirm=true', { pinned: true });
+
+		expect(fetchSpy).toHaveBeenCalledWith(
+			'/bookmarks/..%2Faccount%2Fdata%3Fconfirm%3Dtrue',
+			expect.objectContaining({ method: 'PATCH' }),
+		);
+	});
+
 	it('requests MCP dashboard account, stats, and source endpoints', async () => {
 		fetchSpy
 			.mockResolvedValueOnce(new Response(JSON.stringify({
