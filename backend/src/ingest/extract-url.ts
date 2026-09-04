@@ -279,12 +279,11 @@ async function extractPdfBookmark(url: string, pdfBytes: Uint8Array, fallbackTit
 }
 
 function htmlToPlainText(html: string): string {
-	return html
-		.replace(/<script[\s\S]*?<\/script>/gi, ' ')
-		.replace(/<style[\s\S]*?<\/style>/gi, ' ')
-		.replace(/<[^>]+>/g, ' ')
-		.replace(/\s+/g, ' ')
-		.trim();
+	const document = new DOMParser().parseFromString(html, 'text/html');
+	for (const element of document.querySelectorAll('script, style')) {
+		element.remove();
+	}
+	return normalizeWhitespace(document.body?.textContent ?? document.documentElement?.textContent ?? '');
 }
 
 function structuredArticleType(record: Record<string, unknown>): boolean {

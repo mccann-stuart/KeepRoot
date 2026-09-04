@@ -15,6 +15,10 @@ type RequestOptions = RequestInit & {
 	bodyJson?: unknown;
 };
 
+function encodePathSegment(value: string): string {
+	return encodeURIComponent(value);
+}
+
 export class KeepRootApi {
 	readonly getToken: () => string | null;
 
@@ -67,18 +71,18 @@ export class KeepRootApi {
 	}
 
 	getBookmark(id: string): Promise<BookmarkDetail> {
-		return this.request(`/bookmarks/${id}`);
+		return this.request(`/bookmarks/${encodePathSegment(id)}`);
 	}
 
 	updateBookmark(id: string, body: Record<string, unknown>): Promise<{ message: string }> {
-		return this.request(`/bookmarks/${id}`, {
+		return this.request(`/bookmarks/${encodePathSegment(id)}`, {
 			bodyJson: body,
 			method: 'PATCH',
 		});
 	}
 
 	deleteBookmark(id: string): Promise<{ message: string }> {
-		return this.request(`/bookmarks/${id}`, {
+		return this.request(`/bookmarks/${encodePathSegment(id)}`, {
 			method: 'DELETE',
 		});
 	}
@@ -149,13 +153,13 @@ export class KeepRootApi {
 	}
 
 	deleteSource(id: string): Promise<{ removed: boolean }> {
-		return this.request(`/sources/${id}`, {
+		return this.request(`/sources/${encodePathSegment(id)}`, {
 			method: 'DELETE',
 		});
 	}
 
 	refreshSource(id: string): Promise<{ queued: boolean; runId: string }> {
-		return this.request(`/sources/${id}/refresh`, {
+		return this.request(`/sources/${encodePathSegment(id)}/refresh`, {
 			method: 'POST',
 		});
 	}
@@ -168,7 +172,7 @@ export class KeepRootApi {
 	}
 
 	deleteApiKey(id: string): Promise<{ message: string }> {
-		return this.request(`/api-keys/${id}`, {
+		return this.request(`/api-keys/${encodePathSegment(id)}`, {
 			method: 'DELETE',
 		});
 	}
@@ -185,14 +189,14 @@ export class KeepRootApi {
 	}
 
 	updateList(id: string, body: { name?: string; sortOrder?: number }): Promise<{ message: string }> {
-		return this.request(`/lists/${id}`, {
+		return this.request(`/lists/${encodePathSegment(id)}`, {
 			bodyJson: body,
 			method: 'PATCH',
 		});
 	}
 
 	deleteList(id: string): Promise<{ message: string }> {
-		return this.request(`/lists/${id}`, {
+		return this.request(`/lists/${encodePathSegment(id)}`, {
 			method: 'DELETE',
 		});
 	}
@@ -209,14 +213,14 @@ export class KeepRootApi {
 	}
 
 	updateSmartList(id: string, body: { icon?: string; name?: string; rules?: string; sortOrder?: number }): Promise<{ message: string }> {
-		return this.request(`/smart-lists/${id}`, {
+		return this.request(`/smart-lists/${encodePathSegment(id)}`, {
 			bodyJson: body,
 			method: 'PATCH',
 		});
 	}
 
 	deleteSmartList(id: string): Promise<{ message: string }> {
-		return this.request(`/smart-lists/${id}`, {
+		return this.request(`/smart-lists/${encodePathSegment(id)}`, {
 			method: 'DELETE',
 		});
 	}

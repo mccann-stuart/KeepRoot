@@ -68,8 +68,19 @@ describe('extractBookmarkPayloadFromUrl', () => {
 			</head><body><article><h1>Story</h1><img src="${schemaImage}" alt="Lead"><p>Article copy that Readability keeps with the image.</p></article></body></html>
 		`);
 
-		expect(result.markdownData.match(new RegExp(schemaImage, 'g'))).toHaveLength(1);
+		expect(result.markdownData.split(schemaImage)).toHaveLength(2);
 		expect(result.markdownData).not.toContain('open-graph.jpg');
+	});
+
+	it('excludes script and style content when extracting plain text from malformed HTML', () => {
+		const result = extractHtmlContent('https://example.com/story', `
+			<html><head><title>Story</title><script>doNotIndex()</script ></head>
+			<body><p>Visible article text.</p><style>.hidden { display: none; }</style ></body></html>
+		`);
+
+		expect(result.textContent).toContain('Visible article text.');
+		expect(result.textContent).not.toContain('doNotIndex');
+		expect(result.textContent).not.toContain('display: none');
 	});
 
 	it('converts only allowlisted YouTube iframes into canonical structured media links', () => {

@@ -333,7 +333,7 @@ describe('dashboard login', () => {
 		let navigatedTo = '';
 		const captureNavigation = (event: Event) => {
 			const anchor = (event.target as Element).closest<HTMLAnchorElement>('a');
-			if (!anchor || !anchor.href.startsWith(authenticationOrigin)) {
+			if (!anchor || new URL(anchor.href).origin !== new URL(authenticationOrigin).origin) {
 				return;
 			}
 			event.preventDefault();
