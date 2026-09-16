@@ -458,10 +458,13 @@ async function prepareSitemapCrawl(
 	if (discovery.notModified) {
 		// The site republished nothing. Any URL still marked pending belongs to a run that did
 		// not finish importing it, so it stays a candidate; otherwise there is nothing to crawl.
-		const carried = [...existingStates.entries()]
-			.filter(([, value]) => value.state === 'pending')
-			.map(([url]) => url)
-			.slice(0, CRAWL_PAGE_LIMIT);
+		const carried: string[] = [];
+		for (const [url, value] of existingStates) {
+			if (value.state === 'pending') {
+				carried.push(url);
+				if (carried.length >= CRAWL_PAGE_LIMIT) break;
+			}
+		}
 		browserRunLog('browser_sitemap_not_modified', {
 			candidateCount: carried.length,
 			knownUrlCount: existingStates.size,
