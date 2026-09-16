@@ -17,6 +17,16 @@ const state = createAppState(loadPreferences());
 const api = new KeepRootApi(() => state.secret);
 const mobileSurfaceMediaQuery = window.matchMedia('(max-width: 720px)');
 
+let bookmarkMap = new Map<string, BookmarkSummary>();
+
+function syncBookmarkMap(bookmarks: BookmarkSummary[]): void {
+	bookmarkMap = new Map(bookmarks.map((bookmark) => [getBookmarkId(bookmark), bookmark]));
+}
+
+function getBookmarkById(bookmarkId: string | null | undefined): BookmarkSummary | undefined {
+	return bookmarkId ? bookmarkMap.get(bookmarkId) : undefined;
+}
+
 let editingListId: string | null = null;
 let editingListType: 'list' | 'smartlist' | null = null;
 let currentHighlightId: string | null = null;
@@ -969,7 +979,7 @@ function openTagEditor() {
 		return;
 	}
 
-	const bookmark = state.bookmarks.find((item) => getBookmarkId(item) === state.currentBookmarkId);
+	const bookmark = getBookmarkById(state.currentBookmarkId);
 	dom.tagsInput.value = Array.isArray(bookmark?.metadata?.tags) ? bookmark.metadata.tags.join(', ') : '';
 	openDialog(dom.tagsModal);
 }
@@ -995,11 +1005,12 @@ function updateBookmarkSummary(bookmarkId: string, updates: Record<string, unkno
 		return;
 	}
 
+	syncBookmarkMap(state.bookmarks);
 	lastSnapshot = buildDataSnapshot(state.bookmarks, state.lists, state.smartLists);
 }
 
 async function markBookmarkAsRead(bookmarkId: string) {
-	const bookmark = state.bookmarks.find((item) => getBookmarkId(item) === bookmarkId);
+	const bookmark = getBookmarkById(bookmarkId);
 	if (bookmark?.metadata?.isRead) {
 		return;
 	}
@@ -1016,7 +1027,7 @@ async function loadBookmark(bookmarkId: string) {
 		mobileCollectionScrollTop = document.querySelector<HTMLElement>('.collection-scroll')?.scrollTop ?? 0;
 	}
 
-	const bookmarkSummary = state.bookmarks.find((item) => getBookmarkId(item) === bookmarkId);
+	const bookmarkSummary = getBookmarkById(bookmarkId);
 	const previousBookmarkId = state.currentBookmarkId;
 	state.currentBookmarkId = bookmarkId;
 	switchView('content');
@@ -1210,6 +1221,7 @@ async function refreshData(isSilent = false) {
 
 		if (!isSilent || nextSnapshot !== lastSnapshot) {
 			state.bookmarks = bookmarks;
+			syncBookmarkMap(bookmarks);
 			state.lists = lists;
 			state.smartLists = smartLists as SmartListSummary[];
 			state.tags = collectTags(bookmarks);
@@ -1336,6 +1348,7 @@ function hideHighlightTooltip() {
 function resetDashboardAfterDataClear() {
 	clearDashboardDataPreservingSession();
 	state.bookmarks = [];
+	syncBookmarkMap([]);
 	state.lists = [];
 	state.smartLists = [];
 	state.tags = [];
@@ -1364,7 +1377,7 @@ function resetDashboardAfterDataClear() {
 
 async function handleBookmarkCardAction(action: string, bookmarkId: string) {
 	try {
-		const bookmark = state.bookmarks.find((item) => getBookmarkId(item) === bookmarkId);
+		const bookmark = getBookmarkById(bookmarkId);
 		if (!bookmark) {
 			return;
 		}
@@ -1381,7 +1394,7 @@ async function handleBookmarkCardAction(action: string, bookmarkId: string) {
 		if (action === 'toggle-pin') {
 			await api.updateBookmark(bookmarkId, { pinned: !bookmark.metadata?.pinned });
 			await refreshData(true);
-			renderMobileReaderActions(state.bookmarks.find((item) => getBookmarkId(item) === bookmarkId));
+			renderMobileReaderActions(getBookmarkById(bookmarkId));
 			return;
 		}
 	} catch (error) {

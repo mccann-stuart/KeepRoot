@@ -903,7 +903,8 @@ describe('dashboard mobile reader', () => {
 	});
 
 	it('uses the existing rendered article surface for mobile highlights and protected media', async () => {
-		const createObjectUrl = vi.fn(() => 'blob:mobile-reader-image');
+		const blobUrl = 'blob:http://localhost/mobile-reader-image';
+		const createObjectUrl = vi.fn(() => blobUrl);
 		const revokeObjectUrl = vi.fn();
 		await bootDashboard({
 			mobileMatches: true,
@@ -926,7 +927,7 @@ describe('dashboard mobile reader', () => {
 					});
 				}
 				if (url.endsWith('/images/shared-surface.png') && method === 'GET') {
-					return new Response(new Blob(['image-bytes'], { type: 'image/png' }), { status: 200 });
+					return new Response(new Uint8Array([1, 2, 3]), { headers: { 'Content-Type': 'image/png' } });
 				}
 				return undefined;
 			},
@@ -947,13 +948,13 @@ describe('dashboard mobile reader', () => {
 		const image = article.querySelector<HTMLImageElement>('img');
 		expect(document.getElementById('mobile-reader-content')).toBeNull();
 		expect(highlight).not.toBeNull();
-		expect(image?.src).toBe('blob:mobile-reader-image');
+		expect(image?.src).toBe(blobUrl);
 		expect(createObjectUrl).toHaveBeenCalledOnce();
 
 		highlight?.click();
 		expect(showModal).toHaveBeenCalledOnce();
 		image?.dispatchEvent(new Event('load'));
-		expect(revokeObjectUrl).toHaveBeenCalledWith('blob:mobile-reader-image');
+		expect(revokeObjectUrl).toHaveBeenCalledWith(blobUrl);
 	});
 
 	it('resets mobile reader actions when a later bookmark fails to load', async () => {
