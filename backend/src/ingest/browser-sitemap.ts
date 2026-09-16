@@ -1,5 +1,5 @@
 import { XMLParser, XMLValidator } from 'fast-xml-parser';
-import { normalizeCanonicalUrl, validateSafeUrl } from '../storage/shared';
+import { normalizeCanonicalUrl, readBoundedResponseText, validateSafeUrl } from '../storage/shared';
 
 const MAX_ROBOTS_BYTES = 256 * 1024;
 const MAX_SITEMAP_BYTES = 5 * 1024 * 1024;
@@ -164,38 +164,8 @@ function trieLeafEntries(
 	});
 }
 
-async function readBoundedText(response: Response, maximumBytes: number, label: string): Promise<string> {
-	const contentLength = Number(response.headers.get('Content-Length'));
-	if (Number.isFinite(contentLength) && contentLength > maximumBytes) {
-		throw new Error(`${label} exceeded the ${Math.floor(maximumBytes / 1024)} KiB safety limit`);
-	}
-	if (!response.body) return '';
-
-	const reader = response.body.getReader();
-	const chunks: Uint8Array[] = [];
-	let total = 0;
-	try {
-		while (true) {
-			const { done, value } = await reader.read();
-			if (done) break;
-			total += value.byteLength;
-			if (total > maximumBytes) {
-				await reader.cancel();
-				throw new Error(`${label} exceeded the ${Math.floor(maximumBytes / 1024)} KiB safety limit`);
-			}
-			chunks.push(value);
-		}
-	} finally {
-		reader.releaseLock();
-	}
-
-	const bytes = new Uint8Array(total);
-	let offset = 0;
-	for (const chunk of chunks) {
-		bytes.set(chunk, offset);
-		offset += chunk.byteLength;
-	}
-	return new TextDecoder().decode(bytes);
+function readBoundedText(response: Response, maximumBytes: number, label: string): Promise<string> {
+	return readBoundedResponseText(response, maximumBytes, label);
 }
 
 async function fetchSameOrigin(
