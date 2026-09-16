@@ -163,6 +163,22 @@ describe('http utilities', () => {
 			});
 			expect(resolveCorsOrigin(request)).toBeNull();
 		});
+
+		it('returns null if origin is "null" or "*"', () => {
+			expect(resolveCorsOrigin(new Request('https://api.example.com/data', { headers: { Origin: 'null' } }))).toBeNull();
+			expect(resolveCorsOrigin(new Request('https://api.example.com/data', { headers: { Origin: '*' } }))).toBeNull();
+		});
+
+		it('returns null if ALLOWED_EXTENSION_IDS contains wildcard "*" or empty string entries', () => {
+			const request = new Request('https://api.example.com/data', {
+				headers: { Origin: 'chrome-extension://someextensionid' },
+			});
+			const envWildcard = { ALLOWED_EXTENSION_IDS: JSON.stringify(['*']) } as any;
+			expect(resolveCorsOrigin(request, envWildcard)).toBeNull();
+
+			const envEmpty = { ALLOWED_EXTENSION_IDS: JSON.stringify(['']) } as any;
+			expect(resolveCorsOrigin(request, envEmpty)).toBeNull();
+		});
 	});
 
 	describe('normalizePathname', () => {

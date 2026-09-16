@@ -132,6 +132,10 @@ export function clearDashboardSessionCookie(request: Request): string {
 }
 
 export function isAllowedRequestOrigin(origin: string, requestUrlOrigin: string, env?: StorageEnv): boolean {
+	if (!origin || origin === 'null' || origin === '*') {
+		return false;
+	}
+
 	if (origin === requestUrlOrigin) {
 		return true;
 	}
@@ -142,8 +146,17 @@ export function isAllowedRequestOrigin(origin: string, requestUrlOrigin: string,
 			return false;
 		}
 
+		const hostname = originUrl.hostname.trim();
+		if (!hostname || hostname === '*') {
+			return false;
+		}
+
 		const allowedIds = parseStringArray(env?.ALLOWED_EXTENSION_IDS ?? null);
-		return allowedIds.includes(originUrl.hostname);
+		if (allowedIds.length === 0) {
+			return false;
+		}
+
+		return allowedIds.some((id) => typeof id === 'string' && id.trim() !== '' && id.trim() !== '*' && id.trim() === hostname);
 	} catch {
 		return false;
 	}
