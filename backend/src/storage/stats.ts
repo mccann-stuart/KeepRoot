@@ -237,9 +237,21 @@ export async function getUsageStats(env: StorageEnv, userId: string): Promise<Re
 	let processingErrors = 0;
 	const sourceHealth = (sourceHealthResult.results as SourceHealthRow[]).map((row) => {
 		const runs = runsBySource.get(row.id) ?? [];
-		const latest = runs.find((run) => run.rank === 1);
-		const consecutiveFailures = runs.filter((run) => run.status === 'error').length;
-		const consecutiveSaturated = runs.filter((run) => Boolean(run.saturated)).length;
+		let latest: SourceRunHealthRow | undefined;
+		let consecutiveFailures = 0;
+		let consecutiveSaturated = 0;
+		for (let i = 0; i < runs.length; i++) {
+			const run = runs[i];
+			if (run.rank === 1) {
+				latest = run;
+			}
+			if (run.status === 'error') {
+				consecutiveFailures++;
+			}
+			if (run.saturated) {
+				consecutiveSaturated++;
+			}
+		}
 		const upstreamErrors = latest?.upstream_error_count ?? 0;
 		const processingErrorCount = Math.max(0, (latest?.error_count ?? 0) - upstreamErrors);
 		const health = classifySourceHealth({
