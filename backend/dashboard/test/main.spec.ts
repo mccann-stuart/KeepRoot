@@ -926,7 +926,7 @@ describe('dashboard mobile reader', () => {
 					});
 				}
 				if (url.endsWith('/images/shared-surface.png') && method === 'GET') {
-					return new Response(new Blob(['image-bytes'], { type: 'image/png' }), { status: 200 });
+					return new Response(new Uint8Array([1, 2, 3]), { headers: { 'Content-Type': 'image/png' } });
 				}
 				return undefined;
 			},
@@ -938,9 +938,9 @@ describe('dashboard mobile reader', () => {
 		const noteModal = document.getElementById('note-modal') as HTMLDialogElement;
 		const showModal = vi.fn();
 		Object.defineProperty(noteModal, 'showModal', { configurable: true, value: showModal });
-		document.querySelector<HTMLElement>('[data-bookmark-id="bookmark-shared-surface"]')?.click();
-		await flush();
-		await flush();
+		const card = await waitFor(() => document.querySelector<HTMLElement>('[data-bookmark-id="bookmark-shared-surface"]'), 'bookmark card');
+		card.click();
+		await waitFor(() => document.querySelector<HTMLImageElement>('#markdown-container img')?.src === 'blob:mobile-reader-image', 'mobile reader image');
 
 		const article = document.getElementById('markdown-container')!;
 		const highlight = article.querySelector<HTMLElement>('mark.highlight[data-id="highlight-1"]');
@@ -1532,6 +1532,30 @@ describe('dashboard MCP setup view', () => {
 		(document.getElementById('open-api-keys-from-mcp-btn') as HTMLButtonElement).click();
 		await flush();
 		expect((document.getElementById('current-view-title') as HTMLElement).textContent).toBe('API Keys');
+	});
+
+	it('renders MCP tool usage safely using DOM construction without innerHTML', async () => {
+		const maliciousToolName = '<script>alert("xss")</script>';
+		await bootDashboard({
+			stats: {
+				inbox: { pending: 0 },
+				items: { byStatus: {}, total: 0 },
+				recentToolUsage: [{ count: 5, status: 'success', toolName: maliciousToolName }],
+				sourceHealth: [],
+				sources: { byKind: {}, total: 0 },
+			},
+		});
+
+		const navMcp = document.getElementById('nav-mcp') as HTMLButtonElement;
+		navMcp.click();
+		await flush();
+		await flush();
+
+		const usageList = document.getElementById('mcp-tool-usage-list') as HTMLElement;
+		const h3 = usageList.querySelector('h3');
+		expect(h3).not.toBeNull();
+		expect(h3?.textContent).toBe(maliciousToolName);
+		expect(usageList.querySelector('script')).toBeNull();
 	});
 
 	it('disables unsupported source kinds and updates bridge-url UI for X sources', async () => {

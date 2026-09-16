@@ -785,23 +785,33 @@ function renderMcpStatus() {
 }
 
 function renderToolUsage(entries: ToolUsageRecord[]) {
-	dom.mcpToolUsageList.innerHTML = '';
+	dom.mcpToolUsageList.replaceChildren();
 
 	if (!entries.length) {
-		dom.mcpToolUsageList.innerHTML = '<p class="muted-copy">No MCP tool activity recorded in the last 7 days.</p>';
+		const empty = document.createElement('p');
+		empty.className = 'muted-copy';
+		empty.textContent = 'No MCP tool activity recorded in the last 7 days.';
+		dom.mcpToolUsageList.appendChild(empty);
 		return;
 	}
 
 	for (const entry of entries) {
 		const item = document.createElement('article');
 		item.className = 'stack-item stack-item--split';
-		item.innerHTML = `
-			<div>
-				<h3>${escapeHtml(entry.toolName)}</h3>
-				<p class="muted-copy">${escapeHtml(String(entry.count))} calls</p>
-			</div>
-			<span class="pill">${escapeHtml(entry.status)}</span>
-		`;
+
+		const details = document.createElement('div');
+		const heading = document.createElement('h3');
+		heading.textContent = entry.toolName;
+		const count = document.createElement('p');
+		count.className = 'muted-copy';
+		count.textContent = `${entry.count} calls`;
+		details.append(heading, count);
+
+		const pill = document.createElement('span');
+		pill.className = 'pill';
+		pill.textContent = entry.status;
+
+		item.append(details, pill);
 		dom.mcpToolUsageList.appendChild(item);
 	}
 }
