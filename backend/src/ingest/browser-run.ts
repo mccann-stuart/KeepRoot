@@ -808,8 +808,10 @@ async function importPendingRecord(
 	record: BrowserCrawlRecord,
 	post: RecognisedBrowserPost,
 	username: string,
+	preFetchedUrlHash?: string,
+	preFetchedBookmark?: { id: string } | null,
 ): Promise<boolean> {
-	const urlHash = await sha256Hex(post.canonicalUrl);
+	const urlHash = preFetchedUrlHash ?? await sha256Hex(post.canonicalUrl);
 	const discovery = await env.KEEPROOT_DB.prepare(
 		`SELECT state FROM source_discoveries
 		WHERE source_id = ? AND url_hash = ? LIMIT 1`,
@@ -819,10 +821,12 @@ async function importPendingRecord(
 	// before touching the large HTML payload so a retried import that already committed can
 	// finish cheaply without parsing the article again.
 	if (!record.html) return false;
-	const existingBookmark = await env.KEEPROOT_DB.prepare(
-		`SELECT id FROM bookmarks
-		WHERE user_id = ? AND url_hash = ? LIMIT 1`,
-	).bind(source.userId, urlHash).first<{ id: string }>();
+	const existingBookmark = preFetchedBookmark !== undefined
+		? preFetchedBookmark
+		: await env.KEEPROOT_DB.prepare(
+			`SELECT id FROM bookmarks
+			WHERE user_id = ? AND url_hash = ? LIMIT 1`,
+		).bind(source.userId, urlHash).first<{ id: string }>();
 
 	const extracted = await extractHtmlContent(post.canonicalUrl, record.html);
 	const fingerprint = await sha256Hex(JSON.stringify([
@@ -1209,11 +1213,31 @@ async function importSelectedPosts(
 		}
 	}
 
+	const recordHashes = await Promise.all(
+		selectedRecords.map((item) => sha256Hex(item.post.canonicalUrl)),
+	);
+
+	const existingBookmarksMap = await step.do('prefetch-existing-bookmarks', async () => {
+		const result: Record<string, { id: string }> = {};
+		if (recordHashes.length > 0) {
+			const rows = await env.KEEPROOT_DB.prepare(
+				`SELECT url_hash, id FROM bookmarks
+				WHERE user_id = ? AND url_hash IN (SELECT value FROM json_each(?))`,
+			).bind(source.userId, JSON.stringify(recordHashes)).all<{ url_hash: string; id: string }>();
+			for (const row of rows.results) {
+				result[row.url_hash] = { id: row.id };
+			}
+		}
+		return result;
+	});
+
 	const username = await step.do('resolve-username', () => getUsername(env, source.userId));
-	for (const { index, post, record } of selectedRecords) {
+	for (const [i, { index, post, record }] of selectedRecords.entries()) {
+		const urlHash = recordHashes[i];
+		const preFetchedBookmark = existingBookmarksMap[urlHash] ?? null;
 		await step.do(`import-record-${index}`, async () => {
 			const imported = record.status === 'completed'
-				? await importPendingRecord(env, source, runId, record, post, username)
+				? await importPendingRecord(env, source, runId, record, post, username, urlHash, preFetchedBookmark)
 				: false;
 			browserRunLog('browser_crawl_import_record', {
 				imported,
