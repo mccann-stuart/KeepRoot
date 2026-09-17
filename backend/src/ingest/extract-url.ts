@@ -348,12 +348,16 @@ function extractIsolatedSemanticArticle(articleHtml: string | null, title: strin
 	return new Readability(isolatedDocument as never).parse();
 }
 
-function structuredArticleCandidates(value: unknown): StructuredArticleBody[] {
-	const candidates: StructuredArticleBody[] = [];
+function traverseUnknown<T>(
+	value: unknown,
+	visitor: (record: Record<string, unknown>) => T[] | void,
+	maxExamined = 1_000,
+): T[] {
+	const results: T[] = [];
 	const pending: unknown[] = [value];
 	let examined = 0;
 
-	while (pending.length && examined < 1_000) {
+	while (pending.length && examined < maxExamined) {
 		const current = pending.pop();
 		examined += 1;
 		if (Array.isArray(current)) {
@@ -365,16 +369,25 @@ function structuredArticleCandidates(value: unknown): StructuredArticleBody[] {
 		}
 
 		const record = current as Record<string, unknown>;
-		if (structuredArticleType(record) && typeof record.articleBody === 'string' && record.articleBody.trim()) {
-			candidates.push({
-				body: normalizePdfText(record.articleBody),
-				headline: typeof record.headline === 'string' ? normalizeWhitespace(record.headline) : undefined,
-			});
+		const found = visitor(record);
+		if (found) {
+			results.push(...found);
 		}
 		pending.push(...Object.values(record));
 	}
 
-	return candidates;
+	return results;
+}
+
+function structuredArticleCandidates(value: unknown): StructuredArticleBody[] {
+	return traverseUnknown<StructuredArticleBody>(value, (record) => {
+		if (structuredArticleType(record) && typeof record.articleBody === 'string' && record.articleBody.trim()) {
+			return [{
+				body: normalizePdfText(record.articleBody),
+				headline: typeof record.headline === 'string' ? normalizeWhitespace(record.headline) : undefined,
+			}];
+		}
+	});
 }
 
 function extractStructuredData(document: ParsedHtmlDocument): unknown[] {
@@ -415,37 +428,21 @@ function schemaImageUrls(value: unknown): string[] {
 }
 
 function structuredHeroCandidates(value: unknown): StructuredHeroCandidate[] {
-	const candidates: StructuredHeroCandidate[] = [];
-	const pending: unknown[] = [value];
-	let examined = 0;
-
-	while (pending.length && examined < 1_000) {
-		const current = pending.pop();
-		examined += 1;
-		if (Array.isArray(current)) {
-			pending.push(...current);
-			continue;
-		}
-		if (!current || typeof current !== 'object') {
-			continue;
-		}
-
-		const record = current as Record<string, unknown>;
+	return traverseUnknown<StructuredHeroCandidate>(value, (record) => {
 		const types = structuredTypeNames(record);
 		const priority = types.some((type) => STRUCTURED_ARTICLE_TYPES.has(type))
 			? 0
 			: types.some((type) => STRUCTURED_WEB_PAGE_TYPES.has(type))
 				? 1
 				: 2;
+		const candidates: StructuredHeroCandidate[] = [];
 		for (const key of ['image', 'primaryImageOfPage', 'thumbnailUrl']) {
 			for (const url of schemaImageUrls(record[key])) {
 				candidates.push({ priority, url });
 			}
 		}
-		pending.push(...Object.values(record));
-	}
-
-	return candidates;
+		return candidates;
+	});
 }
 
 function resolveHttpUrl(rawUrl: string | null | undefined, pageUrl: string): string | null {
