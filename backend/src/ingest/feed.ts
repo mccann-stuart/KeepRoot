@@ -1,5 +1,5 @@
 import { XMLParser } from 'fast-xml-parser';
-import { fetchWithRedirects } from '../storage/shared';
+import { fetchWithRedirects, readBoundedResponseText } from '../storage/shared';
 
 export interface FeedEntry {
 	content?: string;
@@ -26,38 +26,14 @@ interface FetchFeedOptions {
 const MAX_FEED_BYTES = 8 * 1024 * 1024;
 
 async function readBoundedFeedText(response: Response): Promise<string> {
-	const declaredLength = Number.parseInt(response.headers.get('content-length') ?? '', 10);
-	if (Number.isFinite(declaredLength) && declaredLength > MAX_FEED_BYTES) {
-		await response.body?.cancel().catch(() => {});
-		throw new Error('Source feed exceeds the 8 MiB limit');
-	}
-	if (!response.body) {
-		return '';
-	}
-
-	const reader = response.body.getReader();
-	const chunks: Uint8Array[] = [];
-	let totalLength = 0;
-	while (true) {
-		const { done, value } = await reader.read();
-		if (done) {
-			break;
-		}
-		totalLength += value.byteLength;
-		if (totalLength > MAX_FEED_BYTES) {
-			await reader.cancel().catch(() => {});
+	try {
+		return await readBoundedResponseText(response, MAX_FEED_BYTES, 'Source feed');
+	} catch (error) {
+		if (error instanceof Error && error.message.includes('safety limit')) {
 			throw new Error('Source feed exceeds the 8 MiB limit');
 		}
-		chunks.push(value);
+		throw error;
 	}
-
-	const bytes = new Uint8Array(totalLength);
-	let offset = 0;
-	for (const chunk of chunks) {
-		bytes.set(chunk, offset);
-		offset += chunk.byteLength;
-	}
-	return new TextDecoder().decode(bytes);
 }
 
 function ensureArray<T>(value: T | T[] | undefined): T[] {

@@ -10,6 +10,7 @@ import type { SourceSyncResult } from './source-sync';
 import { saveItemContent } from '../storage/items';
 import {
 	normalizeCanonicalUrl,
+	readBoundedResponseText,
 	resolveSecretText,
 	sha256Hex,
 	validateSafeUrl,
@@ -183,37 +184,14 @@ function retryAfterSeconds(response: Response): number | null {
 }
 
 async function readBoundedText(response: Response): Promise<string> {
-	const contentLength = Number(response.headers.get('Content-Length'));
-	if (Number.isFinite(contentLength) && contentLength > MAX_API_RESPONSE_BYTES) {
-		throw new BrowserRunCrawlError('Browser Run response exceeded the 12 MiB safety limit');
-	}
-	if (!response.body) return '';
-
-	const reader = response.body.getReader();
-	const chunks: Uint8Array[] = [];
-	let total = 0;
 	try {
-		while (true) {
-			const { done, value } = await reader.read();
-			if (done) break;
-			total += value.byteLength;
-			if (total > MAX_API_RESPONSE_BYTES) {
-				await reader.cancel();
-				throw new BrowserRunCrawlError('Browser Run response exceeded the 12 MiB safety limit');
-			}
-			chunks.push(value);
+		return await readBoundedResponseText(response, MAX_API_RESPONSE_BYTES, 'Browser Run response');
+	} catch (error) {
+		if (error instanceof Error && error.message.includes('safety limit')) {
+			throw new BrowserRunCrawlError(error.message);
 		}
-	} finally {
-		reader.releaseLock();
+		throw error;
 	}
-
-	const bytes = new Uint8Array(total);
-	let offset = 0;
-	for (const chunk of chunks) {
-		bytes.set(chunk, offset);
-		offset += chunk.byteLength;
-	}
-	return new TextDecoder().decode(bytes);
 }
 
 function errorMessage(payload: unknown): string | null {

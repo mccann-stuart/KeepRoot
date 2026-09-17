@@ -1,6 +1,6 @@
 import { env } from 'cloudflare:test';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
-import { hexFromBytes, isUnsafeIpAddress, runSchemaStatement } from '../../src/storage/shared';
+import { hexFromBytes, isUnsafeIpAddress, readBoundedResponseBytes, readBoundedResponseText, runSchemaStatement } from '../../src/storage/shared';
 
 describe('shared storage', () => {
     describe('hexFromBytes', () => {
@@ -116,6 +116,61 @@ describe('shared storage', () => {
             expect(isUnsafeIpAddress('')).toBe(false);
             expect(isUnsafeIpAddress('256.256.256.256')).toBe(false); // Invalid IPv4, safe default
             expect(isUnsafeIpAddress('1.2.3')).toBe(false);
+        });
+    });
+
+    describe('readBoundedResponseBytes and readBoundedResponseText', () => {
+        it('throws error when Content-Length header exceeds maximumBytes', async () => {
+            const response = new Response(null, {
+                headers: { 'Content-Length': '2048' },
+            });
+            await expect(readBoundedResponseBytes(response, 1024, 'Test label'))
+                .rejects.toThrow('Test label exceeded the 1 KiB safety limit');
+        });
+
+        it('throws error and cancels body reader when stream exceeds limit mid-stream', async () => {
+            let cancelCalled = false;
+            const encoder = new TextEncoder();
+            const chunk1 = encoder.encode('a'.repeat(800));
+            const chunk2 = encoder.encode('b'.repeat(800));
+            let readCount = 0;
+
+            const mockReader = {
+                read: vi.fn().mockImplementation(async () => {
+                    readCount += 1;
+                    if (readCount === 1) return { done: false, value: chunk1 };
+                    if (readCount === 2) return { done: false, value: chunk2 };
+                    return { done: true, value: undefined };
+                }),
+                cancel: vi.fn().mockImplementation(async () => {
+                    cancelCalled = true;
+                }),
+                releaseLock: vi.fn(),
+            };
+
+            const mockResponse = {
+                headers: new Headers(),
+                body: {
+                    getReader: () => mockReader,
+                },
+            } as unknown as Response;
+
+            await expect(readBoundedResponseText(mockResponse, 1024, 'Stream test'))
+                .rejects.toThrow('Stream test exceeded the 1 KiB safety limit');
+            expect(cancelCalled).toBe(true);
+            expect(mockReader.releaseLock).toHaveBeenCalled();
+        });
+
+        it('returns decoded text and Uint8Array bytes when stream is within limit', async () => {
+            const sampleText = 'Hello, World!';
+            const encoder = new TextEncoder();
+            const response1 = new Response(encoder.encode(sampleText));
+            const bytes = await readBoundedResponseBytes(response1, 1024, 'Valid test');
+            expect(bytes).toEqual(encoder.encode(sampleText));
+
+            const response2 = new Response(encoder.encode(sampleText));
+            const text = await readBoundedResponseText(response2, 1024, 'Valid test');
+            expect(text).toBe(sampleText);
         });
     });
 });
